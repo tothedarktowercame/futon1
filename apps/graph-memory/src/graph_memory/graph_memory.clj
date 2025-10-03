@@ -8,7 +8,9 @@
    :edge/to    {:db/valueType :db.type/ref}
    :edge/type  {}})
 
-(defonce conn (d/create-conn schema))
+(defn init-db [] (d/create-conn schema))
+
+(defonce conn (init-db))
 
 (defn seed! []
   (d/transact! conn

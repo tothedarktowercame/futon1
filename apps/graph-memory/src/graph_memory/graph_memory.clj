@@ -1,4 +1,4 @@
-(ns gms.core
+(ns graph-memory.graph-memory
   (:require [datascript.core :as d]))
 
 (def schema

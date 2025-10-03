@@ -1,8 +1,8 @@
-(ns gms.io
+(ns graph-memory.io
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [datascript.core :as d]
-            [gms.core :as g]))
+            [graph-memory.graph-memory :as g]))
 
 (defn dump! [f]
   (spit f (pr-str (d/datoms @(g/conn!) :eavt))))

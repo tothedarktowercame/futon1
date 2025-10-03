@@ -1,0 +1,5 @@
+{:tasks
+ {repl {:doc "nREPL with cider middleware" :task (shell "clojure -M:repl")}
+  run  {:doc "Run main" :task (shell "clojure -M:run")}
+  test {:doc "Run tests" :task (shell "clojure -M:test")}
+  lint {:doc "clj-kondo" :task (shell "clj-kondo --lint src test")}}}

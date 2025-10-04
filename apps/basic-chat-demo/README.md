@@ -17,6 +17,12 @@ clojure -M:run-m
 
 You’ll see a `you>` prompt; type messages and the bot will reply with the processed EDN summary. Send `:quit` (or press `Ctrl+D`) to exit.
 
+To try the richer v2 pipeline (POS tagging + entity tracking), launch:
+
+```bash
+clojure -M:run-m -- --protocol basic-chat/v2
+```
+
 Run the scripted v1 demo from the app directory:
 
 ```bash
@@ -30,6 +36,18 @@ You should see stable EDN output describing each turn, e.g.:
  {:in "ok bye", :intent {:type :farewell, :conf 0.99}, :links [{:type :derives}]}]
 ```
 
+Run the v2 scripted demo to see entity aggregation:
+
+```bash
+clojure -M:run-m -- --protocol basic-chat/v2 --script test/scripts/v2-basic.edn
+```
+
+Expected output summary (IDs omitted for brevity):
+
+```clojure
+[{:in "Met Serena at PatCon 30" :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena."}
+ {:in "Graph Memory feels like a notebook" :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena, Graph, Memory, feels, like, a, notebook, Graph Memory."}]
+```
 ## Testing
 
 ```bash

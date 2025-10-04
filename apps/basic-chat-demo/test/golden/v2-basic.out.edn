@@ -1,0 +1,23 @@
+[{:in "Met Serena at PatCon 30"
+  :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena."
+  :entities [{:label "Met" :types #{}}
+             {:label "Serena" :types #{}}
+             {:label "at" :types #{}}
+             {:label "PatCon" :types #{}}
+             {:label "30" :types #{}}
+             {:label "Met Serena" :types #{}}]}
+ {:in "Graph Memory feels like a notebook"
+  :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena, Graph, Memory, feels, like, a, notebook, Graph Memory."
+  :entities [{:label "Met" :types #{}}
+             {:label "Serena" :types #{}}
+             {:label "at" :types #{}}
+             {:label "PatCon" :types #{}}
+             {:label "30" :types #{}}
+             {:label "Met Serena" :types #{}}
+             {:label "Graph" :types #{}}
+             {:label "Memory" :types #{}}
+             {:label "feels" :types #{}}
+             {:label "like" :types #{}}
+             {:label "a" :types #{}}
+             {:label "notebook" :types #{}}
+             {:label "Graph Memory" :types #{}}]}]

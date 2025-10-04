@@ -5,13 +5,34 @@
             [clojure.string :as str]
             [clojure.set :as set]))
 
+(defn- read-resource [path]
+  (some-> path io/resource slurp edn/read-string))
+
+(defn- names-from [entries]
+  (cond
+    (nil? entries) #{}
+    (set? entries) entries
+    (sequential? entries)
+    (reduce (fn [acc item]
+              (cond
+                (map? item)
+                (let [label (:label item)
+                      aliases (:aliases item)]
+                  (cond-> acc
+                    label (conj label)
+                    aliases (into aliases)))
+                (string? item) (conj acc item)
+                :else acc))
+            #{}
+            entries)
+    (string? entries) #{entries}
+    :else #{}))
+
 (defn load-gazetteer
   "Load gazetteer sets for people and places from resources."
   []
-  {:people (or (some-> "gazetteer/people.edn" io/resource slurp edn/read-string)
-               #{})
-   :places (or (some-> "gazetteer/places.edn" io/resource slurp edn/read-string)
-               #{})})
+  {:people (names-from (read-resource "gazetteer/people.edn"))
+   :places (names-from (read-resource "gazetteer/places.edn"))})
 
 (defn- all-spans [tokens]
   (let [n (count tokens)]

@@ -1,1 +1,7 @@
-#{"Oxford" "Vancouver" "Boston" "London"}
+[
+ {:label "Oxford"}
+ {:label "Vancouver"}
+ {:label "Boston"}
+ {:label "London"}
+ {:label "Minneapolis"}
+]

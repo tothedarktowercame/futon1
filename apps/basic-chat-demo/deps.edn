@@ -1,4 +1,4 @@
-{:paths ["src" "resources"]
+{:paths ["src" "resources" "../../protocols/src"]
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
         nlp-interface/nlp-interface {:local/root "../nlp-interface"}
         graph-memory/graph-memory {:local/root "../graph-memory"}}

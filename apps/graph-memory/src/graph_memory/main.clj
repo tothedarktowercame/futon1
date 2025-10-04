@@ -68,20 +68,20 @@
   "Return (and create if needed) an entity with stable identifiers."
   [conn {:keys [name type]}]
   (let [db @conn
-        existing (d/q '[:find ?e ?id ?type
-                         :in $ ?name
-                         :where
-                         [?e :entity/name ?name]
-                         [?e :entity/id ?id]
-                         [(get-else $ ?e :entity/type nil) ?type]]
-                       db name)]
-    (if-let [[eid entity-id entity-type] (first existing)]
-      (do (when (and type (not= entity-type type))
-            (d/transact! conn [[:db/add eid :entity/type type]]))
-          {:id entity-id
-           :name name
-           :type (or type entity-type)
-           :db/eid eid})
+        eid (ffirst (d/q '[:find ?e
+                            :in $ ?name
+                            :where
+                            [?e :entity/name ?name]]
+                          db name))]
+    (if eid
+      (let [entity (d/pull db '[:entity/id :entity/name :entity/type] eid)
+            existing-type (:entity/type entity)]
+        (when (and type (not= existing-type type))
+          (d/transact! conn [[:db/add eid :entity/type type]]))
+        {:id (:entity/id entity)
+         :name (:entity/name entity)
+         :type (or type existing-type)
+         :db/eid eid})
       (let [entity-id (UUID/randomUUID)
             tmp (d/tempid :db.part/user)
             {:keys [resolve]} (transact! conn [{:db/id tmp

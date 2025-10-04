@@ -28,3 +28,15 @@
   (let [got (run-script "basic-chat/v2" "test/scripts/v2-basic.edn")
         exp (-> "test/golden/v2-basic.out.edn" slurp edn/read-string)]
     (is (= exp got))))
+
+(deftest v3-script
+  (let [got (run-script "basic-chat/v3" "test/scripts/basic-chat/v3/entities.edn")
+        got' (mapv (fn [m]
+                     (-> m
+                         (update :entities (fn [ents]
+                                             (mapv #(select-keys % [:name :type]) ents)))
+                         (update :relations (fn [rels]
+                                              (mapv #(select-keys % [:type]) rels)))))
+                   got)
+        exp (-> "test/golden/basic-chat/v3/entities.out.edn" slurp edn/read-string)]
+    (is (= exp got'))))

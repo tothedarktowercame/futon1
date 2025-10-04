@@ -1,18 +1,18 @@
 (ns basic-chat-demo.basic-chat-demo
   (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
-            [clojure.set :as set]
             [clojure.string :as str]
-            [nlp-interface.nlp-interface :as nlp]
             [graph-memory.main :as gm]
-            [v2.graph-memory :as gm-v2]
-            [v2.nlp-interface :as nlp-v2]))  ;; adjust ns if you put API elsewhere
+            [protocols.registry :as registry]))
 
 (def default-protocol "basic-chat/v1")
+
+(def exit-commands #{":quit" ":exit" "quit" "exit"})
 
 (defn usage []
   (println "Usage: clojure -M:run-m [-- --protocol basic-chat/vN]")
   (println "       clojure -M:run-m -- --protocol basic-chat/vN --script path/to/script.edn")
+  (println "       clojure -M:run-m -- --protocol basic-chat/v3 --list-entities")
+  (println "       clojure -M:run-m -- --protocol basic-chat/v3 --links 'Serena'")
   (System/exit 1))
 
 (defn parse-args [args]
@@ -30,54 +30,19 @@
           (recur (assoc opts :script value) (rest more))
           (do (println "Missing value for --script") (usage)))
 
+        "--list-entities"
+        (recur (assoc opts :list-entities? true) more)
+
+        "--links"
+        (if-let [value (first more)]
+          (recur (assoc opts :links value) (rest more))
+          (do (println "Missing value for --links") (usage)))
+
         "--"
         (recur opts more)
 
         (do (println "Unknown option" opt) (usage)))
       opts)))
-
-(defn resolve-protocol-file [protocol-id]
-  (let [start (io/file (System/getProperty "user.dir"))
-        target (str protocol-id ".edn")]
-    (loop [dir start]
-      (when dir
-        (let [candidate (io/file dir "protocols" target)]
-          (if (.exists candidate)
-            candidate
-            (recur (.getParentFile dir))))))))
-
-(defn load-protocol [protocol-id]
-  (when-let [file (resolve-protocol-file protocol-id)]
-    (-> file slurp edn/read-string)))
-
-(defn run-line! [db line ts]
-  (let [res (nlp/handle-input db line ts)]
-    ;; return a small, stable map for testing (“golden”)
-    {:in line
-     :intent (:intent res)
-     :links  (:links res)}))
-
-(defmulti process-line (fn [{:keys [protocol]}] (:protocol/id protocol)))
-
-(defmethod process-line "basic-chat/v1" [{:keys [db text ts]}]
-  (run-line! db text ts))
-
-(defmethod process-line "basic-chat/v2" [{:keys [text]}]
-  (let [before (gm-v2/labels)
-        summary (nlp-v2/answer text)
-        entities (vec (nlp-v2/recent-entities 5))
-        after (gm-v2/labels)
-        new-labels (vec (sort (set/difference after before)))]
-    {:in text
-     :summary summary
-     :entities entities
-     :new-labels new-labels}))
-
-(defmethod process-line :default [{:keys [protocol]}]
-  (throw (ex-info (str "Unsupported protocol " (:protocol/id protocol))
-                  {:protocol protocol})))
-
-(def exit-commands #{":quit" ":exit" "quit" "exit"})
 
 (defn interactive-loop! [{:keys [runner command-handler]}]
   (println "basic-chat-demo interactive mode")
@@ -99,12 +64,10 @@
             (str/blank? line)
             (recur state)
 
-            (str/starts-with? line "/")
+            (and command-handler (str/starts-with? line "/"))
             (let [cmd (subs line 1)
                   {:keys [message new-state] :or {new-state state}}
-                  (if command-handler
-                    (command-handler cmd state)
-                    {:message "commands unavailable"})]
+                  (command-handler cmd state)]
               (when message
                 (println (str "bot> " message)))
               (recur new-state))
@@ -116,43 +79,64 @@
               (println (str "bot> " (pr-str out)))
               (recur new-state))))))))
 
+(defn supports-entity-commands? [protocol-id]
+  (= protocol-id "basic-chat/v3"))
+
+(defn list-entities! [conn]
+  (let [entities (gm/entities-by-name conn nil)]
+    (if (seq entities)
+      (println (str "entities: "
+                    (->> entities
+                         (map (fn [ent]
+                                (let [entity-name (:entity/name ent)
+                                      type (:entity/type ent)]
+                                  (if type
+                                    (str entity-name " (" (clojure.core/name type) ")")
+                                    entity-name))))
+                         (str/join ", "))))
+      (println "entities: none"))))
+
+(defn list-links! [conn name]
+  (let [entity (first (gm/entities-by-name conn name))]
+    (if-let [entity-id (:entity/id entity)]
+      (let [neighbors (gm/neighbors conn entity-id)]
+        (if (seq neighbors)
+          (println (str name " links: "
+                        (->> neighbors
+                             (map #(get-in % [:entity :entity/name]))
+                             (distinct)
+                             (str/join ", "))))
+          (println (str "no links recorded for " name))))
+      (println (str "entity not found: " name)))))
+
+(defn maybe-run-exploration! [protocol-id conn {:keys [list-entities? links]}]
+  (when (supports-entity-commands? protocol-id)
+    (when list-entities?
+      (list-entities! conn))
+    (when links
+      (list-links! conn links))))
+
 (defn -main [& args]
-  ;; modes:
-  ;;  - no args  -> interactive REPL-ish loop (later)
-  ;;  - flags    -> parse EDN scripts and replay them (current path)
-  (let [{:keys [protocol script]} (parse-args args)
-        protocol-data (load-protocol protocol)]
-    (when-not protocol-data
+  (let [{:keys [protocol script] :as opts} (parse-args args)
+        entry (registry/fetch protocol)]
+    (when-not entry
       (println "Unknown protocol" protocol)
       (usage))
-    (let [v2? (= (:protocol/id protocol-data) "basic-chat/v2")]
-      (when v2?
-        (gm-v2/reset-db!))
-      (let [db (gm/init-db)
-            runner (fn [text ts]
-                     (process-line {:protocol protocol-data
-                                    :db db
-                                    :text text
-                                    :ts ts}))
-            command-handler (when v2?
-                               (fn [cmd state]
-                                 (case cmd
-                                   "diff"
-                                   (let [new-labels (get-in state [:last-result :new-labels])
-                                         msg (if (seq new-labels)
-                                               (str "new labels: " (pr-str new-labels))
-                                               "no new labels detected")]
-                                     {:message msg})
-
-                                   "dump"
-                                   {:message (pr-str (gm-v2/summary))}
-
-                                   {:message (str "unknown command: /" cmd)})))]
-        (if script
-          (let [script-path script
-                lines       (-> script-path slurp edn/read-string)
-                now         (System/currentTimeMillis)
-                out         (map-indexed (fn [i line] (runner line (+ now i))) lines)]
-            (println (pr-str (vec out))))
+    (let [ctx ((:init entry))
+          handle (:handle entry)
+          runner (fn [text ts]
+                   (handle ctx text ts))
+          command-handler (when-let [ch (:command-handler entry)]
+                            (ch ctx))]
+      (if script
+        (let [lines (-> script slurp edn/read-string)
+              now   (System/currentTimeMillis)
+              out   (map-indexed (fn [i line]
+                                   (runner line (+ now i)))
+                                 lines)]
+          (println (pr-str (vec out)))
+          (maybe-run-exploration! protocol ctx opts))
+        (do
+          (maybe-run-exploration! protocol ctx opts)
           (interactive-loop! {:runner runner
                               :command-handler command-handler}))))))

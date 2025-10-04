@@ -19,16 +19,17 @@
      :entities entities
      :new-labels new-labels}))
 
-(defn command-handler []
+(defn command-handler [_]
   (fn [cmd state]
-    (case cmd
-      "diff"
+    (cond
+      (= cmd "diff")
       (let [labels (get-in state [:last-result :new-labels])]
         {:message (if (seq labels)
                     (str "new labels: " (pr-str labels))
-                    "no new labels detected"))}
+                    "no new labels detected")})
 
-      "dump"
+      (= cmd "dump")
       {:message (pr-str (gm-v2/summary))}
 
+      :else
       {:message (str "unknown command: /" cmd)})))

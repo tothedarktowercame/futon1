@@ -1,0 +1,16 @@
+[{:in "Lorane met Serena in Oxford"
+  :intent {:type :unknown :conf 0.5}
+  :entities [{:name "Lorane" :type :person}
+             {:name "Serena" :type :person}
+             {:name "Oxford" :type :place}]
+  :relations [{:type :mentions}]}
+ {:in "Joe lives in Oxford"
+  :intent {:type :unknown :conf 0.5}
+  :entities [{:name "Joe" :type :person}
+             {:name "Oxford" :type :place}]
+  :relations [{:type :mentions}]}
+ {:in "Serena visited Boston"
+  :intent {:type :unknown :conf 0.5}
+  :entities [{:name "Serena" :type :person}
+             {:name "Boston" :type :place}]
+  :relations [{:type :mentions}]}]

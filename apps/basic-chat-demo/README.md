@@ -28,6 +28,17 @@ Interactive extras for v2:
 - `/diff` — list the new node labels introduced by your most recent message.
 - `/dump` — print the full in-memory graph (nodes + edges) for inspection.
 
+For the classical v3 NER/ER pass:
+
+```bash
+clojure -M:run-m -- --protocol basic-chat/v3
+```
+
+Helpful flags for `basic-chat/v3`:
+
+- `--list-entities` — print all known entities after the run.
+- `--links "Name"` — show direct neighbors for the specified entity.
+
 Run the scripted v1 demo from the app directory:
 
 ```bash

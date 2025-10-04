@@ -2,6 +2,11 @@
   (:require [graph-memory.main :as gm]
             [nlp-interface.nlp-interface :as nlp]))
 
+(def intro
+  ["Protocol basic-chat/v3 — classical gazetteer NER + relation graph."
+   "Gazetteer seeds: Lorane, Serena, Joe, Oxford, London, Boston, Vancouver." 
+   "Use --list-entities or --links \"Name\" to explore matched entities."])
+
 (defn init []
   (gm/init-db))
 

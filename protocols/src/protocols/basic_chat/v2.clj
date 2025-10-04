@@ -4,6 +4,10 @@
             [v2.graph-memory :as gm-v2]
             [v2.nlp-interface :as nlp-v2]))
 
+(def intro
+  ["Protocol basic-chat/v2 — POS tagging with parse-aware memory."
+   "Slash commands: /diff (new labels) and /dump (entire v2 graph)."])
+
 (defn init []
   (gm-v2/reset-db!)
   (gm/init-db))

@@ -44,9 +44,11 @@
         (do (println "Unknown option" opt) (usage)))
       opts)))
 
-(defn interactive-loop! [{:keys [runner command-handler]}]
+(defn interactive-loop! [{:keys [runner command-handler intro-lines]}]
   (println "basic-chat-demo interactive mode")
   (println "Type your message and press enter. Use :quit to exit.")
+  (doseq [line intro-lines]
+    (println line))
   (loop [state {}]
     (print "you> ")
     (flush)
@@ -139,4 +141,5 @@
         (do
           (maybe-run-exploration! protocol ctx opts)
           (interactive-loop! {:runner runner
-                              :command-handler command-handler}))))))
+                              :command-handler command-handler
+                              :intro-lines (seq (:intro entry))}))))))

@@ -6,14 +6,17 @@
 (def registry
   {"basic-chat/v1" {:id "basic-chat/v1"
                      :init v1/init
-                     :handle v1/handle}
+                     :handle v1/handle
+                     :intro v1/intro}
    "basic-chat/v2" {:id "basic-chat/v2"
                      :init v2/init
                      :handle v2/handle
-                     :command-handler v2/command-handler}
+                     :command-handler v2/command-handler
+                     :intro v2/intro}
    "basic-chat/v3" {:id "basic-chat/v3"
                      :init v3/init
-                     :handle v3/handle}})
+                     :handle v3/handle
+                     :intro v3/intro}})
 
 (defn fetch [protocol-id]
   (get registry protocol-id))

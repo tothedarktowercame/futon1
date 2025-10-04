@@ -8,11 +8,10 @@
 ;; Hook points (swap these out in v3)
 
 (defn- tokenize-basic
-  "Split on whitespace and punctuation, keeping alphanumerics together."
+  "Split on whitespace/punctuation while keeping internal apostrophes (e.g. What's, you're)."
   [s]
-  (->> (re-seq #"[\p{L}\p{Nd}]+" s)
+  (->> (re-seq #"[\p{L}\p{Nd}]+(?:'[\p{L}\p{Nd}]+)?" s)
        (remove str/blank?)
-       (map #(apply str %))
        vec))
 
 (def ^:dynamic *tokenize

@@ -24,7 +24,7 @@
              {:label "Graph Memory" :types #{}}]
   :new-labels ["Graph" "Graph Memory" "Graph Memory feels like a notebook" "Memory" "a" "feels" "like" "notebook"]}
  {:in "What's the state of the graph?"
-  :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena, Graph, Memory, feels, like, a, notebook, Graph Memory, What, s, the{:Word?}, state, of, graph."
+  :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena, Graph, Memory, feels, like, a, notebook, Graph Memory, What's, the{:Word?}, state, of, graph."
   :entities [{:label "Met" :types #{}}
              {:label "Serena" :types #{}}
              {:label "at" :types #{}}
@@ -38,10 +38,9 @@
              {:label "a" :types #{}}
              {:label "notebook" :types #{}}
              {:label "Graph Memory" :types #{}}
-             {:label "What" :types #{}}
-             {:label "s" :types #{}}
+             {:label "What's" :types #{}}
              {:label "the" :types #{:Word?}}
              {:label "state" :types #{}}
              {:label "of" :types #{}}
              {:label "graph" :types #{}}]
-  :new-labels ["What" "What's the state of the graph?" "graph" "of" "s" "state" "the"]}]
+  :new-labels ["What's" "What's the state of the graph?" "graph" "of" "state" "the"]}]

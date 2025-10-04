@@ -1,5 +1,6 @@
 (ns nlp-interface.nlp-interface
-  (:require [graph-memory.main :as gm])
+  (:require [graph-memory.main :as gm]
+            [nlp-interface.ner-er :as ner-er])
   (:gen-class))
 
 
@@ -9,13 +10,61 @@
     (re-find #"(?i)\bbye\b"   text) {:type :farewell :conf 0.99}
     :else                           {:type :unknown :conf 0.5}))
 
+(def gazetteer (delay (ner-er/load-gazetteer)))
+
+(defn tokenize [text]
+  (->> (re-seq #"[\p{L}\p{Nd}]+(?:'[\p{L}\p{Nd}]+)?" text)
+       (map #(apply str %))
+       vec))
+
+(defn pos-tag [tokens]
+  (->> tokens
+       (map (fn [t]
+              (cond
+                (re-matches #"[A-Z][a-z]+" t) [t "NNP"]
+                (re-matches #"[0-9]+" t)      [t "CD"]
+                (re-matches #".+ing" t)       [t "VBG"]
+                :else                          [t "NN"])))
+       vec))
+
+(defn parse-tree [tagged]
+  (into [:utterance]
+        (map (fn [[token tag]] [tag token]) tagged)))
+
 (defn handle-input [db text ts]
   (let [utt-node (gm/add-utterance! db text ts)
         intent (analyze text)
         intent-node (gm/add-intent! db intent)
-        link (gm/link! db (:db/eid utt-node) (:db/eid intent-node) :derives)]
+        link (gm/link! db (:db/eid utt-node) (:db/eid intent-node) :derives)
+        tokens (tokenize text)
+        tagged (pos-tag tokens)
+        tags (mapv second tagged)
+        entities-raw (ner-er/ner tokens tags (force gazetteer))
+        entities (mapv (fn [ent]
+                         (let [entity (gm/ensure-entity! db ent)]
+                           (gm/add-mention! db (:id utt-node) (:id entity) (:span ent))
+                           (assoc ent :id (:id entity))))
+                       entities-raw)
+        entity-index (into {} (map (fn [{:keys [name id]}] [name id]) entities))
+        relations-raw (ner-er/relations {:tokens tokens
+                                         :entities entities})]
+    (doseq [{:keys [type src dst prov]} relations-raw]
+      (when (and src dst)
+        (when-let [src-id (get entity-index src)]
+          (when-let [dst-id (get entity-index dst)]
+            (gm/add-relation! db {:type type
+                                  :src-id src-id
+                                  :dst-id dst-id
+                                  :prov prov})))))
     {:utterance utt-node
      :intent intent
+     :tokens tokens
+     :pos tagged
+     :parse-tree (parse-tree tagged)
+     :entities (mapv (fn [{:keys [name type span]}]
+                       {:name name :type type :span span})
+                     entities)
+     :relations (mapv #(select-keys % [:type :src :dst]) relations-raw)
      :links [link]}))
 
 (defn -main

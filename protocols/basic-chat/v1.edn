@@ -1,0 +1,2 @@
+{:protocol/id "basic-chat/v1"
+ :description "Baseline pass-through protocol: analyze -> write -> summarize."}

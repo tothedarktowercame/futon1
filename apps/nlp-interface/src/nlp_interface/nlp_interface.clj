@@ -1,4 +1,5 @@
 (ns nlp-interface.nlp-interface
+  (:require [graph-memory.main :as gm])
   (:gen-class))
 
 
@@ -9,13 +10,15 @@
     :else                           {:type :unknown :conf 0.5}))
 
 (defn handle-input [db text ts]
-  (let [utt (gm/add-utterance! db text ts)
+  (let [utt-node (gm/add-utterance! db text ts)
         intent (analyze text)
-        ent (gm/add-intent! db intent)
-        link (gm/link! db (:id utt) (:id ent) :derives)]
-    {:utterance utt :intent intent :links [link]}))
+        intent-node (gm/add-intent! db intent)
+        link (gm/link! db (:db/eid utt-node) (:db/eid intent-node) :derives)]
+    {:utterance utt-node
+     :intent intent
+     :links [link]}))
 
 (defn -main
   "I don't do a whole lot ... yet."
   [& args]
-  (greet {:name (first args)}))
+  (println "nlp-interface ready"))

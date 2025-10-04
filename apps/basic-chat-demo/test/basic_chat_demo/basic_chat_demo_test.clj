@@ -8,8 +8,9 @@
 
 (defn run-script [script-path]
   (let [{:keys [out err exit]}
-        (sh/sh "clojure" "-M:run-m" "--" "--script" script-path
-               :dir (.getPath (io/file "apps/basic-chat-demo")))]
+        (sh/sh "clojure" "-M:run-m" "--"
+               "--protocol" "basic-chat/v1"
+               "--script" script-path)]
     (is (zero? exit) (str "non-zero exit: " err))
     (edn/read-string out)))
 
@@ -17,5 +18,5 @@
   (let [got (run-script "test/scripts/hello.edn")
         ;; normalize: replace unpredictable bits in :links with {}
         got' (mapv #(update % :links (fn [ls] (mapv (constantly {}) ls))) got)
-        exp (-> "apps/basic-chat-demo/test/golden/hello.out.edn" slurp edn/read-string)]
+        exp (-> "test/golden/hello.out.edn" slurp edn/read-string)]
     (is (= exp got'))))

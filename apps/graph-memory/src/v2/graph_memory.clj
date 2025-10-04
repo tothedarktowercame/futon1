@@ -45,6 +45,25 @@
    (swap! !g update :edges conj {:src src :rel rel :dst dst :w w})
    {:src src :rel rel :dst dst :w w}))
 
+(declare nodes edges)
+
+(defn labels
+  "Return the set of node labels currently in the graph."
+  []
+  (set (map :label (nodes))))
+
+(defn summary
+  "Return a minimal summary of nodes and edges for inspection."
+  []
+  {:nodes (->> (nodes)
+               (map (fn [{:keys [id label types evidence]}]
+                      {:id id
+                       :label label
+                       :types types
+                       :evidence evidence}))
+               vec)
+   :edges (vec (edges))})
+
 ;; -----------------------------------------------------------------------------
 ;; Types & evidence
 

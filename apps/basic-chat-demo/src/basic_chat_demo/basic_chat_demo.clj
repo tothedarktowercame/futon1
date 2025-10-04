@@ -1,6 +1,7 @@
 (ns basic-chat-demo.basic-chat-demo
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.set :as set]
             [clojure.string :as str]
             [nlp-interface.nlp-interface :as nlp]
             [graph-memory.main :as gm]
@@ -62,11 +63,15 @@
   (run-line! db text ts))
 
 (defmethod process-line "basic-chat/v2" [{:keys [text]}]
-  (let [summary (nlp-v2/answer text)
-        entities (vec (nlp-v2/recent-entities 5))]
+  (let [before (gm-v2/labels)
+        summary (nlp-v2/answer text)
+        entities (vec (nlp-v2/recent-entities 5))
+        after (gm-v2/labels)
+        new-labels (vec (sort (set/difference after before)))]
     {:in text
      :summary summary
-     :entities entities}))
+     :entities entities
+     :new-labels new-labels}))
 
 (defmethod process-line :default [{:keys [protocol]}]
   (throw (ex-info (str "Unsupported protocol " (:protocol/id protocol))
@@ -74,10 +79,10 @@
 
 (def exit-commands #{":quit" ":exit" "quit" "exit"})
 
-(defn interactive-loop! [runner]
+(defn interactive-loop! [{:keys [runner command-handler]}]
   (println "basic-chat-demo interactive mode")
   (println "Type your message and press enter. Use :quit to exit.")
-  (loop []
+  (loop [state {}]
     (print "you> ")
     (flush)
     (let [line (try (read-line)
@@ -92,13 +97,24 @@
                 (System/exit 0))
 
             (str/blank? line)
-            (recur)
+            (recur state)
+
+            (str/starts-with? line "/")
+            (let [cmd (subs line 1)
+                  {:keys [message new-state] :or {new-state state}}
+                  (if command-handler
+                    (command-handler cmd state)
+                    {:message "commands unavailable"})]
+              (when message
+                (println (str "bot> " message)))
+              (recur new-state))
 
             :else
             (let [ts (System/currentTimeMillis)
-                  out (runner line ts)]
+                  out (runner line ts)
+                  new-state (assoc state :last-result out)]
               (println (str "bot> " (pr-str out)))
-              (recur))))))))
+              (recur new-state))))))))
 
 (defn -main [& args]
   ;; modes:
@@ -109,18 +125,34 @@
     (when-not protocol-data
       (println "Unknown protocol" protocol)
       (usage))
-    (when (= (:protocol/id protocol-data) "basic-chat/v2")
-      (gm-v2/reset-db!))
-    (let [db (gm/init-db)
-          runner (fn [text ts]
-                   (process-line {:protocol protocol-data
-                                  :db db
-                                  :text text
-                                  :ts ts}))]
-      (if script
-        (let [script-path script
-              lines       (-> script-path slurp edn/read-string)
-              now         (System/currentTimeMillis)
-              out         (map-indexed (fn [i line] (runner line (+ now i))) lines)]
-          (println (pr-str (vec out))))
-        (interactive-loop! runner)))) )
+    (let [v2? (= (:protocol/id protocol-data) "basic-chat/v2")]
+      (when v2?
+        (gm-v2/reset-db!))
+      (let [db (gm/init-db)
+            runner (fn [text ts]
+                     (process-line {:protocol protocol-data
+                                    :db db
+                                    :text text
+                                    :ts ts}))
+            command-handler (when v2?
+                               (fn [cmd state]
+                                 (case cmd
+                                   "diff"
+                                   (let [new-labels (get-in state [:last-result :new-labels])
+                                         msg (if (seq new-labels)
+                                               (str "new labels: " (pr-str new-labels))
+                                               "no new labels detected")]
+                                     {:message msg})
+
+                                   "dump"
+                                   {:message (pr-str (gm-v2/summary))}
+
+                                   {:message (str "unknown command: /" cmd)})))]
+        (if script
+          (let [script-path script
+                lines       (-> script-path slurp edn/read-string)
+                now         (System/currentTimeMillis)
+                out         (map-indexed (fn [i line] (runner line (+ now i))) lines)]
+            (println (pr-str (vec out))))
+          (interactive-loop! {:runner runner
+                              :command-handler command-handler}))))))

@@ -23,6 +23,11 @@ To try the richer v2 pipeline (POS tagging + entity tracking), launch:
 clojure -M:run-m -- --protocol basic-chat/v2
 ```
 
+Interactive extras for v2:
+
+- `/diff` — list the new node labels introduced by your most recent message.
+- `/dump` — print the full in-memory graph (nodes + edges) for inspection.
+
 Run the scripted v1 demo from the app directory:
 
 ```bash

@@ -7,13 +7,17 @@
 ;; -----------------------------------------------------------------------------
 ;; Hook points (swap these out in v3)
 
+(defn- tokenize-basic
+  "Split on whitespace and punctuation, keeping alphanumerics together."
+  [s]
+  (->> (re-seq #"[\p{L}\p{Nd}]+" s)
+       (remove str/blank?)
+       (map #(apply str %))
+       vec))
+
 (def ^:dynamic *tokenize
   "Return a vector of tokens for a string."
-  (fn [s]
-    ;; naive split; replace with your real tokenizer
-    (->> (str/split s #"\s+")
-         (remove str/blank?)
-         vec)))
+  tokenize-basic)
 
 (def ^:dynamic *pos-tag
   "Return a vector of [token tag] pairs. Very naive heuristic for demo."

@@ -1,0 +1,10 @@
+[
+ {:label "Clojure"}
+ {:label "Babashka"}
+ {:label "Sway"}
+ {:label "Thorium"}
+ {:label "Regolith"}
+ {:label "XTDB"}
+ {:label "Datascript"}
+ {:label "Emacs"}
+]

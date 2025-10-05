@@ -1,0 +1,2 @@
+{:protocol/id "basic-chat/v2"
+ :description "POS + entity aware pass that stores utterances in the v2 graph memory."}

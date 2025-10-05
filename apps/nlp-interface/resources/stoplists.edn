@@ -1,0 +1,6 @@
+{:titlecase-stop ["Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday" "Sunday"
+                  "January" "February" "March" "April" "May" "June" "July" "August"
+                  "September" "October" "November" "December"
+                  "The" "An" "A" "Meet" "Let" "Make" "Take" "Give"
+                  "This" "That" "These" "Those" "When" "If"
+                  "I" "We" "You" "He" "She" "They" "It" "My" "Our" "Your"]}

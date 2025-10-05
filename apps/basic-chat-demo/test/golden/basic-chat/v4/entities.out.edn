@@ -1,0 +1,22 @@
+[{:in "Meet Tom in Minneapolis on 12 Oct about XTDB v5 with Isabella."
+  :intent {:type :unknown :conf 0.5}
+  :entities [{:name "Tom" :type :unknown :source :fallback :confidence 0.45
+              :id "E:unknown:tom" :span {:start 5 :end 8} :aliases []}
+             {:name "Minneapolis" :type :place :source :gazetteer :confidence 0.9
+              :id "E:place:minneapolis" :span {:start 12 :end 23} :aliases []}
+             {:name "12 Oct" :type :date :source :pattern :confidence 0.85
+              :id "E:date:12-oct" :span {:start 27 :end 33} :aliases [] :value "2025-10-12"}
+             {:name "XTDB" :type :tool :source :gazetteer :confidence 0.8
+              :id "E:tool:xtdb" :span {:start 40 :end 44} :aliases []}
+             {:name "Isabella von Holstein" :type :person :source :gazetteer :confidence 0.8
+              :id "E:person:isabella-von-holstein" :span {:start 53 :end 61}
+              :aliases ["Isabella" "Isabella vH"]}]
+  :relations [{:type :links-to :src "Tom" :dst "Minneapolis"}
+              {:type :scheduled :src "Minneapolis" :dst "12 Oct"}
+              {:type :links-to :src "12 Oct" :dst "XTDB"}
+              {:type :with :src "XTDB" :dst "Isabella von Holstein"}]
+  :tokens ["Meet" "Tom" "in" "Minneapolis" "on" "12" "Oct" "about" "XTDB" "v5" "with" "Isabella"]
+  :pos [["Meet" "NNP"] ["Tom" "NNP"] ["in" "NN"] ["Minneapolis" "NNP"] ["on" "NN"]
+        ["12" "CD"] ["Oct" "NNP"] ["about" "NN"] ["XTDB" "NN"] ["v5" "NN"]
+        ["with" "NN"] ["Isabella" "NNP"]]
+  :links [{}]}]

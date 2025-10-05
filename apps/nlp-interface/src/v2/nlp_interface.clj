@@ -62,7 +62,7 @@
 ;; Ingestion pipeline
 
 (defn ingest-utterance!
-  "Create an :Utterance node, attach :mentions edges to token and entity nodes,
+  "Create an :Utterance node, attach :links-to edges to token and entity nodes,
    and update emergent types. Returns utterance id."
   [text]
   (let [u (gm/add-node! {:label text :types #{:Utterance}})]
@@ -72,13 +72,13 @@
       ;; link tokens
       (doseq [t tokens]
         (let [tid (gm/upsert-node-by-label! t)]
-          (gm/add-edge! u :mentions tid)
+          (gm/add-edge! u :links-to tid)
           (derive-token-types! tid t)))
       ;; link “entity spans”
       (doseq [e ents]
         (let [eid (gm/upsert-node-by-label! e)]
           (gm/bump-type! eid :Person?) ;; very crude heuristic
-          (gm/add-edge! u :mentions eid))))
+          (gm/add-edge! u :links-to eid))))
     u))
 
 ;; -----------------------------------------------------------------------------
@@ -88,7 +88,7 @@
   "Return up to N recently mentioned nodes with label & types."
   ([n]
    (->> (gm/last-utterances n)
-        (mapcat #(gm/edges-from % :mentions))
+        (mapcat #(gm/edges-from % :links-to))
         (map :dst)
         (distinct)
         (map gm/node)

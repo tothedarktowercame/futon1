@@ -39,6 +39,17 @@ Helpful flags for `basic-chat/v3`:
 - `--list-entities` — print all known entities after the run.
 - `--links "Name"` — show direct neighbors for the specified entity.
 
+Try the deterministic v4 pipeline with the new tiered NER stack:
+
+```bash
+clojure -M:run-m -- --protocol basic-chat/v4
+```
+
+Optional flags for `basic-chat/v4`:
+
+- `--ner-fallback` — include conservative single-token fallback entities (e.g. unknown proper names).
+- `--list-entities` / `--links` — same as v3, still available for inspecting the shared graph.
+
 Run the scripted v1 demo from the app directory:
 
 ```bash

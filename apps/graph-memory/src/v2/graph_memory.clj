@@ -114,7 +114,7 @@
   "Return the most recent N utterance node ids (by edge order heuristic)."
   [n]
   (->> (edges)
-       (filter #(= :mentions (:rel %)))
+       (filter #(= :links-to (:rel %)))
        (map :src)
        (distinct)
        (take-last n)))

@@ -2,6 +2,7 @@
  {:label "Oxford"}
  {:label "Vancouver"}
  {:label "Boston"}
- {:label "London"}
- {:label "Minneapolis"}
+ {:label "New York"}
+  {:label "London"}
+  {:label "Minneapolis"}
 ]

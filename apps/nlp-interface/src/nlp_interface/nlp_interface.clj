@@ -1,6 +1,9 @@
 (ns nlp-interface.nlp-interface
-  (:require [graph-memory.main :as gm]
-            [nlp-interface.ner-er :as ner-er])
+  (:require [clojure.string :as str]
+            [graph-memory.main :as gm]
+            [nlp-interface.ner-er :as ner-er]
+            [nlp-interface.ner-v4 :as ner-v4])
+  (:import (java.time Instant ZoneId ZonedDateTime))
   (:gen-class))
 
 
@@ -66,6 +69,62 @@
                      entities)
      :relations (mapv #(select-keys % [:type :src :dst]) relations-raw)
      :links [link]}))
+
+(defn- now-from-ts [ts]
+  (ZonedDateTime/ofInstant (Instant/ofEpochMilli ts) (ZoneId/systemDefault)))
+
+(defn handle-input-v4
+  "Return enriched NLP data using the tiered v4 NER pipeline."
+  ([db text ts]
+   (handle-input-v4 db text ts {}))
+  ([db text ts opts]
+   (let [utt-node (gm/add-utterance! db text ts)
+         intent (analyze text)
+         intent-node (gm/add-intent! db intent)
+         link (gm/link! db (:db/eid utt-node) (:db/eid intent-node) :derives)
+         tokens (tokenize text)
+         tagged (pos-tag tokens)
+         now (now-from-ts ts)
+         entities (ner-v4/recognize-entities tokens tagged text now opts)
+         stored (mapv (fn [ent]
+                        (let [entity (gm/ensure-entity! db {:name (:label ent)
+                                                           :type (:type ent)})]
+                          (gm/add-mention! db (:id utt-node) (:id entity) (:span ent))
+                          (assoc ent
+                                 :name (:label ent)
+                                 :entity-id (:id entity)
+                                 :entity-db (:db/eid entity))))
+                      entities)
+         ordered (sort-by (comp :start :span) stored)
+         relations (->> (partition 2 1 ordered)
+                        (map (fn [[a b]]
+                               (let [between (subs text (:end (:span a)) (:start (:span b)))
+                                     lower (str/lower-case between)
+                                     src (:name a)
+                                     dst (:name b)]
+                                 (cond
+                                   (and (= (:type a) :person) (= (:type b) :place)
+                                        (re-find #"\b(in|at|from|to)\b" lower))
+                                   {:type :located-in :src src :dst dst}
+
+                                   (and (= (:type b) :date)
+                                        (re-find #"\b(on|by|before|after)\b" lower))
+                                   {:type :scheduled :src src :dst dst}
+
+                                   (re-find #"\bwith\b" lower)
+                                   {:type :with :src src :dst dst}
+
+                                   :else
+                                   {:type :links-to :src src :dst dst}))))
+                        (remove nil?)
+                        vec)]
+     {:utterance utt-node
+      :intent intent
+      :tokens tokens
+      :pos tagged
+      :entities stored
+      :relations relations
+      :links [link]})))
 
 (defn -main
   "I don't do a whole lot ... yet."

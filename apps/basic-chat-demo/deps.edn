@@ -1,5 +1,7 @@
 {:paths ["src" "resources"]
- :deps {org.clojure/clojure {:mvn/version "1.12.1"}
+ :deps {datascript/datascript {:mvn/version "1.6.5"}
+        org.clojure/clojure {:mvn/version "1.12.1"}
+        org.clojure/data.json {:mvn/version "2.5.0"}
         nlp-interface/nlp-interface {:local/root "../nlp-interface"}
         graph-memory/graph-memory {:local/root "../graph-memory"}
         protocols/protocols {:local/root "../../protocols"}}

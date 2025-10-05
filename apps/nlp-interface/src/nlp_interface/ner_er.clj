@@ -93,13 +93,13 @@
                          (when (re-find #"(?i)^(met|lives|visited|lives|works|studies)$" token)
                            idx))
                        (map-indexed vector tokens))]
-        [{:type :mentions
+        [{:type :links-to
           :src (:name src)
           :dst (:name dst)
           :prov {:verb-index verb}}])
 
       (seq entities)
-      [{:type :mentions
+      [{:type :links-to
         :src (:name (first entities))
         :prov {}}]
 

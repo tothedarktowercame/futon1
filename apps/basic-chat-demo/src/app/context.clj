@@ -1,6 +1,7 @@
 (ns app.context
   "Context utilities for printing nearby graph neighbors."
-  (:require [clojure.string :as str]
+  (:require [app.focus :as focus]
+            [clojure.string :as str]
             [graph-memory.main :as gm]))
 
 (defn- distinct-by [f coll]
@@ -43,16 +44,51 @@
                  :relation relation
                  :direction direction})))))
 
+(def ^:private default-per-type-caps
+  {:member-of 2
+   :advisor-of 2
+   :affiliated-with 2
+   :performed-in 1
+   :created 0})
+
 (defn enrich-with-neighbors
   "Return a flattened vector of top neighbors for the provided entities."
-  [conn entities {:keys [neighbors context-cap context?]
-                  :or {neighbors 3 context-cap 10 context? true}}]
+  [conn entities {:keys [neighbors context-cap context? anchors timestamp focus-days per-type-caps allow-works? focus-limit]
+                  :or {neighbors 3 context-cap 10 context? true focus-days 30}}]
   (when context?
-    (->> (distinct-by :entity-id entities)
-         (mapcat #(top-neighbors conn % {:k neighbors}))
-         (remove nil?)
-         (take context-cap)
-         vec)))
+    (let [anchor-ids (->> anchors (map :id) (remove nil?) set)]
+      (if (seq anchor-ids)
+        (let [day-ms (* 24 60 60 1000)
+              now (or timestamp (System/currentTimeMillis))
+              cutoff (- now (* focus-days day-ms))
+              focus-count (or focus-limit context-cap)
+              candidates (focus/focus-candidates nil anchor-ids cutoff focus-count)
+              focus-map (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
+              per-type (or per-type-caps default-per-type-caps)
+              neighbor-results (mapcat (fn [{:keys [id]}]
+                                         (focus/top-neighbors nil id {:k-per-anchor neighbors
+                                                                      :per-type-caps per-type
+                                                                      :allow-works? allow-works?
+                                                                      :time-hint cutoff}))
+                                       candidates)
+              trimmed (->> neighbor-results
+                           (sort-by (comp - :score))
+                           (take context-cap))]
+          (vec (keep (fn [{:keys [focus-id neighbor direction] :as entry}]
+                       (when-let [focus-entity (focus-map focus-id)]
+                         {:entity (:entity/name focus-entity)
+                          :entity-id (:entity/id focus-entity)
+                          :neighbor (:entity/name neighbor)
+                          :neighbor-id (:entity/id neighbor)
+                          :neighbor-type (:entity/type neighbor)
+                          :relation (:relation/type entry)
+                          :direction direction}))
+                     trimmed)))
+        (->> (distinct-by :entity-id entities)
+             (mapcat #(top-neighbors conn % {:k neighbors}))
+             (remove nil?)
+             (take context-cap)
+             vec)))))
 
 (defn render-context
   "Render context neighbor entries into a multi-line string."

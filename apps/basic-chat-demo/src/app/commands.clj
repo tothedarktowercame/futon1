@@ -116,18 +116,22 @@
     (let [{:keys [command entity relation name]} (parse-command trimmed)]
       (case command
         :entity
-        (let [before (store/resolve-name->eid conn (:name entity))
-              after (store/ensure-entity! conn opts entity)]
+        (let [now (System/currentTimeMillis)
+              opts-now (assoc opts :now now)
+              before (store/resolve-name->eid conn (:name entity))
+              after (store/ensure-entity! conn opts-now entity)]
           {:message (entity-message before after)
            :result after})
 
         :relation
-        (let [src-entity (store/ensure-entity! conn opts (:src relation))
-              dst-entity (store/ensure-entity! conn opts (:dst relation))
+        (let [now (System/currentTimeMillis)
+              opts-now (assoc opts :now now)
+              src-entity (store/ensure-entity! conn opts-now (:src relation))
+              dst-entity (store/ensure-entity! conn opts-now (:dst relation))
               relation-spec (-> relation
                                 (assoc :src (select-keys src-entity [:id :name :type]))
                                 (assoc :dst (select-keys dst-entity [:id :name :type])))
-              result (store/upsert-relation! conn opts relation-spec)]
+              result (store/upsert-relation! conn opts-now relation-spec)]
           {:message (relation-message result)
            :result result})
 

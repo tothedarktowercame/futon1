@@ -1,78 +1,138 @@
 # graph-memory
 
-FIXME: my new application.
+`graph-memory` holds the shared Datascript schema and helpers that back the
+`basic-chat` demos. The module balances two kinds of storage:
 
-## Installation
+- **Datascript** – an in-memory, immutable graph that makes per-turn salience
+  queries cheap (low-latency focus headers, neighbour lookups, REPL ergonomics).
+- **XTDB** – a persistent, bitemporal document store that excels at keeping
+  time-associated metadata such as `:entity/last-seen`, `:entity/seen-count`,
+  and `:relation/last-seen` across restarts.
 
-Download from https://github.com/graph-memory/graph-memory
+At runtime we write to both: Datascript powers the live conversation, while XTDB
+records every entity/relation so the next boot can restore salience context
+without replaying the entire event log.
 
-## Usage
+## Schema highlights
 
-FIXME: explanation
+The schema lives in [`src/graph_memory/main.clj`](src/graph_memory/main.clj).
+Key entity types:
 
-Run the project directly, via `:exec-fn`:
+- `:entity/*` – canonical entities tracked across conversations, with salience
+  metadata (`:entity/last-seen`, `:entity/seen-count`, `:entity/pinned?`).
+- `:relation/*` – directed edges between entities, optionally carrying
+  `:relation/provenance`, `:relation/confidence`, and `:relation/last-seen`.
+- `:utterance/*`, `:mention/*`, `:link/*` – artefacts produced by the NLP layer
+  to document utterances, mentions, and heuristic co-occurrence links.
 
-    $ clojure -X:run-x
-    Hello, Clojure!
+The namespace also exposes convenience fns used throughout the demos:
 
-Run the project, overriding the name to be greeted:
+- `init-db` / `seed!` – build an empty Datascript connection or load the seed
+  sample graph.
+- `ensure-entity!`, `add-relation!`, `link!` – simple helpers for REPL/manual
+  curation.
+- `entities-by-name`, `neighbors` – query utilities for the CLI and tests.
 
-    $ clojure -X:run-x :name '"Someone"'
-    Hello, Someone!
+## Why XTDB?
 
-Run the project directly, via `:main-opts` (`-m graph-memory.graph-memory`):
+XTDB gives us:
 
-    $ clojure -M:run-m
-    Hello, World!
+- **Persistence without migration pain** – documents can evolve independently
+  and XT handles schema-less storage.
+- **Bitemporal history** – we can reason about “last seen” and confidence over
+  time, and (in the future) query past valid-times.
+- **Crash resilience** – the CLI can restart and immediately reacquire salience
+  metadata, which keeps focus headers stable.
 
-Run the project, overriding the name to be greeted:
+We retain Datascript because:
 
-    $ clojure -M:run-m Via-Main
-    Hello, Via-Main!
+- **Speed** – Datascript queries are in-process and tuned for the most common
+  lookups (`entities-by-name`, `neighbors`).
+- **Ease of augmentation** – bang commands and REPL tooling can mutate the
+  in-memory store without round-tripping through XT.
 
-Run the project's tests (they'll fail until you edit them):
+XT mirroring lives in `apps/basic-chat-demo/src/app/store.clj`, but this module
+exposes the helpers (`graph-memory/src/app/xt.clj`) that start nodes and submit
+documents.
 
-    $ clojure -T:build test
+## XT integration helpers
 
-Run the project's CI pipeline and build an uberjar (this will fail until you edit the tests to pass):
+The application-level XT node management lives in
+[`src/app/xt.clj`](src/app/xt.clj). `graph-memory` depends on it to:
 
-    $ clojure -T:build ci
+- Start/stop an embedded XTDB node based on a config EDN.
+- Submit entity/relation documents (`put-entity!`, `put-rel!`).
+- Run XT queries (`q`, `entity`, `db`) from the focus-header pipeline.
 
-This will produce an updated `pom.xml` file with synchronized dependencies inside the `META-INF`
-directory inside `target/classes` and the uberjar in `target`. You can update the version (and SCM tag)
-information in generated `pom.xml` by updating `build.clj`.
+Two classpath configs are provided:
 
-If you don't want the `pom.xml` file in your project, you can remove it. The `ci` task will
-still generate a minimal `pom.xml` as part of the `uber` task, unless you remove `version`
-from `build.clj`.
+- [`resources/xtdb.edn`](resources/xtdb.edn) – default RocksDB-backed config for
+  long-lived runs.
+- Tests typically point to a temp copy so each run gets fresh storage (see
+  `apps/basic-chat-demo/resources/xtdb-test.edn`).
 
-Run that uberjar:
+### Demo: salience survives restarts
 
-    $ java -jar target/net.clojars.graph-memory/graph-memory-0.1.0-SNAPSHOT.jar
+```bash
+# First run – mention Serena twice to boost salience
+clojure -M:run-m -- --protocol basic-chat/v5 --fh-only <<'EOS'
+Serena joined PatCon today.
+Serena is presenting tomorrow.
+EOS
 
-## Options
+# Observe the second focus header; Serena's seen-count increments
 
-FIXME: listing of options this app accepts.
+# Restart using the same BASIC_CHAT_DATA_DIR
+BASIC_CHAT_DATA_DIR=data clojure -M:run-m -- --protocol basic-chat/v5 --fh-only <<'EOS'
+Show me the most relevant entities.
+EOS
 
-## Examples
+# The focus header still lists Serena with the preserved seen-count/last-seen,
+# even though Datascript was freshly initialised.
+```
 
-...
+### Demo: fast local edits
 
-### Bugs
+```bash
+clojure -M:run-m -- --protocol basic-chat/v5 --fh --fh-only <<'EOS'
+!entity Futon v5 :project
+Futon v5 shipped focus headers.
+EOS
 
-...
+# The bang command immediately updates Datascript, so the very next focus header
+# reflects the new project anchor without waiting for XT round-trips.
+```
 
-### Any Other Sections
-### That You Think
-### Might be Useful
+## Development workflow
+
+From the project root you can run the small Datascript regression suite:
+
+```bash
+cd apps/graph-memory
+clojure -M:test -m clojure.test
+```
+
+The tests only cover the seed graph today; higher-level integration checks live
+under `apps/basic-chat-demo/test`.
+
+When editing the schema:
+
+1. Update `graph_memory/main.clj` and keep the schema, helper fns, and tests in
+   sync.
+2. Run `bb lint` (only defined in this app) to enforce `clj-kondo` rules.
+3. Re-run the `basic-chat-demo` tests (`clojure -M:test -m cognitect.test-runner`)
+   to ensure the front-end CLI still hydrates correctly.
+
+## Known gaps
+
+- XT hydration currently tolerates relations whose endpoints are missing by
+  creating stub entities. The focus-header logic still prefers fully-populated
+  docs; populate the missing entities to avoid warning logs.
+- Golden tests in `basic-chat-demo` spawn separate JVMs and can time out in
+  heavily sandboxed environments when XT startup is slow.
 
 ## License
 
 Copyright © 2025 Joe
-
-_EPLv1.0 is just the default for projects generated by `deps-new`: you are not_
-_required to open source this project, nor are you required to use EPLv1.0!_
-_Feel free to remove or change the `LICENSE` file and remove or update this_
-_section of the `README.md` file!_
 
 Distributed under the Eclipse Public License version 1.0.

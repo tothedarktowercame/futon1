@@ -1,92 +1,120 @@
-# basic-chat-demo
+# basic-chat-demo (v5 focus header edition)
 
-Baseline chat pipeline that wires the NLP interface and graph-memory apps together.
+`basic-chat-demo` is the command-line driver for the Futon focus-header stack. It
+streams user turns through the deterministic NLP pipeline, mirrors entities and
+relations into XTDB, and emits a JSON **focus header** suitable for agent
+prompts.
 
-## Prerequisites
+If you are looking for older protocols (`basic-chat/v1` … `v4`) see
+[HISTORY.md](HISTORY.md) — this README focuses on v5 behaviour.
 
-- [Clojure CLI tools](https://clojure.org/guides/getting_started) installed locally.
-- This repository checked out with the sibling apps (`apps/nlp-interface`, `apps/graph-memory`) intact.
-
-## Quickstart
-
-Start an interactive session (default protocol is `basic-chat/v1`):
-
-```bash
-clojure -M:run-m
-```
-
-You’ll see a `you>` prompt; type messages and the bot will reply with the processed EDN summary. Send `:quit` (or press `Ctrl+D`) to exit.
-
-To try the richer v2 pipeline (POS tagging + entity tracking), launch:
+## Quick start (v5)
 
 ```bash
-clojure -M:run-m -- --protocol basic-chat/v2
+clojure -M:run-m -- --protocol basic-chat/v5 --fh
 ```
 
-Interactive extras for v2:
+What happens:
 
-- `/diff` — list the new node labels introduced by your most recent message.
-- `/dump` — print the full in-memory graph (nodes + edges) for inspection.
+1. An XTDB node starts (using `resources/xtdb.edn`).
+2. Datascript hydrates from XT so salience metadata is available immediately.
+3. The CLI enters interactive mode. After each user turn you will see:
+   - the standard EDN result map from the pipeline, **and**
+   - a `fh>` line containing the focus header JSON (because of `--fh`).
 
-For the classical v3 NER/ER pass:
+Use `:quit` (or `Ctrl+D`) to exit. Add `--fh-only` if you only need the JSON
+header (for example, when an external client handles the response rendering).
 
-```bash
-clojure -M:run-m -- --protocol basic-chat/v3
-```
+## Key concepts
 
-Helpful flags for `basic-chat/v3`:
+### Focus header
 
-- `--list-entities` — print all known entities after the run.
-- `--links "Name"` — show direct neighbors for the specified entity.
+The header summarises high-salience anchors and neighbours the agent should
+prefer when answering. It is influenced by:
 
-Try the deterministic v4 pipeline with the new tiered NER stack:
+- recent entities (`--focus-days`, default 30)
+- whether `:work/*` nodes are allowed (`--allow-works on|off`)
+- per-edge caps defined in `app.header/default-policy`
 
-```bash
-clojure -M:run-m -- --protocol basic-chat/v4
-```
+### Datascript + XTDB mirroring
 
-Optional flags for `basic-chat/v4`:
+All mutations are applied to Datascript and mirrored into XTDB. On reboot the
+app first hydrates from XT and then replays any remaining legacy events (when
+XT was disabled). Salience metadata such as `:entity/seen-count` and
+`:relation/last-seen` are read from XT during focus-header construction.
 
-- `--ner-fallback` — include conservative single-token fallback entities (e.g. unknown proper names).
-- `--list-entities` / `--links` — same as v3, still available for inspecting the shared graph.
+### Command helpers
 
-Run the scripted v1 demo from the app directory:
+Interactive bang commands still work in v5:
 
-```bash
-clojure -M:run-m -- --protocol basic-chat/v1 --script test/scripts/hello.edn
-```
+- `!entity <name> [:type]` – upsert an entity and update salience timestamps.
+- `!rel <src> <type> <dst> [since … until … note …]` – record structured edges.
+- `/links`, `/diff`, etc. continue to work for inspection.
 
-You should see stable EDN output describing each turn, e.g.:
+## CLI reference (v5 focus header)
 
-```clojure
-[{:in "hello there", :intent {:type :greet, :conf 0.99}, :links [{:type :derives}]}
- {:in "ok bye", :intent {:type :farewell, :conf 0.99}, :links [{:type :derives}]}]
-```
+| Flag | Purpose |
+|------|---------|
+| `--fh` | Print the focus header JSON after each turn. |
+| `--fh-only` | Suppress the normal EDN response; emit only the focus header. |
+| `--focus-days <n>` | Salience lookback window (days). |
+| `--allow-works <on|off>` | Include work/project entities in focus slices. |
+| `--context` / `--context-cap` / `--neighbors` | Control the legacy textual context (still available). |
+| `--compact` | Snapshot Datascript and reset the legacy event log. |
+| `--reset` | Delete the data directory and reinitialise the store. |
+| `--export edn` | Print an EDN snapshot of the Datascript DB. |
 
-Run the v2 scripted demo to see entity aggregation:
+## Environment configuration
 
-```bash
-clojure -M:run-m -- --protocol basic-chat/v2 --script test/scripts/v2-basic.edn
-```
+Set these env vars when running multiple instances or isolating tests:
 
-Expected output summary (IDs omitted for brevity):
+- `BASIC_CHAT_DATA_DIR` – root directory for snapshots and XT RocksDB storage
+  (defaults to `data/`).
+- `BASIC_CHAT_XTDB_RESOURCE` – classpath resource with the XT config (defaults
+  to `xtdb.edn`).
+- `BASIC_CHAT_XTDB_ENABLED` – disable XT mirroring by setting to `false`, `0`,
+  `off`, or `no`.
 
-```clojure
-[{:in "Met Serena at PatCon 30" :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena."}
- {:in "Graph Memory feels like a notebook" :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena, Graph, Memory, feels, like, a, notebook, Graph Memory."}]
-```
+Tests configure `BASIC_CHAT_DATA_DIR` to a temp directory and point
+`BASIC_CHAT_XTDB_RESOURCE` at `resources/xtdb-test.edn` so each run uses fresh
+storage.
+
 ## Testing
 
 ```bash
 clojure -M:test -m cognitect.test-runner
 ```
 
-The test harness replays the same script and compares it against the golden fixture in `test/golden/hello.out.edn`.
+The suite shells out to `clojure -M:run-m` with golden scripts (v5 included). In
+sandboxed or slow environments these subprocesses can outlive the default
+watchdog and the command reports `command timed out`. Retry outside the sandbox
+or raise the timeout if that happens.
 
-## Protocols
+## Scripts & automation
 
-Protocols live under `protocols/`. The runner defaults to `basic-chat/v1`; pass `--protocol basic-chat/v1` explicitly if you want to be explicit or when trying other versions (e.g. upcoming `basic-chat/v2`).
+Scripted conversations live in `test/scripts/`. For the focus-header flow, use
+`test/scripts/basic-chat/v5/focus-header.edn` (see HISTORY for legacy protocol
+examples).
 
-## License
+```bash
+clojure -M:run-m -- --protocol basic-chat/v5 \
+        --script test/scripts/basic-chat/v5/focus-header.edn \
+        --fh-only
+```
 
-Distributed under the Eclipse Public License version 1.0.
+The command prints a vector of focus headers — perfect for golden tests or
+client integration checks.
+
+## Troubleshooting
+
+- **Hydration warnings**: `[store] skipped relation hydration …` means XT stored
+  an edge whose endpoints were missing. Populate the missing entities (or remove
+  the orphan relation) to silence the warning.
+- **RocksDB locks**: if XT refused to start (`LockFile: ...`), ensure no other
+  Futon process is using the same `BASIC_CHAT_DATA_DIR`, or point the CLI at a
+  unique data directory.
+
+## Legacy protocols
+
+Details about protocols v1–v4, their CLI flags, and the historical persistence
+mechanics have moved to [HISTORY.md](HISTORY.md).

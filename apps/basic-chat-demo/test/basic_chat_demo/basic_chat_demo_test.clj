@@ -6,6 +6,13 @@
             [clojure.string :as str]
             [clojure.java.io :as io])) ; system under test
 
+(defn- temp-dir []
+  (let [file (java.io.File/createTempFile "basic-chat-test" "")]
+    (io/delete-file file)
+    (.mkdirs file)
+    (.deleteOnExit file)
+    (.getAbsolutePath file)))
+
 (defn run-script
   ([script-path]
    (run-script "basic-chat/v1" script-path))
@@ -16,7 +23,13 @@
                       "--protocol" protocol
                       "--script" script-path]
                      extra-cli)
-         {:keys [out err exit]} (apply sh/sh cmd)]
+         data-dir (temp-dir)
+         _ (.mkdirs (io/file data-dir ".clojure"))
+         env-overrides {"BASIC_CHAT_DATA_DIR" data-dir
+                        "BASIC_CHAT_XTDB_RESOURCE" "xtdb-test.edn"
+                        "HOME" data-dir
+                        "CLJ_CONFIG" (str data-dir "/.clojure")}
+         {:keys [out err exit]} (apply sh/sh (concat cmd [:env env-overrides]))]
     (is (zero? exit) (str "non-zero exit: " err))
     (edn/read-string out))))
 

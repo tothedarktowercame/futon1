@@ -13,18 +13,23 @@
    :link/type       {}
    :link/from       {:db/valueType :db.type/ref}
    :link/to         {:db/valueType :db.type/ref}
-   :entity/id       {:db/unique :db.unique/identity}
-   :entity/name     {:db/unique :db.unique/identity}
-   :entity/type     {}
-   :mention/id      {:db/unique :db.unique/identity}
-   :mention/utterance {:db/valueType :db.type/ref}
-   :mention/entity  {:db/valueType :db.type/ref}
-   :mention/span    {}
-   :relation/id     {:db/unique :db.unique/identity}
-   :relation/type   {}
-   :relation/src    {:db/valueType :db.type/ref}
-   :relation/dst    {:db/valueType :db.type/ref}
-   :relation/provenance {}})
+  :entity/id       {:db/unique :db.unique/identity}
+  :entity/name     {:db/unique :db.unique/identity}
+  :entity/type     {}
+   :entity/last-seen {}
+   :entity/seen-count {}
+   :entity/pinned? {}
+  :mention/id      {:db/unique :db.unique/identity}
+  :mention/utterance {:db/valueType :db.type/ref}
+  :mention/entity  {:db/valueType :db.type/ref}
+  :mention/span    {}
+  :relation/id     {:db/unique :db.unique/identity}
+  :relation/type   {}
+  :relation/src    {:db/valueType :db.type/ref}
+  :relation/dst    {:db/valueType :db.type/ref}
+  :relation/provenance {}
+  :relation/confidence {}
+  :relation/last-seen {}})
 
 (defn init-db []
   (d/create-conn schema))

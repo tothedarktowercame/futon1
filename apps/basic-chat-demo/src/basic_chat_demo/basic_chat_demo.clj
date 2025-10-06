@@ -1,6 +1,7 @@
 (ns basic-chat-demo.basic-chat-demo
   (:require [app.commands :as commands]
             [app.context :as context]
+            [app.header :as header]
             [app.store :as store]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -8,18 +9,36 @@
             [graph-memory.main :as gm]
             [protocols.registry :as registry]))
 
-(def default-protocol "basic-chat/v1")
+(def default-protocol "basic-chat/v5")
 
 (def exit-commands #{":quit" ":exit" "quit" "exit"})
 
-(defonce !env (atom {:data-dir "data"
-                     :snapshot-every 100}))
+(defn- getenv-nonblank [k]
+  (let [v (System/getenv k)]
+    (when (and v (not (str/blank? v)))
+      v)))
+
+(defn- xt-enabled-env? []
+  (let [raw (some-> (System/getenv "BASIC_CHAT_XTDB_ENABLED") str/lower-case)]
+    (not (contains? #{"false" "0" "off" "no"} raw))))
+
+(defn- default-env []
+  (let [data-dir (or (getenv-nonblank "BASIC_CHAT_DATA_DIR") "data")
+        xt-resource (getenv-nonblank "BASIC_CHAT_XTDB_RESOURCE")
+        xt-config (cond-> {:enabled? (xt-enabled-env?)}
+                    xt-resource (assoc :resource xt-resource)
+                    (and (nil? xt-resource)
+                         (io/resource "xtdb.edn")) (assoc :config-path (some-> (io/resource "xtdb.edn") io/file .getAbsolutePath)))]
+    {:data-dir (-> data-dir io/file .getAbsolutePath)
+     :snapshot-every 100
+     :xtdb xt-config}))
+
+(defonce !env (atom (default-env)))
 
 (defonce !conn (atom nil))
 
 (defn boot! []
-  (let [data-dir (:data-dir @!env)
-        conn (store/restore! data-dir)]
+  (let [conn (store/restore! @!env)]
     (reset! !conn conn)
     conn))
 
@@ -34,6 +53,8 @@
   (println "       clojure -M:run-m -- --protocol basic-chat/v3 --list-entities")
   (println "       clojure -M:run-m -- --protocol basic-chat/v3 --links 'Serena'")
   (println "       clojure -M:run-m -- --protocol basic-chat/v4 --ner-fallback")
+  (println "       clojure -M:run-m -- --fh")
+  (println "       clojure -M:run-m -- --fh-only")
   (System/exit 1))
 
 (defn parse-args [args]
@@ -82,6 +103,25 @@
           (recur (assoc opts :context-cap (Integer/parseInt value)) (rest more))
           (do (println "Missing value for --context-cap") (usage)))
 
+        "--focus-days"
+        (if-let [value (first more)]
+          (recur (assoc opts :focus-days (Integer/parseInt value)) (rest more))
+          (do (println "Missing value for --focus-days") (usage)))
+
+        "--allow-works"
+        (if-let [value (first more)]
+          (let [val (str/lower-case value)
+                flag (contains? #{"on" "true" "1" "yes"} val)]
+            (recur (assoc opts :allow-works? flag) (rest more)))
+          (do (println "Missing value for --allow-works") (usage)))
+
+        "--fh"
+        (recur (assoc opts :focus-header? true) more)
+
+        "--fh-only"
+        (recur (assoc opts :focus-header? true
+                           :focus-header-only? true) more)
+
         "--compact"
         (recur (assoc opts :compact? true) more)
 
@@ -99,7 +139,8 @@
         (do (println "Unknown option" opt) (usage)))
       opts)))
 
-(defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn]}]
+(defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
+                                 focus-header? focus-header-only?]}]
   (println "basic-chat-demo interactive mode")
   (println "Type your message and press enter. Use :quit to exit.")
   (doseq [line intro-lines]
@@ -141,12 +182,20 @@
             (let [ts (System/currentTimeMillis)
                   out (runner line ts)
                   context-lines (:context out)
-                  printable (if context-lines (dissoc out :context) out)
+                  focus-header (:focus-header out)
+                  printable (-> out
+                                (cond-> context-lines (dissoc :context))
+                                (dissoc :focus-header))
                   rendered (context/render-context context-lines)
-                  new-state (assoc state :last-result out)]
-              (println (str "bot> " (pr-str printable)))
-              (when rendered
-                (println (str "bot> " rendered)))
+                  new-state (assoc state :last-result out)
+                  show-fh? (or focus-header? focus-header-only?)]
+              (when-not focus-header-only?
+                (println (str "bot> " (pr-str printable)))
+                (when rendered
+                  (println (str "bot> " rendered))))
+              (when (and show-fh? focus-header)
+                (print "fh> ")
+                (header/print-fh! focus-header))
               (when after-turn
                 (after-turn))
               (recur new-state))))))))
@@ -195,10 +244,14 @@
 
 (defn -main [& args]
   (let [raw-opts (parse-args args)
-        opts (merge {:context? true
-                     :neighbors 3
-                     :context-cap 10}
-                    raw-opts)
+        base-opts (merge {:context? true
+                          :neighbors 3
+                          :context-cap 10
+                          :focus-days 30
+                          :allow-works? false}
+                         raw-opts)
+        opts (cond-> base-opts
+               (:focus-header-only? base-opts) (assoc :focus-header? true))
         {:keys [protocol script]} opts
         entry (registry/fetch protocol)]
     (when-not entry
@@ -233,26 +286,45 @@
           handle (:handle entry)
           context-config {:neighbors (:neighbors opts)
                           :context-cap (:context-cap opts)
-                          :context? (:context? opts)}
+                          :context? (:context? opts)
+                          :focus-days (:focus-days opts)
+                          :allow-works? (:allow-works? opts)}
           runner (fn [text ts]
-                    (let [res (handle ctx text ts)
-                          ensured (into {}
-                                         (for [{:keys [name type]} (:entities res)
+                    (let [env-now (assoc @!env :now ts)
+                          res (handle ctx text ts)
+                         ensured (into {}
+                                        (for [{:keys [name type]} (:entities res)
                                                :when (seq name)]
-                                           [name (store/ensure-entity! @!conn @!env {:name name :type type})]))
-                          _ (doseq [{:keys [type src dst]} (:relations res)
-                                    :when (and type src dst)]
+                                           [name (store/ensure-entity! @!conn env-now {:name name :type type})]))
+                         _ (doseq [{:keys [type src dst]} (:relations res)
+                                   :when (and type src dst)]
                               (let [src-spec (or (some-> (get ensured src)
                                                          (select-keys [:id :name :type]))
                                                  {:name src})
                                     dst-spec (or (some-> (get ensured dst)
                                                          (select-keys [:id :name :type]))
                                                  {:name dst})]
-                                (store/upsert-relation! @!conn @!env {:type type
-                                                                      :src src-spec
-                                                                      :dst dst-spec})))
-                          context-lines (context/enrich-with-neighbors @!conn (:entities res) context-config)]
-                      (cond-> res context-lines (assoc :context context-lines))))
+                                (store/upsert-relation! @!conn env-now {:type type
+                                                                        :src src-spec
+                                                                        :dst dst-spec})))
+                          context-lines (context/enrich-with-neighbors @!conn (:entities res)
+                                                                                  (assoc context-config
+                                                                                         :anchors (vals ensured)
+                                                                                         :timestamp ts))
+                          fh-policy {:k-per-anchor (:neighbors opts)
+                                     :context-cap-total (:context-cap opts)
+                                     :allow-works? (:allow-works? opts)
+                                     :focus-days (:focus-days opts)}
+                          fh (when (:focus-header? opts)
+                               (header/focus-header nil {:anchors (vals ensured)
+                                                         :intent (:intent res)
+                                                         :time ts
+                                                         :policy fh-policy
+                                                         :turn-id ts
+                                                         :focus-limit (:context-cap opts)}))]
+                      (-> res
+                          (cond-> context-lines (assoc :context context-lines))
+                          (cond-> fh (assoc :focus-header fh)))))
           command-handler (when-let [ch (:command-handler entry)]
                             (ch ctx))
           bang-handler (when (supports-entity-commands? protocol)
@@ -283,4 +355,6 @@
                               :command-handler command-handler
                               :bang-handler bang-handler
                               :intro-lines (seq (:intro entry))
-                              :after-turn after-turn}))))))
+                              :after-turn after-turn
+                              :focus-header? (:focus-header? opts)
+                              :focus-header-only? (:focus-header-only? opts)}))))))

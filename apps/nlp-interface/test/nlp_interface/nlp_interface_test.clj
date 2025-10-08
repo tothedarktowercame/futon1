@@ -23,3 +23,25 @@
              (map :label fallback)))
       (is (= :unknown (:type (first fallback))))
       (is (= :fallback (:source (first fallback)))))))
+
+(deftest analyze-intent-from-dictionary
+  (testing "greets surface high confidence"
+    (let [{:keys [type conf]} (sut/analyze "Hello there!")]
+      (is (= :greet type))
+      (is (> conf 0.95))))
+  (testing "food-centric text maps to orality"
+    (let [{:keys [type conf]} (sut/analyze "I cooked dinner with garlic and wine.")]
+      (is (= :primary-need-orality type))
+      (is (>= conf 0.74))))
+  (testing "sad sentiments outweigh body references"
+    (let [{:keys [type conf]} (sut/analyze "My heart feels sad and lonely today.")]
+      (is (= :sadness type))
+      (is (>= conf 0.7))))
+  (testing "travel wording selects voyage"
+    (let [{:keys [type conf]} (sut/analyze "We will sail across the ocean and wander new shores.")]
+      (is (= :voyage type))
+      (is (>= conf 0.68))))
+  (testing "explicit help requests are prioritised"
+    (let [{:keys [type conf]} (sut/analyze "Can you help me understand this report?")]
+      (is (= :help-request type))
+      (is (>= conf 0.7)))))

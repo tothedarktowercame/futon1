@@ -2,9 +2,15 @@
 
 This file tracks notable milestones for the `basic-chat` protocols and retains
 documentation for earlier versions now superseded by the default
-`basic-chat/v4` pipeline.
+`basic-chat/v5` pipeline.
 
 ## Protocol timeline
+
+### basic-chat/v5 — XT-backed focus header
+- Launch interactively: `clojure -M:run-m -- --protocol basic-chat/v5 --fh`
+- Scripted demo: `clojure -M:run-m -- --protocol basic-chat/v5 --script test/scripts/basic-chat/v5/focus-header.edn --fh-only`
+- Mirrors Datascript mutations into XTDB, hydrates from XT on boot, and emits the
+  JSON focus header consumed by the agent integrations.
 
 ### basic-chat/v1 — baseline intent echo
 - Launch interactively: `clojure -M:run-m -- --protocol basic-chat/v1`
@@ -26,5 +32,5 @@ documentation for earlier versions now superseded by the default
 - Layered deterministic gazetteer/entity-relation extraction before the v4
   overhaul.
 
-For the current tiered NER stack and focus header output, use the default
-`basic-chat/v4` described in the project README.
+For the tiered NER stack without XT mirroring, use `basic-chat/v4` from the
+project README. Later protocols build on this pipeline.

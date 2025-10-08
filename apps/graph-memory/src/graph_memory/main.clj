@@ -16,15 +16,20 @@
    :entity/id       {:db/unique :db.unique/identity}
    :entity/name     {:db/unique :db.unique/identity}
    :entity/type     {}
+   :entity/last-seen {}
+   :entity/seen-count {}
+   :entity/pinned? {}
    :mention/id      {:db/unique :db.unique/identity}
    :mention/utterance {:db/valueType :db.type/ref}
    :mention/entity  {:db/valueType :db.type/ref}
    :mention/span    {}
    :relation/id     {:db/unique :db.unique/identity}
-   :relation/type   {:db/index true}
+   :relation/type   {}
    :relation/src    {:db/valueType :db.type/ref}
    :relation/dst    {:db/valueType :db.type/ref}
-   :relation/provenance {}})
+   :relation/provenance {}
+   :relation/confidence {}
+   :relation/last-seen {}})
 
 (defn init-db []
   (d/create-conn schema))
@@ -69,10 +74,10 @@
   [conn {:keys [name type]}]
   (let [db @conn
         eid (ffirst (d/q '[:find ?e
-                            :in $ ?name
-                            :where
-                            [?e :entity/name ?name]]
-                          db name))]
+                           :in $ ?name
+                           :where
+                           [?e :entity/name ?name]]
+                         db name))]
     (if eid
       (let [entity (d/pull db '[:entity/id :entity/name :entity/type] eid)
             existing-type (:entity/type entity)]
@@ -161,7 +166,7 @@
               [(clojure.string/starts-with? ?ln ?lp)]]
             '[:find (pull ?e [:entity/id :entity/name :entity/type])
               :where
-              [?e :entity/name ?]] )
+              [?e :entity/name ?]])
         raw (if s
               (d/q q db s)
               (d/q q db))]

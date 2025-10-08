@@ -108,6 +108,12 @@
         exp (-> "test/golden/basic-chat/v4/entities.out.edn" slurp edn/read-string)]
     (is (= exp got'))))
 
+(deftest human-lines-formats-intent
+  (let [lines (#'sut/human-lines {:intent {:type :greet :conf 0.99}} nil)
+        no-intent (#'sut/human-lines {:in "Who are you?"} nil)]
+    (is (= ["Intent: greet (confidence 0.99)"] lines))
+    (is (= ["No structured data extracted for: Who are you?"] no-intent))))
+
 (deftest focus-policy-overrides
   (let [f #'sut/focus-policy-overrides
         sample {:neighbors 4

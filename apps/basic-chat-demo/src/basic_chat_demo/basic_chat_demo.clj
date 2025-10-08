@@ -229,6 +229,7 @@
       (doseq [line more]
         (println (str "     " line))))))
 
+
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
                                  focus-header? focus-header-only?]}]
 
@@ -278,15 +279,9 @@
                                 (cond-> context-lines (dissoc :context))
                                 (dissoc :focus-header))
                   rendered (context/render-context context-lines)
-                  new-state (assoc state :last-result out)
-                  show-fh? (or focus-header? focus-header-only?)]
-              (when-not focus-header-only?
-                (println (str "bot> " (pr-str printable)))
-                (when rendered
-                  (println (str "bot> " rendered))))
-              (when (and show-fh? focus-header)
-                (print "fh> ")
-                (header/print-fh! focus-header))
+                  human (human-lines printable rendered)
+                  new-state (assoc state :last-result out)]
+              (print-bot-lines human)
               (when after-turn
                 (after-turn))
               (recur new-state))))))))
@@ -403,17 +398,7 @@
                                     dst-spec (or (some-> (get ensured dst)
                                                          (select-keys [:id :name :type]))
                                                  {:name dst})]
-<<<<<<< HEAD
-                                (store/upsert-relation! @!conn @!env {:type type
-                                                                      :src src-spec
-                                                                      :dst dst-spec})))
-                          context-lines (context/enrich-with-neighbors @!conn (:entities res) context-config)
-                          focus-info (focus/build @!conn res context-lines {})]
-                      (cond-> res
-                        context-lines (assoc :context context-lines)
-                        (:text focus-info) (assoc :focus-header (:text focus-info))
-                        (and (:fh-json? opts) (:json focus-info)) (assoc :focus-header-json (:json focus-info)))))
-=======
+
                                 (store/upsert-relation! @!conn env-now {:type type
                                                                         :src src-spec
                                                                         :dst dst-spec})))
@@ -433,7 +418,7 @@
                       (-> res
                           (cond-> context-lines (assoc :context context-lines))
                           (cond-> fh (assoc :focus-header fh)))))
->>>>>>> v4-persistence-context
+
           command-handler (when-let [ch (:command-handler entry)]
                             (ch ctx))
           bang-handler (when (supports-entity-commands? protocol)

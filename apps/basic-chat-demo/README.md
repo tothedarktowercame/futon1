@@ -9,71 +9,26 @@ Baseline chat pipeline that wires the NLP interface and graph-memory apps togeth
 
 ## Quickstart
 
-Start an interactive session (default protocol is `basic-chat/v1`):
+Start an interactive session (defaults to `basic-chat/v4`):
 
 ```bash
 clojure -M:run-m
 ```
 
-You’ll see a `you>` prompt; type messages and the bot will reply with the processed EDN summary. Send `:quit` (or press `Ctrl+D`) to exit.
+You’ll see a `you>` prompt; type messages and the bot will reply with the processed EDN summary plus a human-readable focus header. Send `:quit` (or press `Ctrl+D`) to exit.
 
-To try the richer v2 pipeline (POS tagging + entity tracking), launch:
-
-```bash
-clojure -M:run-m -- --protocol basic-chat/v2
-```
-
-Interactive extras for v2:
-
-- `/diff` — list the new node labels introduced by your most recent message.
-- `/dump` — print the full in-memory graph (nodes + edges) for inspection.
-
-For the classical v3 NER/ER pass:
-
-```bash
-clojure -M:run-m -- --protocol basic-chat/v3
-```
-
-Helpful flags for `basic-chat/v3`:
-
-- `--list-entities` — print all known entities after the run.
-- `--links "Name"` — show direct neighbors for the specified entity.
-
-Try the deterministic v4 pipeline with the new tiered NER stack:
-
-```bash
-clojure -M:run-m -- --protocol basic-chat/v4
-```
-
-Optional flags for `basic-chat/v4`:
+Helpful flags for the default v4 pipeline:
 
 - `--ner-fallback` — include conservative single-token fallback entities (e.g. unknown proper names).
-- `--list-entities` / `--links` — same as v3, still available for inspecting the shared graph.
+- `--list-entities` / `--links` — inspect the shared graph neighbours.
+- `--fh-json` — emit a machine-readable focus header alongside the readable block.
 
-Run the scripted v1 demo from the app directory:
+To experiment with earlier pipelines (`basic-chat/v1`..`v3`) or replay their scripted demos, see `HISTORY.md`.
 
-```bash
-clojure -M:run-m -- --protocol basic-chat/v1 --script test/scripts/hello.edn
-```
-
-You should see stable EDN output describing each turn, e.g.:
-
-```clojure
-[{:in "hello there", :intent {:type :greet, :conf 0.99}, :links [{:type :derives}]}
- {:in "ok bye", :intent {:type :farewell, :conf 0.99}, :links [{:type :derives}]}]
-```
-
-Run the v2 scripted demo to see entity aggregation:
+Run the scripted v4 demo from the app directory:
 
 ```bash
-clojure -M:run-m -- --protocol basic-chat/v2 --script test/scripts/v2-basic.edn
-```
-
-Expected output summary (IDs omitted for brevity):
-
-```clojure
-[{:in "Met Serena at PatCon 30" :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena."}
- {:in "Graph Memory feels like a notebook" :summary "noted. you mentioned: Met, Serena, at, PatCon, 30, Met Serena, Graph, Memory, feels, like, a, notebook, Graph Memory."}]
+clojure -M:run-m -- --protocol basic-chat/v4 --script test/scripts/basic-chat/v4/entities.edn
 ```
 ## Testing
 
@@ -85,7 +40,7 @@ The test harness replays the same script and compares it against the golden fixt
 
 ## Protocols
 
-Protocols live under `protocols/`. The runner defaults to `basic-chat/v1`; pass `--protocol basic-chat/v1` explicitly if you want to be explicit or when trying other versions (e.g. upcoming `basic-chat/v2`).
+Protocols live under `protocols/`. The runner defaults to `basic-chat/v4`; use `--protocol` to opt into legacy variants recorded in `HISTORY.md`.
 
 ## License
 

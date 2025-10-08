@@ -55,6 +55,7 @@
   (println "       clojure -M:run-m -- --protocol basic-chat/v4 --ner-fallback")
   (println "       clojure -M:run-m -- --fh")
   (println "       clojure -M:run-m -- --fh-only")
+  (println "       clojure -M:run-m -- --fh-debug")
   (System/exit 1))
 
 (defn parse-args [args]
@@ -121,6 +122,10 @@
         "--fh-only"
         (recur (assoc opts :focus-header? true
                            :focus-header-only? true) more)
+
+        "--fh-debug"
+        (recur (assoc opts :focus-header? true
+                           :focus-header-debug? true) more)
 
         "--compact"
         (recur (assoc opts :compact? true) more)
@@ -201,7 +206,7 @@
               (recur new-state))))))))
 
 (defn supports-entity-commands? [protocol-id]
-  (contains? #{"basic-chat/v3" "basic-chat/v4"} protocol-id))
+  (contains? #{"basic-chat/v3" "basic-chat/v4" "basic-chat/v5"} protocol-id))
 
 (defn context->conn [ctx]
   (if (and (map? ctx) (:db ctx))
@@ -241,6 +246,14 @@
       (list-entities! conn))
     (when links
       (list-links! conn links))))
+
+(defn- focus-policy-overrides
+  [{:keys [neighbors context-cap allow-works? focus-days]}]
+  (cond-> {}
+    (some? neighbors) (assoc :k-per-anchor neighbors)
+    (some? context-cap) (assoc :context-cap-total context-cap)
+    (some? allow-works?) (assoc :allow-works? allow-works?)
+    (some? focus-days) (assoc :focus-days focus-days)))
 
 (defn -main [& args]
   (let [raw-opts (parse-args args)
@@ -311,17 +324,15 @@
                                                                                   (assoc context-config
                                                                                          :anchors (vals ensured)
                                                                                          :timestamp ts))
-                          fh-policy {:k-per-anchor (:neighbors opts)
-                                     :context-cap-total (:context-cap opts)
-                                     :allow-works? (:allow-works? opts)
-                                     :focus-days (:focus-days opts)}
+                          fh-policy (focus-policy-overrides opts)
                           fh (when (:focus-header? opts)
                                (header/focus-header nil {:anchors (vals ensured)
                                                          :intent (:intent res)
                                                          :time ts
                                                          :policy fh-policy
                                                          :turn-id ts
-                                                         :focus-limit (:context-cap opts)}))]
+                                                         :focus-limit (:context-cap opts)
+                                                         :debug? (:focus-header-debug? opts)}))]
                       (-> res
                           (cond-> context-lines (assoc :context context-lines))
                           (cond-> fh (assoc :focus-header fh)))))

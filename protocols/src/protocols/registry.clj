@@ -2,7 +2,8 @@
   (:require [protocols.basic-chat.v1 :as v1]
             [protocols.basic-chat.v2 :as v2]
             [protocols.basic-chat.v3 :as v3]
-            [protocols.basic-chat.v4 :as v4]))
+            [protocols.basic-chat.v4 :as v4]
+            [protocols.basic-chat.v5 :as v5]))
 
 (def registry
   {"basic-chat/v1" {:id "basic-chat/v1"
@@ -22,7 +23,12 @@
                      :init v4/init
                      :configure v4/configure
                      :handle v4/handle
-                     :intro v4/intro}})
+                     :intro v4/intro}
+   "basic-chat/v5" {:id "basic-chat/v5"
+                     :init v5/init
+                     :configure v5/configure
+                     :handle v5/handle
+                     :intro v5/intro}})
 
 (defn fetch [protocol-id]
   (get registry protocol-id))

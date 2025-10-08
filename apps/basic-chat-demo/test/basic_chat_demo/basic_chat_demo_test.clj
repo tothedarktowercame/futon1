@@ -87,3 +87,24 @@
                     got)
         exp (-> "test/golden/basic-chat/v4/entities.out.edn" slurp edn/read-string)]
     (is (= exp got'))))
+
+(deftest focus-policy-overrides
+  (let [f #'sut/focus-policy-overrides
+        sample {:neighbors 4
+                 :context-cap 12
+                 :allow-works? false
+                 :focus-days 45}
+        partial {:neighbors 2
+                 :context-cap nil
+                 :allow-works? nil
+                 :focus-days nil}
+        none {}]
+    (is (= {:k-per-anchor 4
+            :context-cap-total 12
+            :allow-works? false
+            :focus-days 45}
+           (f sample)))
+    (is (= {:k-per-anchor 2}
+           (f partial)))
+    (is (= {}
+           (f none)))))

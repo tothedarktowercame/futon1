@@ -62,7 +62,8 @@
               now (or timestamp (System/currentTimeMillis))
               cutoff (- now (* focus-days day-ms))
               focus-count (or focus-limit context-cap)
-              candidates (focus/focus-candidates nil anchor-ids cutoff focus-count)
+              candidates (->> (focus/focus-candidates nil anchor-ids cutoff focus-count)
+                               (filter #(or (:anchor? %) (:pinned? %))))
               focus-map (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
               per-type (or per-type-caps default-per-type-caps)
               neighbor-results (mapcat (fn [{:keys [id]}]

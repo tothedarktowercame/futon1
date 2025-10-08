@@ -55,14 +55,14 @@
         ;; normalize: replace unpredictable bits in :links with {}
         got' (mapv (fn [m]
                      (-> m
-                         (dissoc :context)
+                         (dissoc :context :focus-header :focus-header-json)
                          (update :links (fn [ls] (mapv (constantly {}) ls)))))
                    got)
         exp (-> "test/golden/hello.out.edn" slurp edn/read-string)]
     (is (= exp got'))))
 
 (deftest v2-script
-  (let [got (mapv #(dissoc % :context)
+  (let [got (mapv #(dissoc % :context :focus-header :focus-header-json)
                    (run-script "basic-chat/v2" "test/scripts/v2-basic.edn"))
         exp (-> "test/golden/v2-basic.out.edn" slurp edn/read-string)]
     (is (= exp got))))
@@ -71,7 +71,7 @@
   (let [got (run-script "basic-chat/v3" "test/scripts/basic-chat/v3/entities.edn")
         got' (mapv (fn [m]
                      (-> m
-                         (dissoc :context)
+                         (dissoc :context :focus-header :focus-header-json)
                          (update :entities (fn [ents]
                                              (mapv #(select-keys % [:name :type]) ents)))
                          (update :relations (fn [rels]
@@ -84,7 +84,7 @@
   (let [got (run-script "basic-chat/v4" "test/scripts/basic-chat/v4/entities.edn" ["--ner-fallback"])
         got' (mapv (fn [m]
                      (-> m
-                         (dissoc :context)
+                         (dissoc :context :focus-header :focus-header-json)
                          (update :intent #(select-keys % [:type :conf]))
                          (update :links (fn [links]
                                           (mapv (constantly {}) links)))

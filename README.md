@@ -16,9 +16,10 @@ interactive input, scripted conversations, or golden tests.
 
 ## Core features
 
-- **Protocol variants**: choose between `basic-chat/v1` .. `basic-chat/v4` using
-  `--protocol basic-chat/vN`. Later protocols layer on NER, relation extraction,
-  and context-aware output.
+- **Protocol variants**: the CLI now defaults to `basic-chat/v4`. Use
+  `--protocol basic-chat/vN` to opt into historical versions documented in
+  `HISTORY.md`. Later protocols layer on NER, relation extraction, and
+  context-aware output.
 - **Persistence**: all graph mutations flow through `app.store`, which appends
   events to `data/events.ndjson` and periodically snapshots to
   `data/snapshot.edn`. Restarting the CLI replays the log so entities,
@@ -26,9 +27,10 @@ interactive input, scripted conversations, or golden tests.
 - **Inline graph editing**: use bang commands in interactive mode (e.g.
   `!entity Pat :person`, `!rel "Pat" advisor-of "Joe" since 2001 ...`) to record
   curated facts; these are persisted through the same append-only log.
-- **Graph context**: when v4 runs, the CLI can print the top-k neighbours for
-  recognised entities to provide conversational memory. Tweak with
-  `--context`, `--neighbors`, and `--context-cap`.
+- **Graph context**: when v4 runs, the CLI prints a human-readable focus header
+  with “Recent”, “Current”, and “Enriched” sections plus optional neighbour
+  listings. Tweak with `--context`, `--neighbors`, and `--context-cap`, and add
+  `--fh-json` to emit a JSON mirror of the focus header.
 - **Operational knobs**: `--reset` wipes the data dir, `--compact` forces a
   fresh snapshot, and `--export edn` emits a serialisable view of the current
   database.
@@ -53,7 +55,7 @@ confidence signals are absent. Leave it off for a stricter gazetteer/pattern
 pass.
 
 Flags mirror the features above; pass `-- --help` (invalid option) to see usage
-from the CLI.
+from the CLI. Add `--fh-json` when you need a machine-readable focus header.
 
 ### Scripts
 
@@ -114,4 +116,6 @@ made.
   `events.ndjson`.
 - `--export edn` – print the serialisable EDN snapshot of the current database.
 - `--context`, `--neighbors`, `--context-cap` – control neighbour context output.
+- `--fh-json` – include a machine-readable focus header alongside the readable
+  summary.
 - `--ner-fallback` – enable the conservative fallback NER stage in protocol v4.

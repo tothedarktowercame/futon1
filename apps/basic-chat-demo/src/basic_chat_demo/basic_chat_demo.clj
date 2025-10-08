@@ -1,6 +1,7 @@
 (ns basic-chat-demo.basic-chat-demo
   (:require [app.commands :as commands]
             [app.context :as context]
+            [app.focus :as focus]
             [app.store :as store]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -8,7 +9,7 @@
             [graph-memory.main :as gm]
             [protocols.registry :as registry]))
 
-(def default-protocol "basic-chat/v1")
+(def default-protocol "basic-chat/v4")
 
 (def exit-commands #{":quit" ":exit" "quit" "exit"})
 
@@ -34,6 +35,8 @@
   (println "       clojure -M:run-m -- --protocol basic-chat/v3 --list-entities")
   (println "       clojure -M:run-m -- --protocol basic-chat/v3 --links 'Serena'")
   (println "       clojure -M:run-m -- --protocol basic-chat/v4 --ner-fallback")
+  (println "       clojure -M:run-m -- --fh-json")
+  (println "Default protocol: basic-chat/v4")
   (System/exit 1))
 
 (defn parse-args [args]
@@ -87,6 +90,9 @@
 
         "--reset"
         (recur (assoc opts :reset? true) more)
+
+        "--fh-json"
+        (recur (assoc opts :fh-json? true) more)
 
         "--export"
         (if-let [value (first more)]
@@ -251,8 +257,12 @@
                                 (store/upsert-relation! @!conn @!env {:type type
                                                                       :src src-spec
                                                                       :dst dst-spec})))
-                          context-lines (context/enrich-with-neighbors @!conn (:entities res) context-config)]
-                      (cond-> res context-lines (assoc :context context-lines))))
+                          context-lines (context/enrich-with-neighbors @!conn (:entities res) context-config)
+                          focus-info (focus/build @!conn res context-lines {})]
+                      (cond-> res
+                        context-lines (assoc :context context-lines)
+                        (:text focus-info) (assoc :focus-header (:text focus-info))
+                        (and (:fh-json? opts) (:json focus-info)) (assoc :focus-header-json (:json focus-info)))))
           command-handler (when-let [ch (:command-handler entry)]
                             (ch ctx))
           bang-handler (when (supports-entity-commands? protocol)

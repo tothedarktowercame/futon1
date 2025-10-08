@@ -21,7 +21,7 @@
    :mention/entity  {:db/valueType :db.type/ref}
    :mention/span    {}
    :relation/id     {:db/unique :db.unique/identity}
-   :relation/type   {}
+   :relation/type   {:db/index true}
    :relation/src    {:db/valueType :db.type/ref}
    :relation/dst    {:db/valueType :db.type/ref}
    :relation/provenance {}})

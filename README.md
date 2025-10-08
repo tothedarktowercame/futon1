@@ -54,6 +54,19 @@ allowing single title-case tokens (e.g. “Tom”) to be recognised when higher
 confidence signals are absent. Leave it off for a stricter gazetteer/pattern
 pass.
 
+### Installing Clojure and Java dependencies
+
+The demos require a working JVM and the Clojure CLI tools. On Debian/Ubuntu
+hosts you can provision everything with the helper script in this repository:
+
+```bash
+sudo ./scripts/install-clojure-env.sh
+clojure -Sdescribe  # verify the CLI installation
+```
+
+The script installs OpenJDK 21, `rlwrap`, and the official Clojure CLI release.
+Run it whenever you need to bootstrap a fresh environment.
+
 Flags mirror the features above; pass `-- --help` (invalid option) to see usage
 from the CLI. Add `--fh-json` when you need a machine-readable focus header.
 

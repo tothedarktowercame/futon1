@@ -105,6 +105,83 @@
         (do (println "Unknown option" opt) (usage)))
       opts)))
 
+(defn- label [value]
+  (cond
+    (keyword? value) (-> value name (str/replace #"[_-]" " "))
+    (string? value) value
+    (nil? value) nil
+    :else (str value)))
+
+(defn- confidence-str [conf]
+  (when (number? conf)
+    (format "%.2f" (double conf))))
+
+(defn- format-entity-line [{:keys [name type source confidence value]}]
+  (let [parts (->> [(some-> type label)
+                    (some-> source label)
+                    (some-> (confidence-str confidence) (format "conf %s"))
+                    (when value (str "value " value))]
+                   (remove str/blank?)
+                   vec)]
+    (str "  - " (or name "<unknown>")
+         (when (seq parts)
+           (str " — " (str/join ", " parts))))))
+
+(defn- format-entities-block [entities]
+  (when (seq entities)
+    (into ["Entities:"]
+          (map format-entity-line entities))))
+
+(defn- format-relation-line [{:keys [src dst type direction]}]
+  (let [left-arrow (if (= direction :in) "<-" "->")
+        relation (some-> type label)]
+    (str "  - " (or src "?") " -[" (or relation "?") "]" left-arrow " " (or dst "?"))))
+
+(defn- format-relations-block [relations]
+  (when (seq relations)
+    (into ["Relations:"]
+          (map format-relation-line relations))))
+
+(defn- format-intent-line [{:keys [intent]}]
+  (when (seq intent)
+    (let [{:keys [type conf]} intent
+          base (str "Intent: " (or (some-> type label) "unspecified"))
+          conf-str (confidence-str conf)]
+      (if conf-str
+        (str base " (confidence " conf-str ")")
+        base))))
+
+(defn- format-context-block [printable context-text]
+  (when-let [text (or (:focus-header printable)
+                      context-text)]
+    (let [lines (str/split-lines text)
+          first-line (some-> lines first str/trim str/lower-case)]
+      (when (seq lines)
+        (if (= first-line "context:")
+          (into ["Context:"]
+                (map #(str "  " %) (rest lines)))
+          lines)))))
+
+(defn- human-lines [printable context-text]
+  (let [blocks (->> [(format-entities-block (:entities printable))
+                     (format-relations-block (:relations printable))
+                     (when-let [intent-line (format-intent-line printable)]
+                       [intent-line])
+                     (format-context-block printable context-text)]
+                    (remove nil?))]
+    (if (seq blocks)
+      (vec (mapcat identity (interpose [""] blocks)))
+      [(if-let [input (:in printable)]
+         (str "No structured data extracted for: " input)
+         "No structured data extracted.")])))
+
+(defn- print-bot-lines [lines]
+  (when (seq lines)
+    (let [[first-line & more] lines]
+      (println (str "bot> " first-line))
+      (doseq [line more]
+        (println (str "     " line))))))
+
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn]}]
   (println "basic-chat-demo interactive mode")
   (println "Type your message and press enter. Use :quit to exit.")
@@ -149,10 +226,9 @@
                   context-lines (:context out)
                   printable (if context-lines (dissoc out :context) out)
                   rendered (context/render-context context-lines)
+                  human (human-lines printable rendered)
                   new-state (assoc state :last-result out)]
-              (println (str "bot> " (pr-str printable)))
-              (when rendered
-                (println (str "bot> " rendered)))
+              (print-bot-lines human)
               (when after-turn
                 (after-turn))
               (recur new-state))))))))

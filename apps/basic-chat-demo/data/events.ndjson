@@ -31,3 +31,4 @@
 {"edn":"{:type :relation\/upsert, :relation {:id #uuid \"c937fa81-66a7-4659-9dfb-040f2ed718d2\", :type :links-to, :src {:id #uuid \"97480f46-e998-4318-a8b2-64f7e77beac2\", :name \"12 Oct\", :type :date}, :dst {:id #uuid \"f3f16df6-e559-480f-bf90-3b0c13154c3b\", :name \"XTDB\", :type :tool}}}"}
 {"edn":"{:type :relation\/upsert, :relation {:id #uuid \"aec82f28-bc34-4df5-a800-384610f2b00c\", :type :with, :src {:id #uuid \"f3f16df6-e559-480f-bf90-3b0c13154c3b\", :name \"XTDB\", :type :tool}, :dst {:id #uuid \"07b7e357-92ec-465d-9855-fc7cfd84c98a\", :name \"Isabella von Holstein\", :type :person}}}"}
 {"edn":"{:type :entity\/upsert, :entity {:id #uuid \"99486195-d103-4c92-8df7-d462eaa41510\", :name \"Boston\", :type :place}}"}
+{"edn":"{:type :entity\/upsert, :entity {:id #uuid \"99486195-d103-4c92-8df7-d462eaa41510\", :name \"Boston\", :type :place}}"}

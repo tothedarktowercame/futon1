@@ -16,9 +16,10 @@ interactive input, scripted conversations, or golden tests.
 
 ## Core features
 
-- **Protocol variants**: choose between `basic-chat/v1` .. `basic-chat/v4` using
-  `--protocol basic-chat/vN`. Later protocols layer on NER, relation extraction,
-  and context-aware output.
+- **Protocol variants**: choose between `basic-chat/v1` .. `basic-chat/v5` using
+  `--protocol basic-chat/vN`. `basic-chat/v5` is the default focus-header flow,
+  layering XT persistence on top of the v4 NER, relation extraction, and
+  context-aware output.
 - **Persistence**: the Datascript cache mirrors every mutation into XTDB. On
   boot the CLI first hydrates from XT so salience metadata (seen-counts,
   last-seen timestamps, pinned flags) is ready before focus headers are
@@ -47,13 +48,13 @@ interactive input, scripted conversations, or golden tests.
 
 ```bash
 cd apps/basic-chat-demo
-clojure -M:run-m -- --protocol basic-chat/v4 --ner-fallback
+clojure -M:run-m -- --protocol basic-chat/v5 --fh
 ```
 
-`--ner-fallback` enables the conservative fallback stage of the v4 NER pipeline,
-allowing single title-case tokens (e.g. “Tom”) to be recognised when higher
-confidence signals are absent. Leave it off for a stricter gazetteer/pattern
-pass.
+`--fh` prints the JSON focus header alongside the standard EDN payload. To
+exercise the legacy v4 pipeline instead, add `--protocol basic-chat/v4` and keep
+`--ner-fallback` when you want the conservative NER stage that recognises
+single title-case tokens (e.g. “Tom”).
 
 ### Installing Clojure and Java dependencies
 
@@ -76,8 +77,8 @@ from the CLI. Add `--fh-json` when you need a machine-readable focus header.
 Scripted runs use EDN files containing utterance vectors:
 
 ```bash
-clojure -M:run-m -- --protocol basic-chat/v4 \
-        --script test/scripts/basic-chat/v4/entities.edn --ner-fallback
+clojure -M:run-m -- --protocol basic-chat/v5 \
+        --script test/scripts/basic-chat/v5/focus-header.edn --fh-only
 ```
 
 ## Persistence layout

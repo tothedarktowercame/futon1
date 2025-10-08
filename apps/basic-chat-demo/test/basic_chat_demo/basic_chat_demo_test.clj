@@ -32,6 +32,13 @@
           (reset! sut/!env orig-env)
           (delete-recursively tmp))))))
 
+(defn- temp-dir []
+  (let [file (java.io.File/createTempFile "basic-chat-test" "")]
+    (io/delete-file file)
+    (.mkdirs file)
+    (.deleteOnExit file)
+    (.getAbsolutePath file)))
+
 (defn run-script
   ([script-path]
    (run-script "basic-chat/v1" script-path))
@@ -63,7 +70,7 @@
 
 (deftest v2-script
   (let [got (mapv #(dissoc % :context :focus-header :focus-header-json)
-                   (run-script "basic-chat/v2" "test/scripts/v2-basic.edn"))
+                  (run-script "basic-chat/v2" "test/scripts/v2-basic.edn"))
         exp (-> "test/golden/v2-basic.out.edn" slurp edn/read-string)]
     (is (= exp got))))
 
@@ -97,6 +104,6 @@
                                                    ents)))
                          (update :relations (fn [rels]
                                               (mapv #(select-keys % [:type :src :dst]) rels)))))
-                    got)
+                   got)
         exp (-> "test/golden/basic-chat/v4/entities.out.edn" slurp edn/read-string)]
     (is (= exp got'))))

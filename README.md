@@ -16,31 +16,32 @@ interactive input, scripted conversations, or golden tests.
 
 ## Core features
 
-- **Protocol variants**: the CLI now defaults to `basic-chat/v4`. Use
-  `--protocol basic-chat/vN` to opt into historical versions documented in
-  `HISTORY.md`. Later protocols layer on NER, relation extraction, and
-  context-aware output.
-- **Persistence**: all graph mutations flow through `app.store`, which appends
-  events to `data/events.ndjson` and periodically snapshots to
-  `data/snapshot.edn`. Restarting the CLI replays the log so entities,
-  relations, and utterance mentions survive restarts.
+- **Protocol variants**: choose between `basic-chat/v1` .. `basic-chat/v4` using
+  `--protocol basic-chat/vN`. Later protocols layer on NER, relation extraction,
+  and context-aware output.
+- **Persistence**: the Datascript cache mirrors every mutation into XTDB. On
+  boot the CLI first hydrates from XT so salience metadata (seen-counts,
+  last-seen timestamps, pinned flags) is ready before focus headers are
+  generated; if XT is disabled it falls back to the legacy event log + snapshot.
 - **Inline graph editing**: use bang commands in interactive mode (e.g.
   `!entity Pat :person`, `!rel "Pat" advisor-of "Joe" since 2001 ...`) to record
   curated facts; these are persisted through the same append-only log.
-- **Graph context**: when v4 runs, the CLI prints a human-readable focus header
-  with “Recent”, “Current”, and “Enriched” sections plus optional neighbour
-  listings. Tweak with `--context`, `--neighbors`, and `--context-cap`, and add
-  `--fh-json` to emit a JSON mirror of the focus header.
+- **Graph context**: v4 and later protocols can emit top-k neighbours and the
+  JSON **focus header** consumed by the v5 agent flows. Tweak with `--context`,
+  `--neighbors`, `--context-cap`, `--fh`, `--fh-only`, `--focus-days`, and
+  `--allow-works`.
 - **Operational knobs**: `--reset` wipes the data dir, `--compact` forces a
   fresh snapshot, and `--export edn` emits a serialisable view of the current
   database.
 
-> **Limitation**: Pronouns such as “I” and “you” are intentionally ignored by
-> the deterministic NER layers. They will not create or update entities unless a
-> future personification pass resolves them to concrete participants.
-> **Limitation**: Only the generic `:links-to` relation is inferred automatically
-> when entities co-occur. Richer edges (e.g. `:advisor-of`) require explicit
-> commands or custom rule code.
+## Limitations
+
+- Pronouns such as “I” and “you” are intentionally ignored by
+  the deterministic NER layers. They will not create or update entities unless a
+  future personification pass resolves them to concrete participants.
+- Only the generic `:links-to` relation is inferred automatically
+  when entities co-occur. Richer edges (e.g. `:advisor-of`) require explicit
+  commands or custom rule code.
 
 ## Getting started
 
@@ -84,13 +85,23 @@ clojure -M:run-m -- --protocol basic-chat/v4 \
 All persisted data lives in `apps/basic-chat-demo/data` (configurable via
 `app.store/!env`):
 
-- `events.ndjson` – append-only log of `:entity/upsert`, `:relation/upsert`,
-  and future event types.
-- `snapshot.edn` – periodic Datascript snapshots storing a list of `[:db/add
-  ...]` triples for deterministic restores.
+- `events.ndjson` / `snapshot.edn` – legacy append-only log + snapshot used when
+  XTDB is disabled.
+- `xtdb/` – RocksDB directories created when XT mirroring is active (paths set
+  via `BASIC_CHAT_DATA_DIR`).
 
-On boot the CLI loads the snapshot (when present) and replays events to produce
-the live Datascript connection.
+On boot the CLI hydrates from XT first; if no XT data exists it replays the
+snapshot + events.
+
+### Environment overrides
+
+Set these when running multiple instances in parallel (tests, tooling, CLI):
+
+- `BASIC_CHAT_DATA_DIR` – root directory for snapshots, events, and XT storage.
+- `BASIC_CHAT_XTDB_RESOURCE` – classpath resource for XT config (defaults to
+  `xtdb.edn`).
+- `BASIC_CHAT_XTDB_ENABLED` – disable XT hydration/mirroring when set to a
+  falsy string (`false`, `0`, `off`, `no`).
 
 ## Testing
 
@@ -108,6 +119,14 @@ clojure -M:test -m cognitect.test-runner
 Golden fixtures (EDN) capture expected protocol output. Update them by rerunning
 the matching scripts and copying the printed vector when intentional changes are
 made.
+
+> **Note:** The `basic-chat-demo` test runner shells out to `clojure -M:run-m`
+> for each golden fixture. In sandboxed environments the spawned CLI can outlive
+> the default timeout and the test command reports `command timed out` even
+> though the behaviour is correct. Retry outside the sandbox (or with a larger
+> timeout) if you encounter this warning.
+
+For additional operational caveats see [LIMITATIONS.md](LIMITATIONS.md).
 
 ## Relations
 
@@ -132,3 +151,9 @@ made.
 - `--fh-json` – include a machine-readable focus header alongside the readable
   summary.
 - `--ner-fallback` – enable the conservative fallback NER stage in protocol v4.
+- `--fh` / `--fh-only` – emit the focus header JSON alongside (or instead of)
+  the normal CLI reply.
+- `--focus-days <n>` – adjust the salience lookback window used when building
+  focus headers and neighbour slices.
+- `--allow-works <on|off>` – include `:work/*` entity types in focus header
+  output (off by default).

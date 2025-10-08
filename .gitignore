@@ -1,0 +1,4 @@
+# Build and runtime artefacts
+.clj-kondo/
+.lsp/
+apps/basic-chat-demo/data/xtdb/

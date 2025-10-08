@@ -107,8 +107,7 @@
   [doc]
   (when-let [id (:entity/id doc)]
     (let [name (:entity/name doc)]
-      (cond-> {:db/id [:entity/id id]
-               :entity/id id}
+      (cond-> {:entity/id id}
         (some? name) (assoc :entity/name name)
       (:entity/type doc) (assoc :entity/type (:entity/type doc))
       (:entity/last-seen doc) (assoc :entity/last-seen (:entity/last-seen doc))
@@ -124,8 +123,7 @@
     (when (and id src dst)
       (let [src-ref [:entity/id src]
             dst-ref [:entity/id dst]]
-        (cond-> {:db/id [:relation/id id]
-                 :relation/id id
+        (cond-> {:relation/id id
                  :relation/type (:relation/type doc)
                  :relation/src src-ref
                  :relation/dst dst-ref}
@@ -170,8 +168,7 @@
           (swap! known-ids conj eid)
           (swap! entity-count inc)
           (catch Exception _
-            (let [stub {:db/id [:entity/id eid]
-                        :entity/id eid}]
+            (let [stub {:entity/id eid}]
               (d/transact! conn [stub])
               (swap! known-ids conj eid)
               (swap! stubbed! conj eid)
@@ -191,8 +188,7 @@
                                           (nil? (:entity/name tx)) (dissoc :entity/name))])
                     (when-let [id (:entity/id tx)]
                       (swap! known-ids conj id)))
-                  (let [stub {:db/id [:entity/id eid]
-                              :entity/id eid}]
+                  (let [stub {:entity/id eid}]
                     (d/transact! conn [stub])
                     (swap! known-ids conj eid)
                     (swap! stubbed! conj eid)))))]

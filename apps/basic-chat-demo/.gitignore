@@ -27,3 +27,5 @@
 /checkouts
 /classes
 /target
+# Application data files
+/data/events.ndjson

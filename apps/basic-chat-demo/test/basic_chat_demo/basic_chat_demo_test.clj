@@ -1,10 +1,36 @@
 (ns basic-chat-demo.basic-chat-demo-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [basic-chat-demo.basic-chat-demo :as sut]
             [clojure.edn :as edn]
-            [clojure.java.shell :as sh]
             [clojure.string :as str]
-            [clojure.java.io :as io])) ; system under test
+            [clojure.java.io :as io])
+  (:import (java.nio.file Files)
+           (java.nio.file.attribute FileAttribute))) ; system under test
+
+(defn- temp-dir []
+  (-> (Files/createTempDirectory "basic-chat-demo-test" (make-array FileAttribute 0))
+      (.toFile)))
+
+(defn- delete-recursively [f]
+  (when (.exists f)
+    (doseq [file (reverse (file-seq f))]
+      (io/delete-file file true))))
+
+(use-fixtures
+  :each
+  (fn [f]
+    (let [tmp (temp-dir)
+          orig-env @sut/!env
+          orig-conn @sut/!conn]
+      (reset! sut/!env {:data-dir (.getAbsolutePath tmp)
+                        :snapshot-every 100})
+      (reset! sut/!conn nil)
+      (try
+        (f)
+        (finally
+          (reset! sut/!conn orig-conn)
+          (reset! sut/!env orig-env)
+          (delete-recursively tmp))))))
 
 (defn run-script
   ([script-path]
@@ -12,13 +38,13 @@
   ([protocol script-path]
    (run-script protocol script-path []))
   ([protocol script-path extra-cli]
-   (let [cmd (concat ["clojure" "-M:run-m" "--"
-                      "--protocol" protocol
-                      "--script" script-path]
-                     extra-cli)
-         {:keys [out err exit]} (apply sh/sh cmd)]
-    (is (zero? exit) (str "non-zero exit: " err))
-    (edn/read-string out))))
+   (let [args (concat ["--protocol" protocol
+                       "--script" script-path]
+                      extra-cli)
+         out (with-out-str (apply sut/-main args))
+         trimmed (str/trim out)]
+     (is (seq trimmed) "expected EDN output from script run")
+     (edn/read-string trimmed))))
 
 (defn round2 [n]
   (when (number? n)

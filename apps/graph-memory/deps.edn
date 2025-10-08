@@ -11,7 +11,7 @@
  :aliases
  {:run-m {:main-opts ["-m" "graph-memory.graph-memory"]}
 
-  :run-x {:ns-default nlp-interface.nlp-interface
+  :run-x {:ns-default graph-memory.graph-memory
           :exec-fn greet
           :exec-args {:name "Clojure"}}
 

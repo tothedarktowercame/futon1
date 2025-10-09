@@ -13,6 +13,32 @@
         (map #(apply str %))
         vec))
 
+(def ^:private entity-type->catalog-key
+  {:person :people
+   :place :places
+   :org :orgs
+   :project :projects
+   :tool :tools})
+
+(defn- entity-catalog
+  [db]
+  (let [entities (gm/entities-by-name db nil)]
+    (->> entities
+         (reduce (fn [{:keys [seen data] :as acc} ent]
+                   (let [name (:entity/name ent)
+                         type (:entity/type ent)
+                         key (get entity-type->catalog-key type)
+                         trimmed (some-> name str/trim)
+                         normalized (some-> trimmed str/lower-case)]
+                     (if (and key (seq trimmed) (not (str/blank? trimmed))
+                              (not (contains? (get seen key #{}) normalized)))
+                       {:seen (update seen key (fnil conj #{}) normalized)
+                        :data (update data key (fnil conj [])
+                                      {:label trimmed :layer :catalog :source :catalog})}
+                       acc)))
+                 {:seen {} :data {}})
+         :data)))
+
 (def ^:private default-confidence
   {:start 0.55
    :step 0.07
@@ -337,7 +363,9 @@
          tokens (tokenize text)
          tagged (pos-tag tokens)
          now (now-from-ts ts)
-         entities (ner-v4/recognize-entities tokens tagged text now opts)
+         catalog (entity-catalog db)
+         ner-opts (assoc opts :catalog catalog)
+         entities (ner-v4/recognize-entities tokens tagged text now ner-opts)
          stored (mapv (fn [ent]
                         (let [entity (gm/ensure-entity! db {:name (:label ent)
                                                            :type (:type ent)})]

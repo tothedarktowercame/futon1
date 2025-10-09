@@ -82,3 +82,51 @@
                       :relation :supersedes
                       :direction :out}
                      (select-keys (first ctx) [:entity :entity-id :neighbor :relation :direction]))))))))))
+
+(deftest v4-ner-builds-dynamic-catalog
+  (with-temp-store
+    (fn []
+      (let [conn @sut/!conn
+            base (System/currentTimeMillis)]
+        (testing "initial mentions create entities"
+          (let [res (nlp/handle-input-v4 conn "Charlotte and I went out to eat Turkish food." base {:enable-fallback? true})
+                charlie (some #(when (= "Charlotte" (:name %)) %) (:entities res))
+                turkish (some #(when (= "Turkish" (:name %)) %) (:entities res))]
+            (is charlie)
+            (is (= :person (:type charlie)))
+            (is (= :pos (:source charlie)))
+            (is turkish)
+            (is (= :place (:type turkish)))
+            (doseq [{:keys [name type]} (:entities res)]
+              (when name
+                (store/ensure-entity! conn @sut/!env {:name name :type type}))))
+        (is (store/resolve-name->eid conn "Charlotte"))
+        (testing "catalog supplies previously mentioned people"
+          (let [res (nlp/handle-input-v4 conn "Charlotte hasn't met Pat." (+ base 1000) {:enable-fallback? true})]
+            (doseq [{:keys [name type]} (:entities res)]
+              (when name
+                (store/ensure-entity! conn @sut/!env {:name name :type type})))
+            (let [charlie (some #(when (= "Charlotte" (:name %)) %) (:entities res))
+                  pat (some #(when (= "Pat" (:name %)) %) (:entities res))]
+              (is charlie)
+              (is (= :catalog (:source charlie)))
+              (is (= :person (:type charlie)))
+              (is pat)
+              (is (= :person (:type pat)))
+              (is (= :pos (:source pat))))
+            (is (store/resolve-name->eid conn "Charlotte"))
+            (is (store/resolve-name->eid conn "Pat"))))
+        (testing "places are inferred and reused"
+          (let [res (nlp/handle-input-v4 conn "I am in Arlington." (+ base 2000) {:enable-fallback? true})]
+            (doseq [{:keys [name type]} (:entities res)]
+              (when name
+                (store/ensure-entity! conn @sut/!env {:name name :type type})))
+            (let [arl (some #(when (= "Arlington" (:name %)) %) (:entities res))]
+              (is arl)
+              (is (= :place (:type arl)))))
+          (let [res (nlp/handle-input-v4 conn "Arlington is North of Boston." (+ base 3000) {:enable-fallback? true})]
+            (let [arl (some #(when (= "Arlington" (:name %)) %) (:entities res))]
+              (is arl)
+              (is (= :catalog (:source arl)))
+              (is (= :place (:type arl))))
+            (is (store/resolve-name->eid conn "Arlington")))))))))

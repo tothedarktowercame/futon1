@@ -3,6 +3,6 @@
  {:label "Vancouver"}
  {:label "Boston"}
  {:label "New York"}
-  {:label "London"}
-  {:label "Minneapolis"}
+ {:label "London"}
+ {:label "Minneapolis"}
 ]

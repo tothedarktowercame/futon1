@@ -22,6 +22,14 @@ Commands:
   `NAME`
 - **/help** – print the inline reference
 
+### Options
+
+- `--data-dir DIR` – override the XTDB RocksDB directory (defaults to
+  `data/open-world`). Directories are created automatically when missing.
+- `--config PATH` – provide an explicit XTDB configuration EDN. Paths are
+  resolved before passing through to XT, so relative references inside the file
+  continue to work when combined with `--data-dir`.
+
 XTDB stores data under `data/open-world` by default. Override with
 `--data-dir` or set a different RocksDB config via `--config`.
 

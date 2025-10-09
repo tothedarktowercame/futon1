@@ -13,6 +13,8 @@ interactive input, scripted conversations, or golden tests.
   across protocols (including the v4 gazetteer + pattern recogniser).
 - `apps/graph-memory` – Datascript schema/helpers for the entity/relationship
   store.
+- `apps/open-world-ingest` – standalone CLI for streaming arbitrary utterances
+  into XTDB using the open-domain CoreNLP pipeline.
 
 ## Core features
 
@@ -34,6 +36,10 @@ interactive input, scripted conversations, or golden tests.
 - **Operational knobs**: `--reset` wipes the data dir, `--compact` forces a
   fresh snapshot, and `--export edn` emits a serialisable view of the current
   database.
+- **Open-world ingest**: the `apps/open-world-ingest` CLI bootstraps a
+  CoreNLP-backed pipeline that stores entities, mentions, and relations in XTDB
+  from arbitrary text (see module README for command reference and XT
+  configuration knobs).
 
 ## Limitations
 

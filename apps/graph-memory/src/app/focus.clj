@@ -4,8 +4,12 @@
             [clojure.set :as set]
             [xtdb.api :as xtdb]))
 
-(def default-allowed-types #{:person :org :project :place})
-(def allowed-types default-allowed-types)
+(def default-allowed-types
+  "Default set of entity types that the focus heuristics consider eligible."
+  #{:person :org :project :place})
+(def allowed-types
+  "Deprecated alias maintained for consumers expecting `allowed-types`."
+  default-allowed-types)
 
 (def ^:private type-weights
   {:person 1.0

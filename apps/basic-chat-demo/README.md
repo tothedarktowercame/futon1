@@ -75,6 +75,12 @@ app first hydrates from XT and then replays any remaining legacy events (when
 XT was disabled). Salience metadata such as `:entity/seen-count` and
 `:relation/last-seen` are read from XT during focus-header construction.
 
+The NER pipeline now seeds its catalogue from these mirrored entities. Every
+person, place, organisation, project, or tool you mention is upserted into the
+graph store and mirrored into XTDB; subsequent turns treat those names as
+first-class gazetteer entries (with fuzzy matching) without editing the static
+resource files.
+
 ### Command helpers
 
 Interactive bang commands still work in v5:

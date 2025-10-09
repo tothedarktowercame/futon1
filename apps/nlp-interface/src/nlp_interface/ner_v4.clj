@@ -14,13 +14,14 @@
 
 (def base-confidence
   {:gazetteer 0.70
+   :catalog 0.68
    :pattern 0.65
    :pos 0.50
    :domain 0.45
    :fallback 0.35})
 
 (def context-keywords
-  {:person #{"meet" "call" "email" "talk" "chat" "with"}
+  {:person #{"meet" "met" "call" "email" "talk" "chat" "with"}
    :place #{"in" "to" "from" "at" "fly" "travel" "visit"}
    :project #{"project" "launch" "ship" "build"}
    :tool #{"run" "use" "install" "upgrade"}
@@ -31,7 +32,10 @@
 (def place-prepositions
   #{"in" "at" "to" "into" "from" "onto" "toward" "towards" "near" "around" "across" "over"})
 
-(def sentence-initial-penalty 0.15)
+(def direction-words
+  #{"north" "south" "east" "west" "northeast" "northwest" "southeast" "southwest"})
+
+(def sentence-initial-penalty 0.05)
 (def alias-bonus 0.10)
 (def context-bonus 0.10)
 (def multi-token-bonus 0.25)
@@ -178,14 +182,58 @@
     :tools :tool
     k))
 
+(defn- dedupe-by-label [entries]
+  (letfn [(normalize [s]
+            (some-> s str/lower-case))]
+    (->> entries
+         (reduce (fn [{:keys [seen entries]} entry]
+                   (let [label (normalize (:label entry))]
+                     (if (or (nil? label) (contains? seen label))
+                       {:seen seen :entries entries}
+                       {:seen (conj seen label)
+                        :entries (conj entries entry)})))
+                 {:seen #{} :entries []})
+         :entries)))
+
+(defn- normalise-catalog [catalog]
+  (into {}
+        (for [[k entries] catalog
+              :let [normalized (->> entries
+                                    (keep normalise-entry)
+                                    (map #(assoc % :layer :catalog
+                                                 :source :catalog))
+                                    vec)]
+              :when (seq normalized)]
+          [k normalized])))
+
+(defn- merge-gazetteers [base extra]
+  (if (seq extra)
+    (reduce (fn [acc [k entries]]
+              (update acc k
+                      (fn [current]
+                        (->> (concat (or current []) entries)
+                             dedupe-by-label
+                             vec))))
+            base
+            extra)
+    base))
+
 (defn- expand-gazetteer [gz]
   (into {}
         (for [[type entries] gz]
-          [type (mapv (fn [{:keys [label aliases] :as entry}]
+          [type (mapv (fn [{:keys [label aliases layer source] :as entry}]
                         (let [variants (->> (cons label aliases)
                                             (remove #(or (nil? %) (str/blank? %)))
-                                            vec)]
-                          (assoc entry :type type :variants variants)))
+                                            vec)
+                              layer' (or layer :gazetteer)
+                              source' (or source (if (= layer' :gazetteer)
+                                                   :gazetteer
+                                                   layer'))]
+                          (-> entry
+                              (assoc :type type
+                                     :variants variants
+                                     :layer layer'
+                                     :source source'))))
                       entries)])))
 
 (defn- gazetteer-candidates [text {:keys [gazetteer]}]
@@ -193,14 +241,16 @@
     (for [[etype ents] entries
           entry ents
           variant (:variants entry)
-          span (find-occurrences text variant)]
+          span (find-occurrences text variant)
+          :let [layer (:layer entry :gazetteer)
+                source (:source entry :gazetteer)]]
       {:type (gazetteer-type etype)
        :label (:label entry)
        :matched variant
        :aliases (:aliases entry)
        :span span
-       :layer :gazetteer
-       :source :gazetteer})))
+       :layer layer
+       :source source})))
 
 (defn- fuzzy-gazetteer-candidates [token-data {:keys [gazetteer]}]
   (let [entries (expand-gazetteer gazetteer)]
@@ -210,15 +260,17 @@
           :when (<= (count variant) 5)
           token token-data
           :let [dist (levenshtein (str/lower-case variant)
-                                   (str/lower-case (:token token)) 1)]
+                                   (str/lower-case (:token token)) 1)
+                layer (:layer entry :gazetteer)
+                source (:source entry :gazetteer)]
           :when (<= dist 1)]
       {:type (gazetteer-type etype)
        :label (:label entry)
        :matched (:token token)
       :aliases (:aliases entry)
       :span (select-keys token [:start :end])
-      :layer :gazetteer
-       :source :gazetteer})))
+      :layer layer
+       :source source})))
 
 (defn- merge-gazetteer [text token-data res]
   (concat (gazetteer-candidates text res)
@@ -301,8 +353,8 @@
         label->type (into {}
                            (for [[k entries] gazetteer
                                  entry entries
-                                 variant (->> (cons (:label entry) (:aliases entry))
-                                              (remove #(or (nil? %) (str/blank? %))))]
+                                  variant (->> (cons (:label entry) (:aliases entry))
+                                               (remove #(or (nil? %) (str/blank? %))))]
                              [(str/lower-case variant) (gazetteer-type k)]))
         size (count token-data)]
     (loop [idx 0 acc []]
@@ -311,7 +363,6 @@
         (let [{:keys [token start end]} (nth token-data idx)
               tag (second (nth pos-tags idx [nil ""]))]
           (if (and (= tag "NNP")
-                   (> idx 0)
                    (titlecase? token)
                    (not (contains? stopset token)))
             (let [result (loop [j idx labels [token] span {:start start :end end}]
@@ -333,15 +384,23 @@
                     gaz-type (get label->type normalized)
                     prev-token (nth token-data (dec idx) nil)
                     prev-word (some-> prev-token :token str/lower-case)
-                    place-context? (contains? place-prepositions prev-word)
+                    context (context-window token-data span)
+                    person-context? (some #(contains? (get context-keywords :person #{}) %) context)
+                    direction? (some #(contains? direction-words %) context)
+                    place-context? (or (contains? place-prepositions prev-word)
+                                       direction?
+                                       (and (some #(contains? (get context-keywords :place #{}) %) context)
+                                            (not person-context?)))
                     org? (re-find #"(?i)(lab|ltd|inc|corp|university)" label)
                     etype (cond
                             gaz-type gaz-type
                             place-context? :place
                             org? :org
                             multi? :person
-                            :else :unknown)]
-                (if (or multi? gaz-type)
+                            person-context? :person
+                            (and (= 0 (:start span)) (not place-context?)) :person
+                            :else (when gaz-type gaz-type))]
+                (if etype
                   (recur next (conj acc {:type etype
                                          :label label
                                          :span span
@@ -487,10 +546,14 @@
 
 (defn recognize-entities
   "Recognise entities using deterministic tiered NER.
-   opts may include {:enable-fallback? boolean}."
-  [tokens pos-tags text now & [{:keys [enable-fallback?]
+   opts may include {:enable-fallback? boolean :catalog {...}}."
+  [tokens pos-tags text now & [{:keys [enable-fallback? catalog]
                                 :or {enable-fallback? false}}]]
-  (let [res (resources)
+  (let [res-base (resources)
+        catalog' (normalise-catalog catalog)
+        res (if (seq catalog')
+              (update res-base :gazetteer merge-gazetteers catalog')
+              res-base)
         token-data (token-spans text tokens)
         candidates (concat (merge-gazetteer text token-data res)
                            (pattern-candidates text now res)

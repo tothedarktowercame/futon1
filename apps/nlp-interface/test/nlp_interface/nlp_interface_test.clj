@@ -14,15 +14,17 @@
         fallback (ner-v4/recognize-entities tokens pos-tags sample-text sample-now
                                              {:enable-fallback? true})]
     (testing "baseline recognition without fallback"
-      (is (= ["Minneapolis" "12 Oct" "XTDB" "Isabella von Holstein"]
+      (is (= ["Tom" "Minneapolis" "12 Oct" "XTDB" "Isabella von Holstein"]
              (map :label entities)))
+      (is (= :person (:type (first entities))))
+      (is (= :pos (:source (first entities))))
       (is (= "2024-10-12"
              (:value (some #(when (= (:type %) :date) %) entities)))))
-    (testing "fallback adds titlecase singleton"
-      (is (= ["Tom" "Minneapolis" "12 Oct" "XTDB" "Isabella von Holstein"]
+    (testing "fallback matches baseline heuristics"
+      (is (= (map :label entities)
              (map :label fallback)))
-      (is (= :unknown (:type (first fallback))))
-      (is (= :fallback (:source (first fallback)))))))
+      (is (= :person (:type (first fallback))))
+      (is (= :pos (:source (first fallback)))))))
 
 (deftest analyze-intent-from-dictionary
   (testing "greets surface high confidence"

@@ -67,12 +67,11 @@
                                        :focus-limit 5
                                        :debug? true})]
       (is (contains? fh :debug))
-      (is (= [{:id "a"
+      (is (= [{:id ":a"
                :label "Boston"
                :type "place"
                :anchor true
                :score 5.7
                :last_seen sample-time
-               :seen_count 3
-               :pinned false}]
+               :seen_count 3}]
              (get-in fh [:debug :candidates]))))))

@@ -7,7 +7,7 @@
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute))) ; system under test
 
-(defn- temp-dir []
+(defn- temp-dir-file []
   (-> (Files/createTempDirectory "basic-chat-demo-test" (make-array FileAttribute 0))
       (.toFile)))
 
@@ -19,7 +19,7 @@
 (use-fixtures
   :each
   (fn [f]
-    (let [tmp (temp-dir)
+    (let [tmp (temp-dir-file)
           orig-env @sut/!env
           orig-conn @sut/!conn]
       (reset! sut/!env {:data-dir (.getAbsolutePath tmp)

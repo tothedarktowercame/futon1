@@ -1,7 +1,7 @@
 [{:in "Meet Tom in Minneapolis on 12 Oct about XTDB v5 with Isabella."
   :intent {:type :social-behavior :conf 0.6200000000000001}
-  :entities [{:name "Tom" :type :unknown :source :fallback :confidence 0.45
-              :id "E:unknown:tom" :span {:start 5 :end 8} :aliases []}
+  :entities [{:name "Tom" :type :person :source :pos :confidence 0.7
+              :id "E:person:tom" :span {:start 5 :end 8} :aliases []}
              {:name "Minneapolis" :type :place :source :gazetteer :confidence 0.9
               :id "E:place:minneapolis" :span {:start 12 :end 23} :aliases []}
              {:name "12 Oct" :type :date :source :pattern :confidence 0.85
@@ -11,7 +11,7 @@
              {:name "Isabella von Holstein" :type :person :source :gazetteer :confidence 0.8
               :id "E:person:isabella-von-holstein" :span {:start 53 :end 61}
               :aliases ["Isabella" "Isabella vH"]}]
-  :relations [{:type :links-to :src "Tom" :dst "Minneapolis"}
+  :relations [{:type :located-in :src "Tom" :dst "Minneapolis"}
               {:type :scheduled :src "Minneapolis" :dst "12 Oct"}
               {:type :links-to :src "12 Oct" :dst "XTDB"}
               {:type :with :src "XTDB" :dst "Isabella von Holstein"}]

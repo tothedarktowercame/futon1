@@ -55,7 +55,6 @@
   (println "       clojure -M:run-m -- --protocol basic-chat/v4 --ner-fallback")
   (println "       clojure -M:run-m -- --fh")
   (println "       clojure -M:run-m -- --fh-only")
-  (println "       clojure -M:run-m -- --fh-json")
   (println "       clojure -M:run-m -- --fh-debug")
   (System/exit 1))
 
@@ -124,10 +123,6 @@
         (recur (assoc opts :focus-header? true
                            :focus-header-only? true) more)
 
-        "--fh-json"
-        (recur (assoc opts :focus-header? true
-                           :focus-header-json? true) more)
-
         "--fh-debug"
         (recur (assoc opts :focus-header? true
                            :focus-header-debug? true) more)
@@ -137,9 +132,6 @@
 
         "--reset"
         (recur (assoc opts :reset? true) more)
-
-        "--fh-json"
-        (recur (assoc opts :fh-json? true) more)
 
         "--export"
         (if-let [value (first more)]

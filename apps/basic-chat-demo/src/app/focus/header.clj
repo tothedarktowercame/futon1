@@ -1,4 +1,4 @@
-(ns app.focus
+(ns app.focus.header
   "Human-readable focus header construction."
   (:require [clojure.string :as str]
             [datascript.core :as d]))

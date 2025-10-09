@@ -12,7 +12,7 @@
 (defn stop!
   []
   (when-let [node @!node]
-    (.close ^AutoCloseable node)
+    (.close ^java.lang.AutoCloseable node)
     (reset! !node nil)))
 
 (defn- ensure-dir! [path]
@@ -165,21 +165,21 @@
 (defn recent-relations
   [limit]
   (let [limit (long (or limit 5))
-        query {:find [?rel-id ?rel ?src-id ?src-label ?src-kind ?dst-id ?dst-label ?dst-kind ?pol ?ts]
-               :where [[?r :relation/id ?rel-id]
-                       [?r :relation/label ?rel]
-                       [?r :relation/src ?src-id]
-                       [?r :relation/dst ?dst-id]
-                       [?r :relation/polarity ?pol]
-                       [?r :relation/ts ?ts]
-                       [?src :entity/id ?src-id]
-                       [?src :entity/label ?src-label]
-                       [?src :entity/kind ?src-kind]
-                       [?dst :entity/id ?dst-id]
-                       [?dst :entity/label ?dst-label]
-                       [?dst :entity/kind ?dst-kind]]
-               :order-by [[?ts :desc]]
-               :limit limit}
+        query '{:find [?rel-id ?rel ?src-id ?src-label ?src-kind ?dst-id ?dst-label ?dst-kind ?pol ?ts]
+                 :where [[?r :relation/id ?rel-id]
+                         [?r :relation/label ?rel]
+                         [?r :relation/src ?src-id]
+                         [?r :relation/dst ?dst-id]
+                         [?r :relation/polarity ?pol]
+                         [?r :relation/ts ?ts]
+                         [?src :entity/id ?src-id]
+                         [?src :entity/label ?src-label]
+                         [?src :entity/kind ?src-kind]
+                         [?dst :entity/id ?dst-id]
+                         [?dst :entity/label ?dst-label]
+                         [?dst :entity/kind ?dst-kind]]
+                 :order-by [[?ts :desc]]
+                 :limit limit}
         results (xt/q (current-db) query)]
     (map (fn [[rel-id rel src-id src-label src-kind dst-id dst-label dst-kind pol ts]]
            {:id rel-id
@@ -188,7 +188,7 @@
             :dst {:id dst-id :label dst-label :kind dst-kind}
             :polarity pol
             :ts ts})
-         results))
+         results)))
 
 (defn ego-neighbors
   [entity-id]

@@ -70,7 +70,8 @@ The script installs OpenJDK 21, `rlwrap`, and the official Clojure CLI release.
 Run it whenever you need to bootstrap a fresh environment.
 
 Flags mirror the features above; pass `-- --help` (invalid option) to see usage
-from the CLI. Add `--fh-json` when you need a machine-readable focus header.
+from the CLI. Add `--fh` when you need a machine-readable focus header (or
+`--fh-only` to suppress the normal EDN output).
 
 ### Scripts
 
@@ -149,11 +150,10 @@ For additional operational caveats see [LIMITATIONS.md](LIMITATIONS.md).
   `events.ndjson`.
 - `--export edn` – print the serialisable EDN snapshot of the current database.
 - `--context`, `--neighbors`, `--context-cap` – control neighbour context output.
-- `--fh-json` – include a machine-readable focus header alongside the readable
-  summary.
 - `--ner-fallback` – enable the conservative fallback NER stage in protocol v4.
 - `--fh` / `--fh-only` – emit the focus header JSON alongside (or instead of)
   the normal CLI reply.
+- `--fh-debug` – expand the focus header JSON with scoring and policy metadata.
 - `--focus-days <n>` – adjust the salience lookback window used when building
   focus headers and neighbour slices.
 - `--allow-works <on|off>` – include `:work/*` entity types in focus header

@@ -358,6 +358,21 @@
     (some? allow-works?) (assoc :allow-works? allow-works?)
     (some? focus-days) (assoc :focus-days focus-days)))
 
+(defn- focus-header-data
+  [{:keys [anchors intent time turn-id policy focus-limit debug?]}]
+  (when-let [fh (header/focus-header nil {:anchors anchors
+                                          :intent intent
+                                          :time time
+                                          :turn-id turn-id
+                                          :policy policy
+                                          :focus-limit focus-limit
+                                          :debug? debug?})]
+    (let [fh-json (focus-header-json-str fh)
+          fh-lines (focus-header-lines fh)]
+      (cond-> {:focus-header fh}
+        fh-json (assoc :focus-header-json fh-json)
+        fh-lines (assoc :focus-header-lines fh-lines)))))
+
 (defn -main [& args]
   (let [raw-opts (parse-args args)
         base-opts (merge {:context? true
@@ -405,6 +420,7 @@
                           :context? (:context? opts)
                           :focus-days (:focus-days opts)
                           :allow-works? (:allow-works? opts)}
+          fh-policy (focus-policy-overrides opts)
           runner (fn [text ts]
                     (let [env-now (assoc @!env :now ts)
                           res (handle ctx text ts)

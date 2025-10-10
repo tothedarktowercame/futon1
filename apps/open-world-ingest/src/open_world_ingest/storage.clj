@@ -63,34 +63,37 @@
 
 (defn- mention-docs
   [utterance-id now entity-id occurrences]
-  (map (fn [{:entity/keys [label sentence] :mention/keys [span]}]
-         (let [mention-id (str (UUID/randomUUID))]
-           {:xt/id [:mention/id mention-id]
-            :mention/id mention-id
-            :mention/entity entity-id
-            :mention/utterance utterance-id
-            :mention/text label
-            :mention/span span
-            :mention/sentence sentence
-            :mention/ts now}))
-       occurrences))
+  (keep (fn [{:entity/keys [label sentence] :mention/keys [span]}]
+          (when span
+            (let [mention-id (str (UUID/randomUUID))]
+              {:xt/id [:mention/id mention-id]
+               :mention/id mention-id
+               :mention/entity entity-id
+               :mention/utterance utterance-id
+               :mention/text label
+               :mention/span span
+               :mention/sentence sentence
+               :mention/ts now})))
+        occurrences))
 
 (defn- relation-docs
   [utterance-id now relations]
-  (map (fn [{:relation/keys [src dst label polarity confidence subject object sentence]}]
+  (map (fn [{:relation/keys [src dst label polarity confidence subject object sentence time loc]}]
          (let [rid (util/sha1 (str src ":" label ":" dst ":" utterance-id))]
-           {:xt/id [:relation/id rid]
-            :relation/id rid
-            :relation/src src
-            :relation/dst dst
-            :relation/label label
-            :relation/subject subject
-            :relation/object object
-            :relation/polarity polarity
-            :relation/confidence confidence
-            :relation/utterance utterance-id
-            :relation/sentence sentence
-            :relation/ts now}))
+           (cond-> {:xt/id [:relation/id rid]
+                    :relation/id rid
+                    :relation/src src
+                    :relation/dst dst
+                    :relation/label label
+                    :relation/subject subject
+                    :relation/object object
+                    :relation/polarity polarity
+                    :relation/confidence confidence
+                    :relation/utterance utterance-id
+                    :relation/sentence sentence
+                    :relation/ts now}
+             time (assoc :relation/time time)
+             loc (assoc :relation/loc loc))))
        relations))
 
 (defn store-analysis!
@@ -139,12 +142,14 @@
                        :kind (:entity/kind entity)
                        :new? new?})
                     entity-results)
-     :relations (map (fn [{:relation/keys [subject object label polarity confidence]}]
-                       {:subject subject
-                        :object object
-                        :relation label
-                        :polarity polarity
-                        :confidence confidence})
+     :relations (map (fn [{:relation/keys [subject object label polarity confidence time loc]}]
+                       (cond-> {:subject subject
+                                :object object
+                                :relation label
+                                :polarity polarity
+                                :confidence confidence}
+                         time (assoc :time time)
+                         loc (assoc :loc loc)))
                      distinct-relations)}))
 
 (defn entity-by-name

@@ -22,7 +22,7 @@
 ;; Keeps track of pending event counts per data directory to trigger compaction.
 (defonce ^:private !event-count (atom {}))
 
-(declare apply-event! coerce-double coerce-long)
+(declare apply-event! coerce-double coerce-long entity-by-id entity-by-name entity->public)
 
 (defn- ensure-dir!
   [dir]
@@ -343,13 +343,25 @@
           (catch Exception ex
             (log-mirror-error! "entity" ex)))))))
 
+(defn- hydrate-endpoint-for-xt
+  [conn endpoint]
+  (let [eid (or (:entity/id endpoint)
+                (:id endpoint))
+        stored (or (entity-by-id conn eid)
+                    (when-let [name (:name endpoint)]
+                      (entity-by-name conn name)))
+        public (some-> stored entity->public)]
+    (cond-> endpoint
+      public (merge public))))
+
 (defn- maybe-mirror-relation!
-  [opts relation]
+  [opts relation conn]
   (let [xtdb-opts (:xtdb opts)]
-    (when (and (xt-enabled? xtdb-opts) (xt/started?))
-      (doseq [endpoint (->> [(get relation :src) (get relation :dst)]
-                            (remove nil?))]
-        (maybe-mirror-entity! opts endpoint))
+      (when (and (xt-enabled? xtdb-opts) (xt/started?))
+        (doseq [endpoint (->> [(get relation :src) (get relation :dst)]
+                              (remove nil?))]
+          (let [hydrated (hydrate-endpoint-for-xt conn endpoint)]
+            (maybe-mirror-entity! opts hydrated)))
       (when-let [doc (relation->xt-doc relation)]
         (try
           (xt/put-rel! doc nil nil)
@@ -761,7 +773,7 @@
                      id (assoc :id (coerce-uuid id)))]
       (let [result (tx! conn opts {:type :relation/upsert
                                    :relation payload})]
-        (maybe-mirror-relation! opts result)
+        (maybe-mirror-relation! opts result conn)
         result))))
 
 (defn- latest-by-attr

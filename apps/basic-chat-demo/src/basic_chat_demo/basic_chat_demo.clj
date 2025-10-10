@@ -290,6 +290,7 @@
                   out (runner line ts)
                   context-lines (:context out)
                   focus-header-json (:focus-header-json out)
+                  focus-header-lines* (:focus-header-lines out)
                   printable (-> out
                                 (cond-> context-lines (dissoc :context))
                                 (dissoc :focus-header))
@@ -298,6 +299,8 @@
                   new-state (assoc state :last-result out)]
               (when-not focus-header-only?
                 (print-bot-lines human))
+              (when (and focus-header? (seq focus-header-lines*))
+                (print-focus-header-lines! focus-header-lines*))
               (when (and focus-header? focus-header-json)
                 (print-focus-header-line! focus-header-json))
               (when after-turn

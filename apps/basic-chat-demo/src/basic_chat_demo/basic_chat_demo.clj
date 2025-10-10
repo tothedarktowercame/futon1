@@ -23,10 +23,6 @@
   (let [lines (some-> fh header/focus-header-lines)]
     (when (seq lines)
       lines)))
-  (when fh
-    (let [rendered (str/trim (with-out-str (header/print-fh! fh)))]
-      (when (seq rendered)
-        rendered))))
 
 (defn- getenv-nonblank [k]
   (let [v (System/getenv k)]
@@ -241,10 +237,6 @@
   [fh-lines]
   (doseq [line fh-lines]
     (println (str "fh> " line))))
-(defn- print-focus-header-line!
-  [fh-json]
-  (when (seq fh-json)
-    (println (str "fh> " fh-json))))
 
 
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
@@ -293,7 +285,7 @@
             (let [ts (System/currentTimeMillis)
                   out (runner line ts)
                   context-lines (:context out)
-                  focus-header-json (:focus-header-json out)
+                  focus-header-lines* (:focus-header-lines out)
                   printable (-> out
                                 (cond-> context-lines (dissoc :context))
                                 (dissoc :focus-header))
@@ -302,8 +294,8 @@
                   new-state (assoc state :last-result out)]
               (when-not focus-header-only?
                 (print-bot-lines human))
-              (when (and focus-header? focus-header-json)
-                (print-focus-header-line! focus-header-json))
+              (when (and focus-header? (seq focus-header-lines*))
+                (print-focus-header-lines! focus-header-lines*))
               (when after-turn
                 (after-turn))
               (recur new-state))))))))
@@ -453,18 +445,18 @@
                                                          :turn-id ts
                                                          :focus-limit (:context-cap opts)
                                                          :debug? (:focus-header-debug? opts)}))
-                          fh-json (when fh (focus-header-json-str fh))
-                          fh-lines (when fh (focus-header-lines fh))]
-                      (-> res
-                          (cond-> context-lines (assoc :context context-lines))
-                          (cond-> fh (assoc :focus-header fh))
-                          (cond-> fh-json (assoc :focus-header-json fh-json))
-                          (cond-> fh-lines (assoc :focus-header-lines fh-lines)))))
+                          fh-lines (when fh (focus-header-lines fh))
+                          fh-json (when fh (focus-header-json-str fh))]
+              (-> res
+                  (cond-> context-lines (assoc :context context-lines))
+                  (cond-> fh (assoc :focus-header fh))
+                  (cond-> fh-json (assoc :focus-header-json fh-json))
+                  (cond-> fh-lines (assoc :focus-header-lines fh-lines)))))
 
           entry-command-handler (when-let [ch (:command-handler entry)]
                                   (ch ctx))
           slash-command-handler (when (supports-entity-commands? protocol)
-                                  (slash/handler @!conn))
+                                  (slash/handler @!conn @!env))
           command-handler (cond
                             (and entry-command-handler slash-command-handler)
                             (fn [cmd state]
@@ -511,11 +503,6 @@
                   fh-lines (focus-header-lines fh)]
               (when fh-lines
                 (print-focus-header-lines! fh-lines))))
-                  content? (or (:debug fh)
-                               (some seq [(:current fh) (:history fh) (:context fh)]))
-                  fh-json (when content? (focus-header-json-str fh))]
-              (when fh-json
-                (print-focus-header-line! fh-json))))
           (interactive-loop! {:runner runner
                               :command-handler command-handler
                               :bang-handler bang-handler

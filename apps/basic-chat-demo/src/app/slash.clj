@@ -9,7 +9,9 @@
    "  /tail [n]      Show the last n relations (default 5)"
    "  /ego NAME      Display neighbors connected to the named entity"
    "  /cooccur NAME  Show entities that co-occur with the named entity"
-   "  /help          Show this help message"]) 
+   "  /forget NAME   Remove the named entity and attached relations"
+   "  /expire NAME   Reset salience counters for the named entity"
+   "  /help          Show this help message"])
 
 (defn- type-label [t]
   (cond
@@ -57,6 +59,19 @@
       (str "  - " focus-name " —" relation "→ " neighbor-name)
       (str "  - " neighbor-name " —" relation "→ " focus-name))))
 
+(defn- format-removed-relation [{:keys [type src dst confidence]}]
+  (let [relation (relation-label type)
+        src-name (name-with-type (:name src) (:type src))
+        dst-name (name-with-type (:name dst) (:type dst))]
+    (str "  - " src-name " —" relation "→ " dst-name
+         (when (number? confidence)
+           (str " (conf " (format "%.2f" (double confidence)) ")")))))
+
+(defn- removed-relations-block [relations]
+  (if (seq relations)
+    (into ["Detached relations:"] (map format-removed-relation relations))
+    ["Detached relations:" "  (none)"]))
+
 (defn- tail-section [conn limit]
   (let [rels (store/recent-relations conn limit)]
     (if (seq rels)
@@ -94,9 +109,39 @@
         (into [header] lines))
       [(str "entity not found: " name)])))
 
+(defn- forget-section [conn opts name]
+  (if (str/blank? name)
+    ["Usage: /forget <entity>"]
+    (if-let [{:keys [entity relations]} (store/forget-entity! conn opts {:name name})]
+      (let [label (name-with-type (:name entity) (:type entity))]
+        (into [(str "Removed " (or label name))]
+              (removed-relations-block relations)))
+      [(str "entity not found: " name)])))
+
+(defn- expire-section [conn opts name]
+  (if (str/blank? name)
+    ["Usage: /expire <entity>"]
+    (if-let [entity (store/expire-entity! conn opts {:name name})]
+      (let [label (name-with-type (:name entity) (:type entity))
+            seen (or (:seen-count entity) 0)
+            last (long (or (:last-seen entity) 0))
+            last-line (if (pos? last)
+                        (if-let [ts (format-timestamp last)]
+                          (str "  - last-seen → " ts)
+                          (str "  - last-seen → " last))
+                        "  - last-seen reset")
+            pin (:pinned? entity)
+            pin-line (when (some? pin)
+                       (str "  - pinned? → " pin))]
+        (cond-> [(str "Expired salience for " (or label name))
+                 (str "  - seen-count → " seen)
+                 last-line]
+          pin-line (conj pin-line)))
+      [(str "entity not found: " name)])))
+
 (defn handler
   "Return a slash-command handler bound to the Datascript connection."
-  [conn]
+  [conn opts]
   (fn [raw state]
     (let [trimmed (str/trim raw)]
       (if (str/blank? trimmed)
@@ -114,6 +159,10 @@
                    :new-state state}
             "cooccur" {:message (cooccur-section conn arg)
                         :new-state state}
+            "forget" {:message (forget-section conn opts arg)
+                       :new-state state}
+            "expire" {:message (expire-section conn opts arg)
+                       :new-state state}
             "help" {:message help-lines
                      :new-state state}
             {:message (str "unknown command: /" cmd)

@@ -96,6 +96,20 @@
               (when valid-to-ms (java.util.Date. valid-to-ms))]]]
     (submit! tx)))
 
+(defn delete-doc!
+  "Remove a document (entity or relation) from XTDB by id."
+  [id]
+  (when id
+    (submit! [[::xt/delete id]])))
+
+(defn delete-entity!
+  [id]
+  (delete-doc! id))
+
+(defn delete-rel!
+  [id]
+  (delete-doc! id))
+
 (defn q
   ([query]
    (xt/q (xt/db (ensure-node)) query))

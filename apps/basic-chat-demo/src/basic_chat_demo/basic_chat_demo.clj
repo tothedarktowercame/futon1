@@ -2,6 +2,7 @@
   (:require [app.commands :as commands]
             [app.context :as context]
             [app.header :as header]
+            [app.slash :as slash]
             [app.store :as store]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -12,6 +13,16 @@
 (def default-protocol "basic-chat/v5")
 
 (def exit-commands #{":quit" ":exit" "quit" "exit"})
+
+(defn- focus-header-json-str
+  [fh]
+  (some-> fh header/focus-header-json str/trim not-empty))
+
+(defn- focus-header-lines
+  [fh]
+  (let [lines (some-> fh header/focus-header-lines)]
+    (when (seq lines)
+      lines)))
 
 (defn- getenv-nonblank [k]
   (let [v (System/getenv k)]
@@ -222,6 +233,12 @@
         (println (str "     " line))))))
 
 
+(defn- print-focus-header-lines!
+  [fh-lines]
+  (doseq [line fh-lines]
+    (println (str "fh> " line))))
+
+
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
                                  focus-header? focus-header-only?]}]
 
@@ -259,21 +276,27 @@
                   {:keys [message new-state] :or {new-state state}}
                   (command-handler cmd state)]
               (when message
-                (println (str "bot> " message)))
+                (if (sequential? message)
+                  (print-bot-lines message)
+                  (println (str "bot> " message))))
               (recur new-state))
 
             :else
             (let [ts (System/currentTimeMillis)
                   out (runner line ts)
                   context-lines (:context out)
-                  focus-header (:focus-header out)
+                  focus-header-json (:focus-header-json out)
+                  focus-header-lines (:focus-header-lines out)
                   printable (-> out
                                 (cond-> context-lines (dissoc :context))
                                 (dissoc :focus-header))
                   rendered (context/render-context context-lines)
                   human (human-lines printable rendered)
                   new-state (assoc state :last-result out)]
-              (print-bot-lines human)
+              (when-not focus-header-only?
+                (print-bot-lines human))
+              (when (and focus-header? focus-header-lines)
+                (print-focus-header-lines! focus-header-lines))
               (when after-turn
                 (after-turn))
               (recur new-state))))))))
@@ -328,6 +351,21 @@
     (some? allow-works?) (assoc :allow-works? allow-works?)
     (some? focus-days) (assoc :focus-days focus-days)))
 
+(defn- focus-header-data
+  [{:keys [anchors intent time turn-id policy focus-limit debug?]}]
+  (when-let [fh (header/focus-header nil {:anchors anchors
+                                          :intent intent
+                                          :time time
+                                          :turn-id turn-id
+                                          :policy policy
+                                          :focus-limit focus-limit
+                                          :debug? debug?})]
+    (let [fh-json (focus-header-json-str fh)
+          fh-lines (focus-header-lines fh)]
+      (cond-> {:focus-header fh}
+        fh-json (assoc :focus-header-json fh-json)
+        fh-lines (assoc :focus-header-lines fh-lines)))))
+
 (defn -main [& args]
   (let [raw-opts (parse-args args)
         base-opts (merge {:context? true
@@ -375,6 +413,7 @@
                           :context? (:context? opts)
                           :focus-days (:focus-days opts)
                           :allow-works? (:allow-works? opts)}
+          fh-policy (focus-policy-overrides opts)
           runner (fn [text ts]
                     (let [env-now (assoc @!env :now ts)
                           res (handle ctx text ts)
@@ -398,21 +437,32 @@
                                                                                   (assoc context-config
                                                                                          :anchors (vals ensured)
                                                                                          :timestamp ts))
-                          fh-policy (focus-policy-overrides opts)
-                          fh (when (:focus-header? opts)
-                               (header/focus-header nil {:anchors (vals ensured)
-                                                         :intent (:intent res)
-                                                         :time ts
-                                                         :policy fh-policy
-                                                         :turn-id ts
-                                                         :focus-limit (:context-cap opts)
-                                                         :debug? (:focus-header-debug? opts)}))]
+                          focus-data (when (:focus-header? opts)
+                                       (focus-header-data {:anchors (vals ensured)
+                                                           :intent (:intent res)
+                                                           :time ts
+                                                           :turn-id ts
+                                                           :policy fh-policy
+                                                           :focus-limit (:context-cap opts)
+                                                           :debug? (:focus-header-debug? opts)}))]
                       (-> res
                           (cond-> context-lines (assoc :context context-lines))
-                          (cond-> fh (assoc :focus-header fh)))))
+                          (cond-> focus-data (merge focus-data)))))
 
-          command-handler (when-let [ch (:command-handler entry)]
-                            (ch ctx))
+          entry-command-handler (when-let [ch (:command-handler entry)]
+                                  (ch ctx))
+          slash-command-handler (when (supports-entity-commands? protocol)
+                                  (slash/handler @!conn))
+          command-handler (cond
+                            (and entry-command-handler slash-command-handler)
+                            (fn [cmd state]
+                              (let [result (entry-command-handler cmd state)]
+                                (if (some? (:message result))
+                                  result
+                                  (slash-command-handler cmd state))))
+                            slash-command-handler slash-command-handler
+                            entry-command-handler entry-command-handler
+                            :else nil)
           bang-handler (when (supports-entity-commands? protocol)
                          (fn [cmd state]
                            (try
@@ -437,6 +487,18 @@
                                         (:links opts)))
                            #(maybe-run-exploration! protocol ctx opts))]
           (maybe-run-exploration! protocol ctx opts)
+          (when (:focus-header? opts)
+            (let [now (System/currentTimeMillis)
+                  focus-data (focus-header-data {:anchors []
+                                                 :intent nil
+                                                 :time now
+                                                 :turn-id now
+                                                 :policy fh-policy
+                                                 :focus-limit (:context-cap opts)
+                                                 :debug? (:focus-header-debug? opts)})
+                  fh-lines (:focus-header-lines focus-data)]
+              (when fh-lines
+                (print-focus-header-lines! fh-lines))))
           (interactive-loop! {:runner runner
                               :command-handler command-handler
                               :bang-handler bang-handler

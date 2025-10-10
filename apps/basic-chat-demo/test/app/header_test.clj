@@ -42,7 +42,8 @@
                                        :turn-id 42
                                        :focus-limit 5
                                        :policy {:allow-types nil}})
-          rendered (with-out-str (header/print-fh! fh))]
+          json (header/focus-header-json fh)
+          lines (header/focus-header-lines fh)]
       (is (= 1 (count (:current fh))))
       (is (= [{:label "Boston" :type "place"}] (:current fh)))
       (is (= [{:label "Pat" :type "person" :score 4.1}] (:history fh)))
@@ -54,7 +55,10 @@
                :score 2.0
                :confidence 0.9}] (:context fh)))
       (is (nil? (:debug fh)))
-      (is (<= (count (str/trim rendered)) 2000)))))
+      (is (<= (count (str/trim (or json ""))) 2000))
+      (is (= "Focus header" (first lines)))
+      (is (some #(= "History:" %) lines))
+      (is (some #(str/includes? % "Pat (person)") lines)))))
 
 (deftest focus-header-debug-includes-raw-details
   (with-redefs [app.focus/focus-candidates (fn [_ _ _ _ _]

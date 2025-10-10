@@ -13,15 +13,6 @@ cd apps/open-world-ingest
 clojure -M:run-m
 ```
 
-Commands:
-
-- **default** – ingest the supplied line (`Charlotte lives in Arlington.`)
-- **/tail [n]** – show the most recent `n` relations (default 5)
-- **/ego NAME** – list neighbors attached to `NAME`
-- **/cooccur NAME** – show entities that have appeared in the same sentence as
-  `NAME`
-- **/help** – print the inline reference
-
 ### Options
 
 - `--data-dir DIR` – override the XTDB RocksDB directory (defaults to
@@ -37,5 +28,5 @@ XTDB stores data under `data/open-world` by default. Override with
 
 Entities use deterministic IDs: `sha1(lowercase(label) ":" kind)`. Relations
 store OpenIE verb phrases as lowercase lemmas and record negation. Every noun
-phrase mention is persisted for `/cooccur` queries, while `/ego` traverses the
-relation graph in both directions.
+phrase mention is persisted for co-occurrence analysis, while ego traversals
+follow the relation graph in both directions.

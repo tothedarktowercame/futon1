@@ -23,10 +23,6 @@
   (let [lines (some-> fh header/focus-header-lines)]
     (when (seq lines)
       lines)))
-  (when fh
-    (let [rendered (str/trim (with-out-str (header/print-fh! fh)))]
-      (when (seq rendered)
-        rendered))))
 
 (defn- getenv-nonblank [k]
   (let [v (System/getenv k)]
@@ -508,12 +504,12 @@
                                                :policy fh-policy
                                                :focus-limit (:context-cap opts)
                                                :debug? (:focus-header-debug? opts)})
-                  fh-lines (focus-header-lines fh)]
-              (when fh-lines
-                (print-focus-header-lines! fh-lines))))
+                  fh-lines (focus-header-lines fh)
                   content? (or (:debug fh)
                                (some seq [(:current fh) (:history fh) (:context fh)]))
                   fh-json (when content? (focus-header-json-str fh))]
+              (when fh-lines
+                (print-focus-header-lines! fh-lines))
               (when fh-json
                 (print-focus-header-line! fh-json))))
           (interactive-loop! {:runner runner

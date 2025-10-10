@@ -7,14 +7,15 @@
             [datascript.core :as d]
             [nlp-interface.nlp-interface :as nlp]))
 
-(def default-env {:data-dir "data" :snapshot-every 100})
+(def default-env @sut/!env)
 
 (defn with-temp-store [f]
   (let [dir (doto (java.io.File. (System/getProperty "java.io.tmpdir")
                                   (str (gensym "v4-demo-")))
               (.mkdirs))
-        env {:data-dir (.getAbsolutePath dir)
-             :snapshot-every 100}]
+        env (-> default-env
+                (assoc :data-dir (.getAbsolutePath dir))
+                (assoc :snapshot-every 100))]
     (try
       (reset! sut/!env env)
       (sut/boot!)

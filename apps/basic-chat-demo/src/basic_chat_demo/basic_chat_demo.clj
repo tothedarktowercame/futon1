@@ -285,7 +285,6 @@
             (let [ts (System/currentTimeMillis)
                   out (runner line ts)
                   context-lines (:context out)
-                  focus-header-json (:focus-header-json out)
                   focus-header-lines* (:focus-header-lines out)
                   printable (-> out
                                 (cond-> context-lines (dissoc :context))
@@ -297,8 +296,6 @@
                 (print-bot-lines human))
               (when (and focus-header? (seq focus-header-lines*))
                 (print-focus-header-lines! focus-header-lines*))
-              (when (and focus-header? focus-header-json)
-                (print-focus-header-line! focus-header-json))
               (when after-turn
                 (after-turn))
               (recur new-state))))))))
@@ -503,14 +500,9 @@
                                                :policy fh-policy
                                                :focus-limit (:context-cap opts)
                                                :debug? (:focus-header-debug? opts)})
-                  fh-lines (focus-header-lines fh)
-                  content? (or (:debug fh)
-                               (some seq [(:current fh) (:history fh) (:context fh)]))
-                  fh-json (when content? (focus-header-json-str fh))]
+                  fh-lines (focus-header-lines fh)]
               (when fh-lines
-                (print-focus-header-lines! fh-lines))
-              (when fh-json
-                (print-focus-header-line! fh-json))))
+                (print-focus-header-lines! fh-lines))))
           (interactive-loop! {:runner runner
                               :command-handler command-handler
                               :bang-handler bang-handler

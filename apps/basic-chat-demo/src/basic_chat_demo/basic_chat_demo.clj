@@ -23,6 +23,10 @@
   (let [lines (some-> fh header/focus-header-lines)]
     (when (seq lines)
       lines)))
+  (when fh
+    (let [rendered (str/trim (with-out-str (header/print-fh! fh)))]
+      (when (seq rendered)
+        rendered))))
 
 (defn- getenv-nonblank [k]
   (let [v (System/getenv k)]
@@ -237,6 +241,10 @@
   [fh-lines]
   (doseq [line fh-lines]
     (println (str "fh> " line))))
+(defn- print-focus-header-line!
+  [fh-json]
+  (when (seq fh-json)
+    (println (str "fh> " fh-json))))
 
 
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
@@ -286,7 +294,6 @@
                   out (runner line ts)
                   context-lines (:context out)
                   focus-header-json (:focus-header-json out)
-                  focus-header-lines (:focus-header-lines out)
                   printable (-> out
                                 (cond-> context-lines (dissoc :context))
                                 (dissoc :focus-header))
@@ -295,8 +302,8 @@
                   new-state (assoc state :last-result out)]
               (when-not focus-header-only?
                 (print-bot-lines human))
-              (when (and focus-header? focus-header-lines)
-                (print-focus-header-lines! focus-header-lines))
+              (when (and focus-header? focus-header-json)
+                (print-focus-header-line! focus-header-json))
               (when after-turn
                 (after-turn))
               (recur new-state))))))))
@@ -488,6 +495,11 @@
                   fh-lines (focus-header-lines fh)]
               (when fh-lines
                 (print-focus-header-lines! fh-lines))))
+                  content? (or (:debug fh)
+                               (some seq [(:current fh) (:history fh) (:context fh)]))
+                  fh-json (when content? (focus-header-json-str fh))]
+              (when fh-json
+                (print-focus-header-line! fh-json))))
           (interactive-loop! {:runner runner
                               :command-handler command-handler
                               :bang-handler bang-handler

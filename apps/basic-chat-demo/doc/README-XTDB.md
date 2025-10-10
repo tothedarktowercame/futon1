@@ -23,11 +23,11 @@ reuses the configured RocksDB path and keeps logging quiet via the SLF4J NOP bac
 ## 2. Inspect entities mentioning Pat
 
 ```clojure
-(require '[xtdb.api :as xt])
+(require '[xtdb.api :as xta])
 
 (def db (xt/db))
 
-(xt/q db '{:find  [(pull ?e [:entity/id :entity/name :entity/type :entity/seen-count :entity/last-seen])]
+(xta/q db '{:find  [(pull ?e [:entity/id :entity/name :entity/type :entity/seen-count :entity/last-seen])]
           :where [[?e :entity/name "Pat"]]})
 ```
 
@@ -35,7 +35,7 @@ The result is a vector containing an entity map. You can transform the pull to
 see linked relations:
 
 ```clojure
-(xt/q db '{:find  [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/last-seen])]
+(xta/q db '{:find  [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/last-seen])]
           :where [[?r :relation/src [:entity/id #uuid "b65e9a08-09b1-46e1-af13-d1f33e730ead"]]]})
 ```
 
@@ -44,17 +44,17 @@ Replace the UUID with the one returned in the previous step.
 ## 3. Count all stored entities or relations
 
 ```clojure
-(xt/q db '{:find  [(count ?e)]
+(xta/q db '{:find  [(count ?e)]
           :where [[?e :entity/id _]]})
 
-(xt/q db '{:find  [(count ?r)]
+(xta/q db '{:find  [(count ?r)]
           :where [[?r :relation/id _]]})
 ```
 
 To get both counts at once:
 
 ```clojure
-(xt/q db '{:find  [(count ?e) (count ?r)]
+(xta/q db '{:find  [(count ?e) (count ?r)]
           :where [[?e :entity/id _]
                   [?r :relation/id _]]})
 ```
@@ -64,7 +64,7 @@ To get both counts at once:
 Always close the node when the session ends:
 
 ```clojure
-(xt/stop!)
+(xta/stop!)
 ```
 
 This keeps RocksDB from holding open file locks between runs.

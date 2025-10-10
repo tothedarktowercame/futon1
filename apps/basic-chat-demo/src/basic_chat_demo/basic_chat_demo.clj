@@ -13,6 +13,13 @@
 
 (def exit-commands #{":quit" ":exit" "quit" "exit"})
 
+(defn- focus-header-json-str
+  [fh]
+  (when fh
+    (let [rendered (str/trim (with-out-str (header/print-fh! fh)))]
+      (when (seq rendered)
+        rendered))))
+
 (defn- getenv-nonblank [k]
   (let [v (System/getenv k)]
     (when (and v (not (str/blank? v)))
@@ -222,6 +229,12 @@
         (println (str "     " line))))))
 
 
+(defn- print-focus-header-line!
+  [fh-json]
+  (when (seq fh-json)
+    (println (str "fh> " fh-json))))
+
+
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
                                  focus-header? focus-header-only?]}]
 
@@ -266,14 +279,17 @@
             (let [ts (System/currentTimeMillis)
                   out (runner line ts)
                   context-lines (:context out)
-                  focus-header (:focus-header out)
+                  focus-header-json (:focus-header-json out)
                   printable (-> out
                                 (cond-> context-lines (dissoc :context))
                                 (dissoc :focus-header))
                   rendered (context/render-context context-lines)
                   human (human-lines printable rendered)
                   new-state (assoc state :last-result out)]
-              (print-bot-lines human)
+              (when-not focus-header-only?
+                (print-bot-lines human))
+              (when (and focus-header? focus-header-json)
+                (print-focus-header-line! focus-header-json))
               (when after-turn
                 (after-turn))
               (recur new-state))))))))
@@ -406,10 +422,12 @@
                                                          :policy fh-policy
                                                          :turn-id ts
                                                          :focus-limit (:context-cap opts)
-                                                         :debug? (:focus-header-debug? opts)}))]
+                                                         :debug? (:focus-header-debug? opts)}))
+                          fh-json (when fh (focus-header-json-str fh))]
                       (-> res
                           (cond-> context-lines (assoc :context context-lines))
-                          (cond-> fh (assoc :focus-header fh)))))
+                          (cond-> fh (assoc :focus-header fh))
+                          (cond-> fh-json (assoc :focus-header-json fh-json)))))
 
           command-handler (when-let [ch (:command-handler entry)]
                             (ch ctx))
@@ -437,6 +455,20 @@
                                         (:links opts)))
                            #(maybe-run-exploration! protocol ctx opts))]
           (maybe-run-exploration! protocol ctx opts)
+          (when (:focus-header? opts)
+            (let [now (System/currentTimeMillis)
+                  fh-policy (focus-policy-overrides opts)
+                  fh (header/focus-header nil {:anchors []
+                                               :time now
+                                               :turn-id now
+                                               :policy fh-policy
+                                               :focus-limit (:context-cap opts)
+                                               :debug? (:focus-header-debug? opts)})
+                  content? (or (:debug fh)
+                               (some seq [(:current fh) (:history fh) (:context fh)]))
+                  fh-json (when content? (focus-header-json-str fh))]
+              (when fh-json
+                (print-focus-header-line! fh-json))))
           (interactive-loop! {:runner runner
                               :command-handler command-handler
                               :bang-handler bang-handler

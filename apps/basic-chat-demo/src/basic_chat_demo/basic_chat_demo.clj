@@ -456,7 +456,7 @@
           entry-command-handler (when-let [ch (:command-handler entry)]
                                   (ch ctx))
           slash-command-handler (when (supports-entity-commands? protocol)
-                                  (slash/handler @!conn))
+                                  (slash/handler @!conn @!env))
           command-handler (cond
                             (and entry-command-handler slash-command-handler)
                             (fn [cmd state]

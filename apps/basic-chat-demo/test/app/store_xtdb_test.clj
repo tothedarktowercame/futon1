@@ -83,3 +83,75 @@
       (finally
         (xt/stop!)
         (delete-recursive dir)))))
+
+(deftest forget-entity-prunes-xtdb-and-datascript
+  (let [dir (temp-dir)
+        env {:data-dir (.getAbsolutePath dir)
+             :snapshot-every 100
+             :xtdb {:enabled? true
+                    :config-path xt-config-path}}
+        conn (store/restore! env)
+        now (System/currentTimeMillis)
+        env-now (assoc env :now now)]
+    (try
+      (let [how (store/ensure-entity! conn env-now {:name "How" :type :person})
+            cambridge (store/ensure-entity! conn env-now {:name "Cambridge" :type :place})
+            relation (store/upsert-relation! conn env-now {:type :located-in
+                                                           :src {:name "How"}
+                                                           :dst {:name "Cambridge"}
+                                                           :confidence 0.4})
+            result (store/forget-entity! conn env {:name "How"})]
+        (testing "entity metadata is returned"
+          (is (= (:id how) (get-in result [:entity :id])))
+          (is (= (:type how) (get-in result [:entity :type]))))
+        (testing "relations referencing the entity are reported"
+          (is (= #{(:id relation)} (set (map :id (:relations result))))))
+        (testing "entity removed from Datascript"
+          (is (nil? (store/resolve-name->eid conn "How"))))
+        (testing "entity and relations removed from XTDB"
+          (is (empty? (xt/q '{:find [?e]
+                               :where [[?e :entity/name "How"]]})))
+          (is (nil? (xt/entity (:id relation)))))
+        (testing "remaining entities stay intact"
+          (is (= (:id cambridge)
+                 (:id (store/resolve-name->eid conn "Cambridge"))))))
+      (finally
+        (xt/stop!)
+        (delete-recursive dir)))))
+
+(deftest expire-entity-resets-salience
+  (let [dir (temp-dir)
+        env {:data-dir (.getAbsolutePath dir)
+             :snapshot-every 100
+             :xtdb {:enabled? true
+                    :config-path xt-config-path}}
+        conn (store/restore! env)
+        now (System/currentTimeMillis)
+        env-now (assoc env :now now)]
+    (try
+      (let [_ (store/ensure-entity! conn env-now {:name "Pat"
+                                                  :type :person
+                                                  :seen-count 5
+                                                  :pinned? true})
+            expired (store/expire-entity! conn env {:name "Pat"})
+            doc (-> (xt/q '{:find [(pull ?e [:entity/seen-count :entity/last-seen :entity/pinned?])]
+                            :in [?id]
+                            :where [[?e :entity/id ?id]]}
+                          (:id expired))
+                    first first)]
+        (testing "Datascript view reflects reset salience"
+          (is (= 0 (:seen-count expired)))
+          (is (= 0 (:last-seen expired)))
+          (is (false? (:pinned? expired))))
+        (testing "XTDB mirrors the reset metadata"
+          (is (= 0 (:entity/seen-count doc)))
+          (is (= 0 (:entity/last-seen doc)))
+          (is (false? (:entity/pinned? doc))))
+        (testing "expire without target returns nil"
+          (is (nil? (store/expire-entity! conn env {:name "Nonexistent"}))))
+        (testing "forget without target returns nil"
+          (is (nil? (store/forget-entity! conn env {:name "Missing"}))))
+        )
+      (finally
+        (xt/stop!)
+        (delete-recursive dir)))))

@@ -115,7 +115,21 @@ relations. Two core scoring functions live in `app.focus`:
 Because both heuristics read directly from XTDB, you will see stale focus data
 if the node is not running.
 
-## 6. Troubleshooting empty query results
+## 6. Correcting mistakes
+
+Use the CLI to prune bad facts without touching the raw RocksDB files:
+
+* `/forget NAME` removes the named entity and any relations that reference it.
+  The command updates Datascript and issues `::xt/delete` transactions so the
+  XTDB catalog stays in sync.
+* `/expire NAME` resets an entity's salience metadata (seen-count and
+  last-seen) and clears any pinned flag. This is useful when a mention should
+  stay in the catalogue but stop surfacing in the focus header.
+
+Both commands append explicit events to the legacy log so replays and snapshot
+restores reach the same state.
+
+## 7. Troubleshooting empty query results
 
 If the examples above return `{}`:
 

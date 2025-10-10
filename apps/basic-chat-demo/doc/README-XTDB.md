@@ -87,7 +87,7 @@ To get both counts at once:
 Always close the node when the session ends:
 
 ```clojure
-(xt/stop!)
+(xta/stop!)
 ```
 
 This keeps RocksDB from holding open file locks between runs.

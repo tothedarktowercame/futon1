@@ -728,11 +728,15 @@
                          :seen-count final-count}
                   final-type (assoc :type final-type)
                   has-pinned? (assoc :pinned? final-pinned))]
-    (let [result (-> (tx! conn opts {:type :entity/upsert
-                                     :entity payload})
-                     (select-keys [:id :name :type :db/eid :last-seen :seen-count :pinned?]))]
-      (maybe-mirror-entity! opts result)
-      result)))
+    (let [applied (tx! conn opts {:type :entity/upsert
+                                  :entity payload})
+          entity-id (:id applied)
+          stored (or (entity-by-id conn entity-id)
+                     (entity-by-name conn name))
+          public (or (some-> stored entity->public)
+                     (select-keys applied [:id :name :type :db/eid :last-seen :seen-count :pinned?]))]
+      (maybe-mirror-entity! opts public)
+      public)))
 
 (defn upsert-relation!
   "Upsert a relation edge between two entities using the event log.

@@ -6,7 +6,7 @@ you are running inside `apps/basic-chat-demo/`.
 ## 1. Start a REPL with the same datastore
 
 ```bash
-BASIC_CHAT_DATA_DIR=data \
+BASIC_CHAT_DATA_DIR=data/xtdb \
 BASIC_CHAT_XTDB_RESOURCE=resources/xtdb-test.edn \
 clojure -M:repl
 ```

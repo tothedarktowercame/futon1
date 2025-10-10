@@ -237,10 +237,6 @@
   [fh-lines]
   (doseq [line fh-lines]
     (println (str "fh> " line))))
-(defn- print-focus-header-line!
-  [fh-json]
-  (when (seq fh-json)
-    (println (str "fh> " fh-json))))
 
 
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
@@ -452,13 +448,13 @@
                                                          :turn-id ts
                                                          :focus-limit (:context-cap opts)
                                                          :debug? (:focus-header-debug? opts)}))
-                          fh-json (when fh (focus-header-json-str fh))
-                          fh-lines (when fh (focus-header-lines fh))]
-                      (-> res
-                          (cond-> context-lines (assoc :context context-lines))
-                          (cond-> fh (assoc :focus-header fh))
-                          (cond-> fh-json (assoc :focus-header-json fh-json))
-                          (cond-> fh-lines (assoc :focus-header-lines fh-lines)))))
+                          fh-lines (when fh (focus-header-lines fh))
+                          fh-json (when fh (focus-header-json-str fh))]
+              (-> res
+                  (cond-> context-lines (assoc :context context-lines))
+                  (cond-> fh (assoc :focus-header fh))
+                  (cond-> fh-json (assoc :focus-header-json fh-json))
+                  (cond-> fh-lines (assoc :focus-header-lines fh-lines)))))
 
           entry-command-handler (when-let [ch (:command-handler entry)]
                                   (ch ctx))

@@ -2,7 +2,7 @@
 
 `basic-chat-demo` is the command-line driver for the Futon focus-header stack. It
 streams user turns through the deterministic NLP pipeline, mirrors entities and
-relations into XTDB, and emits a JSON **focus header** suitable for agent
+relations into XTDB, and emits a plain-text **focus header** suitable for agent
 prompts.
 
 If you are looking for older protocols (`basic-chat/v1` … `v4`) see
@@ -16,10 +16,11 @@ What happens:
 2. Datascript hydrates from XT so salience metadata is available immediately.
 3. The CLI enters interactive mode. After each user turn you will see:
    - the standard EDN result map from the pipeline, **and**
-   - a `fh>` line containing the focus header JSON (because of `--fh`).
+   - `fh>` lines containing the formatted focus header (because of `--fh`).
 
-Use `:quit` (or `Ctrl+D`) to exit. Add `--fh-only` if you only need the JSON
-header (for example, when an external client handles the response rendering).
+Use `:quit` (or `Ctrl+D`) to exit. Add `--fh-only` if you only need the focus
+header output (for example, when an external client handles the response
+rendering).
 
 ## Key concepts
 
@@ -87,13 +88,19 @@ Interactive bang commands still work in v5:
 
 - `!entity <name> [:type]` – upsert an entity and update salience timestamps.
 - `!rel <src> <type> <dst> [since … until … note …]` – record structured edges.
-- `/links`, `/diff`, etc. continue to work for inspection.
+
+Slash commands expose the XTDB-backed memory graph without leaving the CLI:
+
+- `/tail [n]` – inspect the most recent relations (default `n = 5`).
+- `/ego NAME` – list incoming/outgoing neighbors for an entity.
+- `/cooccur NAME` – show entities that frequently co-occur with the target.
+- `/help` – print the quick reference for these commands.
 
 ## CLI reference (v5 focus header)
 
 | Flag | Purpose |
 |------|---------|
-| `--fh` | Print the focus header JSON after each turn. |
+| `--fh` | Print the focus header summary after each turn. |
 | `--fh-only` | Suppress the normal EDN response; emit only the focus header. |
 | `--focus-days <n>` | Salience lookback window (days). |
 | `--allow-works <on|off>` | Include work/project entities in focus slices. |

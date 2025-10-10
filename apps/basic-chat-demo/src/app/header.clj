@@ -1,6 +1,7 @@
 (ns app.header
   (:require [app.focus :as focus]
-            [cheshire.core :as json]))
+            [cheshire.core :as json]
+            [clojure.string :as str]))
 
 (def default-policy
   {:allow-types focus/default-allowed-types
@@ -172,6 +173,59 @@
                                        :neighbors (vec (keep #(neighbor-debug focus-map %) neighbor-entries))}))]
     header))
 
-(defn print-fh!
+(defn focus-header-json
+  "Serialize the provided focus header to JSON, trimming oversized sections."
   [fh]
-  (println (json/generate-string (shrink-header fh))))
+  (when fh
+    (json/generate-string (shrink-header fh))))
+
+(defn- label-with-type [label type]
+  (if (and type (not (str/blank? type)))
+    (str label " (" type ")")
+    label))
+
+(defn- history-line [{:keys [label type score pinned]}]
+  (let [base (label-with-type label type)
+        extras (->> [(when score (format "score %.2f" (double score)))
+                     (when pinned "pinned")]
+                    (remove nil?)
+                    (str/join ", "))]
+    (str "  - " base (when (seq extras)
+                        (str " — " extras)))))
+
+(defn- current-line [{:keys [label type]}]
+  (str "  - " (label-with-type label type)))
+
+(defn- context-line [{:keys [focus relation neighbor neighbor_type direction score confidence]}]
+  (let [relation (or relation "?")
+        neighbor-label (label-with-type neighbor neighbor_type)
+        [subject object] (if (= direction "in")
+                           [neighbor-label (or focus "?")]
+                           [(or focus "?") neighbor-label])
+        base (str "  - " subject " —" relation "→ " object)
+        extras (->> [(when score (format "score %.2f" (double score)))
+                     (when confidence (format "conf %.2f" (double confidence)))]
+                    (remove nil?)
+                    (str/join ", "))]
+    (str base (when (seq extras)
+                (str " (" extras ")")))))
+
+(defn- section-lines [title entries formatter]
+  (let [entries (vec (remove nil? entries))]
+    (if (seq entries)
+      (into [(str title ":")] (map formatter entries))
+      [(str title ":") "  (none)"])))
+
+(defn focus-header-lines
+  "Render the focus header as annotated plain-text sections."
+  [fh]
+  (when fh
+    (let [hdr (shrink-header fh)
+          current (:current hdr)
+          history (:history hdr)
+          context (:context hdr)
+          lines (concat ["Focus header"]
+                        (section-lines "Current focus" current current-line)
+                        (section-lines "History" history history-line)
+                        (section-lines "Enriched context" context context-line))]
+      (vec lines))))

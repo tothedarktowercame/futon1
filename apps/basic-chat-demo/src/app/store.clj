@@ -759,3 +759,96 @@
                                    :relation payload})]
         (maybe-mirror-relation! opts result)
         result))))
+
+(defn- latest-by-attr
+  [db attr limit]
+  (let [primary (vec (d/datoms db :avet attr))
+        fallback (when (empty? primary)
+                   (if (= attr :relation/last-seen)
+                     (vec (d/datoms db :aevt :relation/type))
+                     (vec (d/datoms db :aevt attr))))
+        source (if (seq primary) primary (or fallback []))]
+    (loop [idx (dec (count source))
+           seen #{ }
+           acc []]
+      (if (or (< idx 0) (>= (count acc) limit))
+        acc
+        (let [datom (nth source idx)
+              eid (:e datom)]
+          (if (seen eid)
+            (recur (dec idx) seen acc)
+            (recur (dec idx) (conj seen eid) (conj acc eid))))))))
+
+(defn recent-relations
+  "Return the most recent relation edges recorded in Datascript."
+  ([conn]
+   (recent-relations conn 5))
+  ([conn limit]
+   (let [db @conn
+         limit (max 1 (long (or limit 5)))
+         eids (latest-by-attr db :relation/last-seen limit)]
+     (->> eids
+          (map (fn [eid]
+                 (let [rel (d/pull db '[:relation/id :relation/type :relation/last-seen :relation/confidence
+                                         {:relation/src [:entity/id :entity/name :entity/type]}
+                                         {:relation/dst [:entity/id :entity/name :entity/type]}]
+                                    eid)]
+                   (when rel
+                     {:id (:relation/id rel)
+                      :type (:relation/type rel)
+                      :last-seen (:relation/last-seen rel)
+                      :confidence (:relation/confidence rel)
+                      :src {:id (get-in rel [:relation/src :entity/id])
+                            :name (get-in rel [:relation/src :entity/name])
+                            :type (get-in rel [:relation/src :entity/type])}
+                      :dst {:id (get-in rel [:relation/dst :entity/id])
+                            :name (get-in rel [:relation/dst :entity/name])
+                            :type (get-in rel [:relation/dst :entity/type])}})))
+          (remove nil?)
+          vec)))))
+
+(defn cooccurring-entities
+  "Return entities that share relations with the provided entity-id.
+   Results include appearance counts sorted by frequency."
+  ([conn entity-id]
+   (cooccurring-entities conn entity-id {:limit 10}))
+  ([conn entity-id {:keys [limit] :or {limit 10}}]
+   (when entity-id
+     (let [db @conn
+           collect (fn [query]
+                     (d/q query db entity-id))
+           outgoing (collect '[:find ?other-id ?other-name ?other-type (count ?rel)
+                               :in $ ?target
+                               :where
+                               [?e :entity/id ?target]
+                               [?rel :relation/src ?e]
+                               [?rel :relation/dst ?other]
+                               [?other :entity/id ?other-id]
+                               [?other :entity/name ?other-name]
+                               [(get-else $ ?other :entity/type nil) ?other-type]
+                               [(not= ?other ?e)]])
+           incoming (collect '[:find ?other-id ?other-name ?other-type (count ?rel)
+                               :in $ ?target
+                               :where
+                               [?e :entity/id ?target]
+                               [?rel :relation/dst ?e]
+                               [?rel :relation/src ?other]
+                               [?other :entity/id ?other-id]
+                               [?other :entity/name ?other-name]
+                               [(get-else $ ?other :entity/type nil) ?other-type]
+                               [(not= ?other ?e)]])
+           merged (reduce (fn [acc [id name type cnt]]
+                            (let [entry (get acc id {:id id :name name :count 0})
+                                  entry (-> entry
+                                            (update :count + cnt)
+                                            (cond-> (and type (nil? (:type entry))) (assoc :type type)))]
+                              (assoc acc id entry)))
+                          {}
+                          (concat outgoing incoming))
+           sorted (->> merged
+                       vals
+                       (sort-by (juxt (comp - :count) :name))
+                       (take (max 1 limit))
+                       vec)]
+       sorted))))
+

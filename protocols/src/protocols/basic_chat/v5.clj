@@ -4,7 +4,8 @@
 (def intro
   ["Protocol basic-chat/v5 — XT-backed focus header with v4 NER pipeline."
    "Entities and relations mirror into XTDB and populate the focus header stream."
-   "Use --fh or --fh-only to inspect the focus header payload after each turn."])
+   "Use --fh or --fh-only to inspect the focus header payload after each turn."
+   "Slash commands: /tail, /ego, /cooccur, and /help surface XTDB highlights."])
 
 (defn init []
   (v4/init))

@@ -2,6 +2,7 @@
   (:require [app.commands :as commands]
             [app.context :as context]
             [app.header :as header]
+            [app.slash :as slash]
             [app.store :as store]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -15,6 +16,13 @@
 
 (defn- focus-header-json-str
   [fh]
+  (some-> fh header/focus-header-json str/trim not-empty))
+
+(defn- focus-header-lines
+  [fh]
+  (let [lines (some-> fh header/focus-header-lines)]
+    (when (seq lines)
+      lines)))
   (when fh
     (let [rendered (str/trim (with-out-str (header/print-fh! fh)))]
       (when (seq rendered)
@@ -229,6 +237,10 @@
         (println (str "     " line))))))
 
 
+(defn- print-focus-header-lines!
+  [fh-lines]
+  (doseq [line fh-lines]
+    (println (str "fh> " line))))
 (defn- print-focus-header-line!
   [fh-json]
   (when (seq fh-json)
@@ -272,7 +284,9 @@
                   {:keys [message new-state] :or {new-state state}}
                   (command-handler cmd state)]
               (when message
-                (println (str "bot> " message)))
+                (if (sequential? message)
+                  (print-bot-lines message)
+                  (println (str "bot> " message))))
               (recur new-state))
 
             :else
@@ -423,14 +437,28 @@
                                                          :turn-id ts
                                                          :focus-limit (:context-cap opts)
                                                          :debug? (:focus-header-debug? opts)}))
-                          fh-json (when fh (focus-header-json-str fh))]
+                          fh-json (when fh (focus-header-json-str fh))
+                          fh-lines (when fh (focus-header-lines fh))]
                       (-> res
                           (cond-> context-lines (assoc :context context-lines))
                           (cond-> fh (assoc :focus-header fh))
-                          (cond-> fh-json (assoc :focus-header-json fh-json)))))
+                          (cond-> fh-json (assoc :focus-header-json fh-json))
+                          (cond-> fh-lines (assoc :focus-header-lines fh-lines)))))
 
-          command-handler (when-let [ch (:command-handler entry)]
-                            (ch ctx))
+          entry-command-handler (when-let [ch (:command-handler entry)]
+                                  (ch ctx))
+          slash-command-handler (when (supports-entity-commands? protocol)
+                                  (slash/handler @!conn))
+          command-handler (cond
+                            (and entry-command-handler slash-command-handler)
+                            (fn [cmd state]
+                              (let [result (entry-command-handler cmd state)]
+                                (if (some? (:message result))
+                                  result
+                                  (slash-command-handler cmd state))))
+                            slash-command-handler slash-command-handler
+                            entry-command-handler entry-command-handler
+                            :else nil)
           bang-handler (when (supports-entity-commands? protocol)
                          (fn [cmd state]
                            (try
@@ -464,6 +492,9 @@
                                                :policy fh-policy
                                                :focus-limit (:context-cap opts)
                                                :debug? (:focus-header-debug? opts)})
+                  fh-lines (focus-header-lines fh)]
+              (when fh-lines
+                (print-focus-header-lines! fh-lines))))
                   content? (or (:debug fh)
                                (some seq [(:current fh) (:history fh) (:context fh)]))
                   fh-json (when content? (focus-header-json-str fh))]

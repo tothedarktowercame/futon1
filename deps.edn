@@ -1,0 +1,3 @@
+{:aliases
+ {:headless-api {:deps {headless-api/headless-api {:local/root "apps/headless-api"}}
+                 :main-opts ["-m" "headless_api.server"]}}}

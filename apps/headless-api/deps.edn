@@ -1,0 +1,14 @@
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.1"}
+        cheshire/cheshire {:mvn/version "5.11.0"}
+        basic-chat-demo/basic-chat-demo {:local/root "../basic-chat-demo"}
+        protocols/protocols {:local/root "../../protocols"}}
+
+ :aliases
+ {:run-m {:main-opts ["-m" "headless_api.server"]}
+  :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.10"}}
+          :ns-default build}
+  :test {:extra-paths ["test"]
+         :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1"
+                                                            :git/sha "dfb30dd"}
+                      org.clojure/test.check {:mvn/version "1.1.1"}}}}}

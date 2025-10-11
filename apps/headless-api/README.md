@@ -1,0 +1,73 @@
+# headless-api
+
+`headless-api` exposes the deterministic Futon pipeline over HTTP without
+LLM calls. It mirrors the `basic-chat-demo` persistence stack (Datascript with
+XTDB salience) and provides JSON/text endpoints that align with the focus-header
+UX from the CLI.
+
+## Running the server
+
+```bash
+cd apps/headless-api
+clojure -M:run-m
+```
+
+Environment variables:
+
+- `ALPHA_PORT` – listen port (default `8080`).
+- `ALPHA_PROFILE` – default profile name when `X-Profile` header is absent.
+- `BASIC_CHAT_DATA_DIR` – root data directory (default `apps/headless-api/data`).
+- `BASIC_CHAT_XTDB_RESOURCE` / `BASIC_CHAT_XTDB_ENABLED` – override XTDB config.
+
+A root alias is also available:
+
+```bash
+clojure -M:headless-api
+```
+
+## Example workflow
+
+```bash
+# Start the service
+clojure -M:headless-api
+
+# Send a turn and persist salience
+curl -s -X POST localhost:8080/api/alpha/turns \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Serena is presenting tomorrow.","protocol":"basic-chat/v5"}' | jq .
+
+# Inspect the focus header (all responses include X-API-Version: α)
+curl -s -i localhost:8080/api/alpha/focus-header | grep X-API-Version
+
+# Structured profile document
+curl -s localhost:8080/api/alpha/me | jq .
+
+# Distilled summary (defaults to 2000 chars)
+curl -s localhost:8080/api/alpha/me/summary?limit_chars=2000
+```
+
+All routes are mounted twice: `/api/α/...` is canonical while `/api/alpha/...`
+provides an ASCII alias for proxies or clients that cannot emit unicode paths.
+
+## Routes
+
+| Method & Path | Description |
+|---------------|-------------|
+| `POST /api/α/turns` | Run the deterministic pipeline (`{text, ts?, source?, protocol?}`) and return entities, relations, intent, context, and `focus_header`. |
+| `GET /api/α/focus-header` | Return the current focus header. Accepts `focus_days` and `allow_works` query parameters. |
+| `GET /api/α/me` | Fetch the structured profile document for the active profile. |
+| `POST /api/α/me` | Shallow merge the provided map into the profile (`Content-Type: application/json`). |
+| `GET /api/α/me/summary` | Return a text summary (defaults to `limit_chars=2000`). |
+| `POST /api/α/ingest` | Bulk ingest plain text or NDJSON turns. Optional header `X-Chunking: sentences`. |
+| `POST /api/α/entity` | Programmatic entity ensure (`{name, type?}`). |
+| `POST /api/α/relation` | Programmatic relation upsert (`{type, src, dst}`). |
+| `GET /api/α/types` | Placeholder list of relation/entity types (currently empty). |
+
+Each endpoint also accepts `/api/alpha/...` as an alias.
+
+## Testing
+
+```bash
+cd apps/headless-api
+clojure -M:test -m cognitect.test-runner
+```

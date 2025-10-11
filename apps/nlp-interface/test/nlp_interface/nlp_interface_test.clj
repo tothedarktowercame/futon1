@@ -26,6 +26,16 @@
       (is (= :person (:type (first fallback))))
       (is (= :pos (:source (first fallback)))))))
 
+(deftest question-words-are-ignored
+  (let [text "How are things in Princeton?"
+        tokens (sut/tokenize text)
+        pos-tags (sut/pos-tag tokens)
+        entities (ner-v4/recognize-entities tokens pos-tags text sample-now)]
+    (is (= ["Princeton"]
+           (map :label entities)))
+    (is (= :place (:type (first entities))))
+    (is (empty? (filter #(= "How" (:label %)) entities)))))
+
 (deftest analyze-intent-from-dictionary
   (testing "greets surface high confidence"
     (let [{:keys [type conf]} (sut/analyze "Hello there!")]

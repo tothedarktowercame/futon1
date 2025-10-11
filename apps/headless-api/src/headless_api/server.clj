@@ -167,6 +167,16 @@
 (defn- types-handler [request]
   (json-response (types/list-types request)))
 
+(defn- types-parent-handler [request]
+  (let [body (parse-json-body request)
+        result (types/set-parent! request body)]
+    (json-response result)))
+
+(defn- types-merge-handler [request]
+  (let [body (parse-json-body request)
+        result (types/merge-aliases! request body)]
+    (json-response result)))
+
 (defn- canonical-path [path]
   (if (str/starts-with? path "/api/alpha")
     (str "/api/α" (subs path (count "/api/alpha")))
@@ -185,6 +195,8 @@
       [:post "/api/α/entity"] (entity-handler request)
       [:post "/api/α/relation"] (relation-handler request)
       [:get "/api/α/types"] (types-handler request)
+      [:post "/api/α/types/parent"] (types-parent-handler request)
+      [:post "/api/α/types/merge"] (types-merge-handler request)
       (not-found request))))
 
 (defn- handler []

@@ -61,9 +61,24 @@ provides an ASCII alias for proxies or clients that cannot emit unicode paths.
 | `POST /api/α/ingest` | Bulk ingest plain text or NDJSON turns. Optional header `X-Chunking: sentences`. |
 | `POST /api/α/entity` | Programmatic entity ensure (`{name, type?}`). |
 | `POST /api/α/relation` | Programmatic relation upsert (`{type, src, dst}`). |
-| `GET /api/α/types` | Placeholder list of relation/entity types (currently empty). |
+| `GET /api/α/types` | List registered entity/relation types, parents, and aliases. |
+| `POST /api/α/types/parent` | Override or clear a type's parent (`{type, parent?, kind?}`). |
+| `POST /api/α/types/merge` | Merge aliases into a canonical type (`{into,type?,aliases}` accepts strings or keywords). |
 
 Each endpoint also accepts `/api/alpha/...` as an alias.
+
+### Type registry
+
+Entity and relation types automatically register in XTDB with lightweight parent
+inference. Namespaced types such as `:work/project` inherit from `:work/*`, while
+top-level keywords consult `resources/type_namespace_map.edn`. The registry keeps
+aliases and ancestry in sync, so selectors like `:work/*` expand to the concrete
+types when computing salience or filtering results.
+
+Use the `/api/α/types` endpoints to inspect or adjust parents and aliases. For
+example, to query all work-related entities you can request the focus header or
+neighbors with an allowed-type selector of `:work/*`; the registry resolves
+every descendant before the salience heuristics run.
 
 ## Testing
 

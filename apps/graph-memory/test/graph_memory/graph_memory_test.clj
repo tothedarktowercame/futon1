@@ -1,6 +1,7 @@
 (ns graph-memory.graph-memory-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [graph-memory.graph-memory :as sut])) ; system under test
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [datascript.core :as d]
+            [graph-memory.graph-memory :as g])) ; system under test
 
 ;; Fresh DB for each test (optional but nice)
 (use-fixtures :each

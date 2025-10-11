@@ -85,7 +85,31 @@
                 (is (= 200 (:status resp)))
                 (is (= "α" (get-in resp [:headers "x-api-version"])))
               (is (pos? (count (:body resp))))
-              (is (<= (count (:body resp)) 2000)))))
+              (is (<= (count (:body resp)) 2000))))
+
+          (testing "type registry endpoints"
+            (let [types-resp (get-request client (format "http://localhost:%d/api/α/types" port))
+                  types-json (json/parse-string (:body types-resp) true)]
+              (is (= 200 (:status types-resp)))
+              (is (= "α" (get-in types-resp [:headers "x-api-version"])))
+              (is (seq (get-in types-json [:types :entity]))))
+            (let [parent-resp (json-request client "POST" (format "http://localhost:%d/api/α/types/parent" port)
+                                            {:type "person" :parent "topic/*"})]
+              (is (= 200 (:status parent-resp)))
+              (is (= "α" (get-in parent-resp [:headers "x-api-version"])))
+              (is (= "topic/*" (get-in parent-resp [:json :type :parent]))))
+            (let [merge-resp (json-request client "POST" (format "http://localhost:%d/api/α/types/merge" port)
+                                           {:into "person" :aliases ["human"]})]
+              (is (= 200 (:status merge-resp)))
+              (is (= "α" (get-in merge-resp [:headers "x-api-version"])))
+              (is (= "person" (get-in merge-resp [:json :type :id])))
+              (is (some #(= "human" %) (get-in merge-resp [:json :type :aliases])))))
+          (let [types-after (get-request client (format "http://localhost:%d/api/α/types" port))
+                parsed (json/parse-string (:body types-after) true)]
+            (is (= 200 (:status types-after)))
+            (is (= "α" (get-in types-after [:headers "x-api-version"])))
+            (is (some #(= "human" %)
+                      (mapcat (comp seq :aliases) (get-in parsed [:types :entity]))))))
         (finally
           (server/stop!))))
 

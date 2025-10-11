@@ -62,14 +62,27 @@
              (falsy-param? allow-param) (assoc :allow-works? false)
              allowed-param (assoc :allowed-types (keyword-list allowed-param))))))
 
+(defn- maybe-profile [options]
+  (try
+    (me-profile/profile options)
+    (catch clojure.lang.ExceptionInfo e
+      (let [status (:status (ex-data e))]
+        (if (= 404 status)
+          nil
+          (throw e))))))
+
 (defn fetch! [request]
   (let [profile (request-profile request)
         _ (store-manager/conn profile)
         manual (store-manager/profile-doc profile)
         options (request-options request manual)
-        graph (me-profile/profile options)
-        data (cond-> graph
-               (seq manual) (assoc :manual manual))]
+        now (System/currentTimeMillis)
+        graph (maybe-profile options)
+        data (-> {:generated-at now
+                  :relations []
+                  :topics []}
+                 (merge (or graph {}))
+                 (cond-> (seq manual) (assoc :manual manual)))]
     {:profile profile
      :data data}))
 
@@ -86,7 +99,14 @@
         _ (store-manager/conn profile)
         manual (store-manager/profile-doc profile)
         options (request-options request manual)
-        profile-map (me-profile/profile options)
+        now (System/currentTimeMillis)
+        profile-map (or (maybe-profile options)
+                        {:entity nil
+                         :salience {:window {:days (or (:window-days options) 45)
+                                              :now now}}
+                         :relations []
+                         :topics []
+                         :generated-at now})
         length (or limit 2000)
         text (me-profile/summary profile-map {:manual manual
                                               :limit length})]

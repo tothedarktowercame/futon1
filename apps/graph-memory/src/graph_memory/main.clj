@@ -8,13 +8,13 @@
   {:utterance/id    {:db/unique :db.unique/identity}
    :utterance/text  {}
    :utterance/ts    {}
-   :utterance/intent {:db/valueType :db.type/keyword}
-   :utterance/intent-conf {:db/valueType :db.type/double}
+   :utterance/intent {}
+   :utterance/intent-conf {}
    :utterance/intent-source {}
    :intent/id       {:db/unique :db.unique/identity}
    :intent/data     {}
-   :intent/type     {:db/valueType :db.type/keyword}
-   :intent/confidence {:db/valueType :db.type/double}
+   :intent/type     {}
+   :intent/confidence {}
    :intent/source   {}
    :intent/candidates {}
    :link/id         {:db/unique :db.unique/identity}

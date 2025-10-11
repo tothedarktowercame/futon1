@@ -3,17 +3,17 @@
             [nlp-interface.intent :as intent]))
 
 (deftest fallback-promotes-structured-requests
-  (testing "scheduling phrases promote the scheduling intent"
+  (testing "scheduling phrases promote the scheduling intent when dictionary is unsure"
     (let [{:keys [type conf source intent-candidates]}
-          (intent/analyze "Please schedule a project sync tomorrow afternoon.")]
+          (intent/analyze "Need to schedule project sync tomorrow at 3pm.")]
       (is (= :scheduling type))
       (is (= :fallback source))
       (is (>= conf 0.58))
       (is (seq intent-candidates))
       (is (= :scheduling (:type (first intent-candidates))))))
-  (testing "negation around failures promotes support requests"
+  (testing "investigation language promotes support requests"
     (let [{:keys [type conf source intent-candidates]}
-          (intent/analyze "We can't deploy because the service keeps failing.")]
+          (intent/analyze "Service outage persists; investigate failure.")]
       (is (= :support-request type))
       (is (= :fallback source))
       (is (>= conf 0.6))

@@ -77,15 +77,16 @@
                                               intent-type (assoc :utterance/intent intent-type)
                                               intent-conf (assoc :utterance/intent-conf intent-conf)
                                               intent-source (assoc :utterance/intent-source intent-source))])
-        eid (resolve tmp)]
-    (cond-> {:id id
-             :db/eid eid
-             :text text
-             :ts ts}
-      intent-type (assoc :intent intent-type)
-      intent-conf (assoc :intent-conf intent-conf)
-      intent-source (assoc :intent-source intent-source)
-      intent (assoc :intent-data intent))))
+         eid (resolve tmp)
+         base {:id id
+               :db/eid eid
+               :text text
+               :ts ts}]
+     (cond-> base
+       intent-type (assoc :intent intent-type)
+       intent-conf (assoc :intent-conf intent-conf)
+       intent-source (assoc :intent-source intent-source)
+       intent (assoc :intent-data intent)))))
 
 (defn- clean-candidate [cand]
   (select-keys cand [:type :conf :score]))

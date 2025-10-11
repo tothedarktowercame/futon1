@@ -2,3 +2,4 @@
 .clj-kondo/
 .lsp/
 apps/basic-chat-demo/data/xtdb/
+apps/headless-api/data/

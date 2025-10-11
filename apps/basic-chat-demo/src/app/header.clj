@@ -1,7 +1,8 @@
 (ns app.header
   (:require [app.focus :as focus]
             [cheshire.core :as json]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [graph-memory.types_registry :as types]))
 
 (def default-policy
   {:allow-types focus/default-allowed-types
@@ -125,8 +126,12 @@
         cutoff (- now (* focus-days millis-per-day))
         anchor-ids (->> anchors (map :id) (remove nil?) set)
         focus-count (or focus-limit (:context-cap-total policy'))
-        allowed-types (:allow-types policy')
-        candidates (focus/focus-candidates nil anchor-ids cutoff focus-count {:allowed-types allowed-types})
+        allowed-config (:allow-types policy')
+        allowed-pred (cond
+                       (nil? allowed-config) nil
+                       (ifn? allowed-config) allowed-config
+                       :else (types/effective-pred :entity allowed-config))
+        candidates (focus/focus-candidates nil anchor-ids cutoff focus-count {:allowed-types allowed-config})
         focus-map (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
         per-edge (or (:per-edge-caps policy')
                      (:per-type-caps policy'))
@@ -134,13 +139,14 @@
                               (mapcat (fn [{:keys [id]}]
                                         (focus/top-neighbors nil id {:k-per-anchor (:k-per-anchor policy')
                                                                      :per-edge-caps per-edge
-                                                                     :allowed-types allowed-types
+                                                                     :allowed-types allowed-config
                                                                      :allow-works? (:allow-works? policy')
                                                                      :time-hint cutoff})))
                               (filter (fn [{:keys [neighbor]}]
                                         (let [etype (:entity/type neighbor)]
-                                          (or (nil? allowed-types)
-                                              (allowed-types etype)))))
+                                          (or (nil? allowed-pred)
+                                              (nil? etype)
+                                              (allowed-pred etype)))))
                               (sort-by (comp - :score))
                               (take (:context display-limits))
                               vec)

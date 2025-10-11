@@ -7,6 +7,7 @@
             [clojure.string :as str]
             [datascript.core :as d]
             [graph-memory.main :as gm]
+            [graph-memory.types_registry :as types]
             [xtdb.api :as xtdb])
   (:import (java.io PushbackReader)
            (java.util UUID))
@@ -22,7 +23,7 @@
 ;; Keeps track of pending event counts per data directory to trigger compaction.
 (defonce ^:private !event-count (atom {}))
 
-(declare apply-event! coerce-double coerce-long)
+(declare apply-event! coerce-double coerce-long entity-by-id entity-by-name entity->public relation->public)
 
 (defn- ensure-dir!
   [dir]
@@ -343,18 +344,48 @@
           (catch Exception ex
             (log-mirror-error! "entity" ex)))))))
 
+(defn- hydrate-endpoint-for-xt
+  [conn endpoint]
+  (let [eid (or (:entity/id endpoint)
+                (:id endpoint))
+        stored (or (entity-by-id conn eid)
+                    (when-let [name (:name endpoint)]
+                      (entity-by-name conn name)))
+        public (some-> stored entity->public)]
+    (cond-> endpoint
+      public (merge public))))
+
 (defn- maybe-mirror-relation!
-  [opts relation]
+  [opts relation conn]
   (let [xtdb-opts (:xtdb opts)]
-    (when (and (xt-enabled? xtdb-opts) (xt/started?))
-      (doseq [endpoint (->> [(get relation :src) (get relation :dst)]
-                            (remove nil?))]
-        (maybe-mirror-entity! opts endpoint))
+      (when (and (xt-enabled? xtdb-opts) (xt/started?))
+        (doseq [endpoint (->> [(get relation :src) (get relation :dst)]
+                              (remove nil?))]
+          (let [hydrated (hydrate-endpoint-for-xt conn endpoint)]
+            (maybe-mirror-entity! opts hydrated)))
       (when-let [doc (relation->xt-doc relation)]
         (try
           (xt/put-rel! doc nil nil)
           (catch Exception ex
             (log-mirror-error! "relation" ex)))))))
+
+(defn- maybe-delete-entity!
+  [opts entity-id]
+  (let [xtdb-opts (:xtdb opts)]
+    (when (and entity-id (xt-enabled? xtdb-opts) (xt/started?))
+      (try
+        (xt/delete-entity! entity-id)
+        (catch Exception ex
+          (log-mirror-error! "entity delete" ex))))))
+
+(defn- maybe-delete-relation!
+  [opts relation-id]
+  (let [xtdb-opts (:xtdb opts)]
+    (when (and relation-id (xt-enabled? xtdb-opts) (xt/started?))
+      (try
+        (xt/delete-rel! relation-id)
+        (catch Exception ex
+          (log-mirror-error! "relation delete" ex))))))
 
 (defn export-edn
   "Produce a serializable EDN snapshot for the current connection."
@@ -439,6 +470,17 @@
      :pinned? (:entity/pinned? m)
      :db/eid (:db/id m)}))
 
+(defn- relation->public [m]
+  (when m
+    {:id (:relation/id m)
+     :type (:relation/type m)
+     :src (some-> (:relation/src m) entity->public)
+     :dst (some-> (:relation/dst m) entity->public)
+     :confidence (:relation/confidence m)
+     :last-seen (:relation/last-seen m)
+     :provenance (:relation/provenance m)
+     :db/eid (:db/id m)}))
+
 (defn- entity-by-id [conn id]
   (when id
     (d/pull @conn '[:db/id :entity/id :entity/name :entity/type
@@ -452,6 +494,20 @@
            (some (fn [ent]
                    (when (= (str/lower-case (:entity/name ent)) lower)
                      (entity-by-id conn (:entity/id ent)))))))))
+
+(defn- resolve-entity-ref
+  [conn spec]
+  (cond
+    (nil? spec) nil
+    (instance? UUID spec) (entity-by-id conn spec)
+    (string? spec) (entity-by-name conn spec)
+    (map? spec)
+    (let [raw-id (or (:id spec) (:entity/id spec))
+          raw-name (or (:name spec) (:entity/name spec))
+          id (some-> raw-id coerce-uuid)]
+      (or (when id (entity-by-id conn id))
+          (when raw-name (entity-by-name conn raw-name))))
+    :else nil))
 
 (defn- normalize-entity-spec [spec]
   (cond
@@ -545,6 +601,33 @@
                         [?dst-e :entity/id ?dst-id]]
                       db rel-type src-id dst-id)]
       (-> result ffirst))))
+
+(defn- relations-touching-entity
+  [conn entity-id]
+  (let [pattern '[:db/id :relation/id :relation/type :relation/provenance
+                  :relation/confidence :relation/last-seen
+                  {:relation/src [:entity/id :entity/name :entity/type :entity/last-seen :entity/seen-count :entity/pinned?]}
+                  {:relation/dst [:entity/id :entity/name :entity/type :entity/last-seen :entity/seen-count :entity/pinned?]}]
+        db @conn
+        outgoing (d/q '[:find (pull ?r pattern)
+                         :in $ pattern ?eid
+                         :where
+                         [?src :entity/id ?eid]
+                         [?r :relation/src ?src]]
+                       db pattern entity-id)
+        incoming (d/q '[:find (pull ?r pattern)
+                         :in $ pattern ?eid
+                         :where
+                         [?dst :entity/id ?eid]
+                         [?r :relation/dst ?dst]]
+                       db pattern entity-id)]
+    (->> (concat outgoing incoming)
+         (map first)
+         (reduce (fn [acc rel]
+                   (assoc acc (:relation/id rel) rel))
+                 {})
+         vals
+         vec)))
 
 (def ^:private relation-provenance-keys #{:since :until :note})
 
@@ -644,6 +727,75 @@
                    :relation event-rel}
            :result (assoc event-rel :db/eid eid)})))))
 
+(defmethod apply-event! :entity/retract
+  [conn {:keys [entity]}]
+  (let [raw-id (or (:id entity) (:entity/id entity))
+        name (:name entity)
+        id (some-> raw-id coerce-uuid)
+        target (or (when id (entity-by-id conn id))
+                   (when name (entity-by-name conn name)))]
+    (when target
+      (let [public (entity->public target)
+            relations (relations-touching-entity conn (:entity/id target))
+            relation-txs (mapv (fn [rel]
+                                 [:db.fn/retractEntity (:db/id rel)])
+                               relations)
+            txs (conj relation-txs [:db.fn/retractEntity (:db/id target)])]
+        (d/transact! conn txs)
+        {:event {:type :entity/retract
+                 :entity (select-keys public [:id :name :type])}
+         :result {:entity public
+                  :relations (mapv relation->public relations)}}))))
+
+(defmethod apply-event! :entity/expire
+  [conn {:keys [entity]}]
+  (let [raw-id (or (:id entity) (:entity/id entity))
+        name (:name entity)
+        id (some-> raw-id coerce-uuid)
+        target (or (when id (entity-by-id conn id))
+                   (when name (entity-by-name conn name)))]
+    (when target
+      (let [seen (max 0 (long (or (coerce-long (:seen-count entity))
+                                  (coerce-long (:entity/seen-count entity))
+                                  0)))
+            last-seen (or (coerce-long (:last-seen entity))
+                          (coerce-long (:entity/last-seen entity))
+                          0)
+            unpin? (if (contains? entity :unpinned?)
+                     (boolean (:unpinned? entity))
+                     true)
+            txs (cond-> [[:db/add (:db/id target) :entity/seen-count seen]
+                         [:db/add (:db/id target) :entity/last-seen last-seen]]
+                  unpin? (conj [:db/add (:db/id target) :entity/pinned? false]))
+            _ (d/transact! conn txs)
+            updated (-> target
+                        (assoc :entity/seen-count seen
+                               :entity/last-seen last-seen
+                               :entity/pinned? (if unpin? false (:entity/pinned? target)))
+                        entity->public)]
+        {:event {:type :entity/expire
+                 :entity {:id (:id updated)
+                          :seen-count seen
+                          :last-seen last-seen
+                          :unpinned? unpin?}}
+         :result updated}))))
+
+(defn- register-types-from-db!
+  [conn]
+  (let [db @conn
+        entity-types (->> (d/q '[:find ?t :where [?e :entity/type ?t]] db)
+                          (map first)
+                          (remove nil?)
+                          set)
+        relation-types (->> (d/q '[:find ?t :where [?r :relation/type ?t]] db)
+                            (map first)
+                            (remove nil?)
+                            set)]
+    (when (seq entity-types)
+      (types/ensure! :entity entity-types))
+    (when (seq relation-types)
+      (types/ensure! :relation relation-types))))
+
 (defn tx!
   "Apply event to conn and append it to the event log.
    opts should include :data-dir and optional :snapshot-every to control compaction.
@@ -682,15 +834,18 @@
           xt-count  (when xt-result
                       (+ (:entity-count xt-result 0)
                          (:relation-count xt-result 0)))]
-      (if (pos? (or xt-count 0))
-        (do
-          (swap! !event-count assoc data-dir 0)
-          conn)
-        (let [legacy (hydrate-from-legacy! conn data-dir)]
-          (swap! !event-count assoc data-dir (:event-count legacy 0))
-          (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
-            (sync-to-xtdb! conn))
-          conn)))))
+      (let [conn (if (pos? (or xt-count 0))
+                   (do
+                     (swap! !event-count assoc data-dir 0)
+                     conn)
+                   (let [legacy (hydrate-from-legacy! conn data-dir)]
+                     (swap! !event-count assoc data-dir (:event-count legacy 0))
+                     (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
+                       (sync-to-xtdb! conn))
+                     conn))]
+        (when (and (xt-enabled? xtdb-opts) (xt/started?))
+          (register-types-from-db! conn))
+        conn))))
 
 (defn compact!
   "Force a snapshot and event-log reset for the given data directory."
@@ -728,11 +883,51 @@
                          :seen-count final-count}
                   final-type (assoc :type final-type)
                   has-pinned? (assoc :pinned? final-pinned))]
-    (let [result (-> (tx! conn opts {:type :entity/upsert
-                                     :entity payload})
-                     (select-keys [:id :name :type :db/eid :last-seen :seen-count :pinned?]))]
-      (maybe-mirror-entity! opts result)
+    (when final-type
+      (types/ensure! :entity final-type))
+    (let [applied (tx! conn opts {:type :entity/upsert
+                                  :entity payload})
+          entity-id (:id applied)
+          stored (or (entity-by-id conn entity-id)
+                     (entity-by-name conn name))
+          public (or (some-> stored entity->public)
+                     (select-keys applied [:id :name :type :db/eid :last-seen :seen-count :pinned?]))]
+      (maybe-mirror-entity! opts public)
+      public)))
+
+(defn forget-entity!
+  "Remove an entity and any relations that reference it.
+   Returns details about the removed entity and relations, or nil when not found."
+  [conn opts entity-spec]
+  (when-let [target (resolve-entity-ref conn entity-spec)]
+    (let [event {:type :entity/retract
+                 :entity {:id (:entity/id target)
+                          :name (:entity/name target)}}
+          result (tx! conn opts event)
+          {:keys [entity relations]} result]
+      (doseq [rel relations]
+        (maybe-delete-relation! opts (:id rel)))
+      (when entity
+        (maybe-delete-entity! opts (:id entity)))
       result)))
+
+(defn expire-entity!
+  "Reset an entity's salience counters.
+   Options map may include :seen-count, :last-seen (ms since epoch), and :preserve-pin?."
+  ([conn opts entity-spec]
+   (expire-entity! conn opts entity-spec {}))
+  ([conn opts entity-spec {:keys [seen-count last-seen preserve-pin?]}]
+   (when-let [target (resolve-entity-ref conn entity-spec)]
+     (let [event {:type :entity/expire
+                  :entity {:id (:entity/id target)
+                           :name (:entity/name target)
+                           :seen-count (or seen-count 0)
+                           :last-seen (or last-seen 0)
+                           :unpinned? (not preserve-pin?)}}
+           result (tx! conn opts event)]
+       (when (map? result)
+         (maybe-mirror-entity! opts result))
+       result))))
 
 (defn upsert-relation!
   "Upsert a relation edge between two entities using the event log.
@@ -743,6 +938,7 @@
         rel-type (normalize-type type)]
     (when-not rel-type
       (throw (ex-info "Relation type required" {:relation relation-spec})))
+    (types/ensure! :relation rel-type)
     (let [src-spec (normalize-entity-spec src)
           dst-spec (normalize-entity-spec dst)
           prov (normalize-provenance provenance)
@@ -757,7 +953,7 @@
                      id (assoc :id (coerce-uuid id)))]
       (let [result (tx! conn opts {:type :relation/upsert
                                    :relation payload})]
-        (maybe-mirror-relation! opts result)
+        (maybe-mirror-relation! opts result conn)
         result))))
 
 (defn- latest-by-attr

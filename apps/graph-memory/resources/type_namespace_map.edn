@@ -1,0 +1,19 @@
+{:person :person/*
+ :org :org/*
+ :organization :org/*
+ :company :org/*
+ :team :org/*
+ :place :place/*
+ :location :place/*
+ :city :place/*
+ :region :place/*
+ :country :place/*
+ :event :event/*
+ :conference :event/*
+ :project :work/*
+ :work :work/*
+ :product :thing/*
+ :tool :thing/*
+ :concept :concept/*
+ :topic :concept/*
+ :date :date/*}

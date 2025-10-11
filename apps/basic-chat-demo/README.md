@@ -94,6 +94,8 @@ Slash commands expose the XTDB-backed memory graph without leaving the CLI:
 - `/tail [n]` – inspect the most recent relations (default `n = 5`).
 - `/ego NAME` – list incoming/outgoing neighbors for an entity.
 - `/cooccur NAME` – show entities that frequently co-occur with the target.
+- `/forget NAME` – delete the entity and any relations attached to it.
+- `/expire NAME` – reset the entity's salience counters (seen-count/last-seen).
 - `/help` – print the quick reference for these commands.
 
 ## CLI reference (v5 focus header)

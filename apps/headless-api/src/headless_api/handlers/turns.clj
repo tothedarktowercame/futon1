@@ -22,8 +22,11 @@
               configured (if-let [configure (:configure entry)]
                            (configure base {})
                            base)
+              pronouns {:me (store-manager/profile-name profile)
+                        :you (store-manager/profile-interlocutor-name profile)
+                        :we (store-manager/profile-collective-name profile)}
               ctx {:entry entry
-                   :state configured}]
+                   :state (assoc configured :pronouns pronouns)}]
           (swap! !contexts assoc key ctx)
           ctx))))
 

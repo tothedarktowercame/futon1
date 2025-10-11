@@ -125,6 +125,40 @@
 (defn profile-doc [profile]
   @(-> (ensure-profile! profile) :me))
 
+(defn profile-name
+  "Return a human-friendly name for the profile."
+  [profile]
+  (let [doc (profile-doc profile)]
+    (or (:preferred-name doc)
+        (:name doc)
+        (:handle doc)
+        (:nickname doc)
+        (:display-name doc)
+        (when-let [aliases (:aliases doc)]
+          (some identity aliases))
+        (some-> profile str str/trim not-empty)
+        "Me")))
+
+(defn profile-interlocutor-name
+  "Return a name to use for the default interlocutor ("you")."
+  [profile]
+  (let [doc (profile-doc profile)]
+    (or (:interlocutor-name doc)
+        (when-let [aliases (:interlocutor-aliases doc)]
+          (some identity aliases))
+        "You")))
+
+(defn profile-collective-name
+  "Return a name representing the default collective ("we")."
+  [profile]
+  (let [doc (profile-doc profile)
+        me (profile-name profile)
+        you (profile-interlocutor-name profile)]
+    (or (:collective-name doc)
+        (when-let [aliases (:collective-aliases doc)]
+          (some identity aliases))
+        (str me " & " you))))
+
 (defn upsert-profile!
   [profile patch]
   (let [{:keys [me profile-dir]} (ensure-profile! profile)]

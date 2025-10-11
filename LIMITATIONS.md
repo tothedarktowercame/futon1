@@ -45,9 +45,20 @@ other runs) before starting the CLI or tests.
 
 ## Deterministic NER gaps
 
-Pronouns (“I”, “you”) and speculative entities are intentionally ignored by the
-current deterministic pipelines. They will not create or update nodes unless a
-future resolution pass is added.
+Pronouns and section headings used to produce noisy graph nodes. The current codebase now:
+
+- normalises first-person pronouns to the active profile name;
+- normalises second-person pronouns to a default interlocutor (`"You"` unless overridden in the profile doc);
+- normalises first-person plural pronouns to a collective label (`"Me & You"` by default);
+- expands the titlecase stop-list to drop headings such as “Personal”, “Creative”, etc.
+
+Further work (still outstanding):
+
+- promote OpenIE predicate triples into typed relations instead of the `:links-to` fallback, and register new relation types automatically when they recur;
+- refine stop-lists and heuristics so adjective-only spans or dangling nominal phrases do not mint entities;
+- expose configuration hooks so profiles can explicitly name their interlocutor/collective roles without editing EDN by hand.
+
+These TODOs are tracked here so development can resume smoothly if interrupted.
 
 ## Operational next steps
 

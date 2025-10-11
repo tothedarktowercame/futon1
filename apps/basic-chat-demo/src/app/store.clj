@@ -7,6 +7,7 @@
             [clojure.string :as str]
             [datascript.core :as d]
             [graph-memory.main :as gm]
+            [graph-memory.types_registry :as types]
             [xtdb.api :as xtdb])
   (:import (java.io PushbackReader)
            (java.util UUID))
@@ -779,6 +780,22 @@
                           :unpinned? unpin?}}
          :result updated}))))
 
+(defn- register-types-from-db!
+  [conn]
+  (let [db @conn
+        entity-types (->> (d/q '[:find ?t :where [?e :entity/type ?t]] db)
+                          (map first)
+                          (remove nil?)
+                          set)
+        relation-types (->> (d/q '[:find ?t :where [?r :relation/type ?t]] db)
+                            (map first)
+                            (remove nil?)
+                            set)]
+    (when (seq entity-types)
+      (types/ensure! :entity entity-types))
+    (when (seq relation-types)
+      (types/ensure! :relation relation-types))))
+
 (defn tx!
   "Apply event to conn and append it to the event log.
    opts should include :data-dir and optional :snapshot-every to control compaction.
@@ -817,15 +834,18 @@
           xt-count  (when xt-result
                       (+ (:entity-count xt-result 0)
                          (:relation-count xt-result 0)))]
-      (if (pos? (or xt-count 0))
-        (do
-          (swap! !event-count assoc data-dir 0)
-          conn)
-        (let [legacy (hydrate-from-legacy! conn data-dir)]
-          (swap! !event-count assoc data-dir (:event-count legacy 0))
-          (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
-            (sync-to-xtdb! conn))
-          conn)))))
+      (let [conn (if (pos? (or xt-count 0))
+                   (do
+                     (swap! !event-count assoc data-dir 0)
+                     conn)
+                   (let [legacy (hydrate-from-legacy! conn data-dir)]
+                     (swap! !event-count assoc data-dir (:event-count legacy 0))
+                     (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
+                       (sync-to-xtdb! conn))
+                     conn))]
+        (when (and (xt-enabled? xtdb-opts) (xt/started?))
+          (register-types-from-db! conn))
+        conn))))
 
 (defn compact!
   "Force a snapshot and event-log reset for the given data directory."
@@ -863,6 +883,8 @@
                          :seen-count final-count}
                   final-type (assoc :type final-type)
                   has-pinned? (assoc :pinned? final-pinned))]
+    (when final-type
+      (types/ensure! :entity final-type))
     (let [applied (tx! conn opts {:type :entity/upsert
                                   :entity payload})
           entity-id (:id applied)
@@ -916,6 +938,7 @@
         rel-type (normalize-type type)]
     (when-not rel-type
       (throw (ex-info "Relation type required" {:relation relation-spec})))
+    (types/ensure! :relation rel-type)
     (let [src-spec (normalize-entity-spec src)
           dst-spec (normalize-entity-spec dst)
           prov (normalize-provenance provenance)

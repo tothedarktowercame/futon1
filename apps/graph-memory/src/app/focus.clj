@@ -2,6 +2,7 @@
   (:require [app.xt :as xt]
             [clojure.math :as math]
             [clojure.set :as set]
+            [graph-memory.types_registry :as types]
             [xtdb.api :as xtdb]))
 
 (def default-allowed-types
@@ -32,6 +33,12 @@
       (update :entity/seen-count #(some-> % long))
       (update :entity/last-seen #(some-> % long))
       (update :entity/pinned? #(true? %))))
+
+(defn- allowed-type-pred [allowed]
+  (cond
+    (nil? allowed) nil
+    (ifn? allowed) allowed
+    :else (types/effective-pred :entity allowed)))
 
 (defn- fetch-entity
   [db eid]
@@ -71,16 +78,16 @@
         anchor-set (set anchors)
         cutoff (or cutoff-ms (- now (* 30 24 60 60 1000)))
         focus-window-ms (max 1 (- now cutoff))
-        allowed-set (when (some? allowed-types) (set allowed-types))
+        type-pred (allowed-type-pred allowed-types)
         raw (xt/q '{:find [(pull ?e [:entity/id :entity/name :entity/type :entity/last-seen :entity/seen-count :entity/pinned?])]
                     :where [[?e :entity/id _]
                             [?e :entity/type ?t]]})
         base (map (comp coalesce-entity first) raw)
-        base (if (some? allowed-types)
+        base (if type-pred
                (filter (fn [entity]
                          (let [etype (:entity/type entity)]
                            (or (nil? etype)
-                               (allowed-set etype))))
+                               (type-pred etype))))
                        base)
                base)
         anchors-from-db (->> anchors
@@ -125,8 +132,8 @@
         now (now-ms)
         cutoff (or time-hint (- now (* 30 24 60 60 1000)))
         focus-window-ms (max 1 (- now cutoff))
-        allowed-set (when allowed-types (set allowed-types))
-        allow-all? (or allow-works? (nil? allowed-set))
+        type-pred (allowed-type-pred allowed-types)
+        allow-all? (or allow-works? (nil? type-pred))
         out-docs (map first (xt/q '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen :relation/provenance])]
                                     :in [$ ?focus]
                                     :where [[?r :relation/src ?focus]]}
@@ -146,7 +153,7 @@
                                          last-seen (:relation/last-seen rel)]
                                      (when-let [neighbor (fetch-entity db target-id)]
                                        (when (or allow-all?
-                                                 (allowed-set (:entity/type neighbor)))
+                                                 (type-pred (:entity/type neighbor)))
                                          (let [score (neighbor-score now focus-window-ms {:confidence confidence
                                                                                            :last-seen (safe-long last-seen)})]
                                            {:relation/id (:relation/id rel)

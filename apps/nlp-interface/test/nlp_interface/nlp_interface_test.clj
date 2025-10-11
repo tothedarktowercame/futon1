@@ -38,22 +38,32 @@
 
 (deftest analyze-intent-from-dictionary
   (testing "greets surface high confidence"
-    (let [{:keys [type conf]} (sut/analyze "Hello there!")]
+    (let [{:keys [type conf source intent-candidates]} (sut/analyze "Hello there!")]
       (is (= :greet type))
+      (is (= :dictionary source))
+      (is (empty? intent-candidates))
       (is (> conf 0.95))))
   (testing "food-centric text maps to orality"
-    (let [{:keys [type conf]} (sut/analyze "I cooked dinner with garlic and wine.")]
+    (let [{:keys [type conf source intent-candidates]} (sut/analyze "I cooked dinner with garlic and wine.")]
       (is (= :primary-need-orality type))
+      (is (= :dictionary source))
+      (is (empty? intent-candidates))
       (is (>= conf 0.74))))
   (testing "sad sentiments outweigh body references"
-    (let [{:keys [type conf]} (sut/analyze "My heart feels sad and lonely today.")]
+    (let [{:keys [type conf source intent-candidates]} (sut/analyze "My heart feels sad and lonely today.")]
       (is (= :sadness type))
+      (is (= :dictionary source))
+      (is (empty? intent-candidates))
       (is (>= conf 0.7))))
   (testing "travel wording selects voyage"
-    (let [{:keys [type conf]} (sut/analyze "We will sail across the ocean and wander new shores.")]
+    (let [{:keys [type conf source intent-candidates]} (sut/analyze "We will sail across the ocean and wander new shores.")]
       (is (= :voyage type))
+      (is (= :dictionary source))
+      (is (empty? intent-candidates))
       (is (>= conf 0.68))))
   (testing "explicit help requests are prioritised"
-    (let [{:keys [type conf]} (sut/analyze "Can you help me understand this report?")]
+    (let [{:keys [type conf source intent-candidates]} (sut/analyze "Can you help me understand this report?")]
       (is (= :help-request type))
+      (is (= :dictionary source))
+      (is (empty? intent-candidates))
       (is (>= conf 0.7)))))

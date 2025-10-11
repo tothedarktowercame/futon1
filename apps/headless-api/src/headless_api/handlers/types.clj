@@ -6,6 +6,7 @@
   (let [raw (some-> value name str/lower-case)]
     (case raw
       ("relation" "relations" "rel") :relation
+      ("intent" "intents") :intent
       :entity)))
 
 (defn- parse-type [value]
@@ -46,7 +47,8 @@
                      (sort-by (comp #(or % "") type->string :id))
                      (mapv doc->response)))]
     {:types {:entity (build :entity)
-             :relation (build :relation)}}))
+             :relation (build :relation)
+             :intent (build :intent)}}))
 
 (defn set-parent! [_ body]
   (when-not (map? body)

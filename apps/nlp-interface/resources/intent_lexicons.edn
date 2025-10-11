@@ -1,0 +1,7 @@
+{:status ["status" "progress" "update" "report" "summary" "standup" "stand-up" "retro" "retrospective"]
+ :scheduling ["schedule" "scheduled" "reschedule" "meeting" "meet" "sync" "call" "calendar" "agenda" "invite" "availability" "rescheduling" "rescheduled"]
+ :support ["bug" "issue" "error" "crash" "failure" "failing" "broken" "support" "ticket" "incident" "outage" "fix"]
+ :planning ["plan" "planning" "roadmap" "strategy" "goal" "milestone" "timeline" "vision" "objective" "objectives" "target"]
+ :followup ["follow up" "follow-up" "check in" "checking in" "check-in" "ping" "remind" "reminder" "nudge"]
+ :delivery ["ship" "shipping" "deploy" "deployment" "release" "launch" "rollout" "roll-out" "deliver" "delivery"]
+ :risk ["blocked" "blocker" "risk" "stuck" "delay" "delayed" "slip" "slipping" "escalate"]}

@@ -6,7 +6,7 @@
             [clojure.string :as str]
             [xtdb.api :as xtdb]))
 
-(def ^:private kind-set #{:entity :relation})
+(def ^:private kind-set #{:entity :relation :intent})
 
 (def ^:private !cache (atom nil))
 

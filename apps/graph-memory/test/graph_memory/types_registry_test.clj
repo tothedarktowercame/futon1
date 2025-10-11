@@ -93,3 +93,16 @@
   (testing "parent can be cleared"
     (types/set-parent! :entity :work/project nil)
     (is (nil? (:parent (doc-of :entity :work/project))))))
+
+(deftest intent-kind-support
+  (testing "intent types register and cache"
+    (types/ensure! :intent :inquiry)
+    (let [doc (doc-of :intent :inquiry)]
+      (is doc)
+      (is (= :intent (:kind doc)))
+      (is (= :inquiry (:id doc))))
+    (testing "descendants for intents"
+      (types/set-parent! :intent :inquiry :intent/*)
+      (let [doc (doc-of :intent :intent/*)]
+        (is doc)
+        (is (contains? (types/descendants-of :intent :intent/*) :inquiry))))))

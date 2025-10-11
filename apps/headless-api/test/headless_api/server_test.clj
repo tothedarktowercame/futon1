@@ -92,7 +92,8 @@
                   types-json (json/parse-string (:body types-resp) true)]
               (is (= 200 (:status types-resp)))
               (is (= "α" (get-in types-resp [:headers "x-api-version"])))
-              (is (seq (get-in types-json [:types :entity]))))
+              (is (seq (get-in types-json [:types :entity])))
+              (is (vector? (get-in types-json [:types :intent]))))
             (let [parent-resp (json-request client "POST" (format "http://localhost:%d/api/α/types/parent" port)
                                             {:type "person" :parent "topic/*"})]
               (is (= 200 (:status parent-resp)))

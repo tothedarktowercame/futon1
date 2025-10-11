@@ -1,14 +1,22 @@
 (ns graph-memory.main
   (:require [clojure.string :as str]
-            [datascript.core :as d])
+            [datascript.core :as d]
+            [graph-memory.types_registry :as types])
   (:import (java.util UUID)))
 
 (def schema
   {:utterance/id    {:db/unique :db.unique/identity}
    :utterance/text  {}
    :utterance/ts    {}
+   :utterance/intent {:db/valueType :db.type/keyword}
+   :utterance/intent-conf {:db/valueType :db.type/double}
+   :utterance/intent-source {}
    :intent/id       {:db/unique :db.unique/identity}
    :intent/data     {}
+   :intent/type     {:db/valueType :db.type/keyword}
+   :intent/confidence {:db/valueType :db.type/double}
+   :intent/source   {}
+   :intent/candidates {}
    :link/id         {:db/unique :db.unique/identity}
    :link/type       {}
    :link/from       {:db/valueType :db.type/ref}
@@ -40,29 +48,78 @@
      :resolve (fn [tmp]
                 (d/resolve-tempid db-after tempids tmp))}))
 
-(defn add-utterance! [conn text ts]
-  (let [id (UUID/randomUUID)
-        tmp (d/tempid :db.part/user)
-        {:keys [resolve]} (transact! conn [{:db/id tmp
-                                            :utterance/id id
-                                            :utterance/text text
-                                            :utterance/ts ts}])
+(defn- normalize-source [source]
+  (cond
+    (keyword? source) source
+    (string? source) (let [trimmed (str/trim source)]
+                      (when (seq trimmed)
+                        (keyword trimmed)))
+    :else nil))
+
+(defn add-utterance!
+  ([conn text ts]
+   (add-utterance! conn text ts nil))
+  ([conn text ts {:keys [intent]}]
+   (let [intent-type (some-> intent :type)
+         intent-type (when intent-type (if (keyword? intent-type)
+                                         intent-type
+                                         (keyword (name intent-type))))
+         intent-conf (some-> intent :conf)
+         intent-conf (when (number? intent-conf) (double intent-conf))
+         intent-source (some-> intent :source normalize-source)
+         _ (when intent-type (types/ensure! :intent intent-type))
+         id (UUID/randomUUID)
+         tmp (d/tempid :db.part/user)
+         {:keys [resolve]} (transact! conn [(cond-> {:db/id tmp
+                                                     :utterance/id id
+                                                     :utterance/text text
+                                                     :utterance/ts ts}
+                                              intent-type (assoc :utterance/intent intent-type)
+                                              intent-conf (assoc :utterance/intent-conf intent-conf)
+                                              intent-source (assoc :utterance/intent-source intent-source))])
         eid (resolve tmp)]
-    {:id id
-     :db/eid eid
-     :text text
-     :ts ts}))
+    (cond-> {:id id
+             :db/eid eid
+             :text text
+             :ts ts}
+      intent-type (assoc :intent intent-type)
+      intent-conf (assoc :intent-conf intent-conf)
+      intent-source (assoc :intent-source intent-source)
+      intent (assoc :intent-data intent))))
+
+(defn- clean-candidate [cand]
+  (select-keys cand [:type :conf :score]))
 
 (defn add-intent! [conn intent]
-  (let [id (UUID/randomUUID)
+  (let [intent-type (some-> intent :type)
+        intent-type (when intent-type (if (keyword? intent-type)
+                                        intent-type
+                                        (keyword (name intent-type))))
+        intent-conf (some-> intent :conf)
+        intent-conf (when (number? intent-conf) (double intent-conf))
+        intent-source (some-> intent :source normalize-source)
+        candidates (some-> intent :intent-candidates)
+        pruned-candidates (when (seq candidates)
+                            (->> candidates
+                                 (map clean-candidate)
+                                 (remove empty?)
+                                 vec))
+        _ (when intent-type (types/ensure! :intent intent-type))
+        id (UUID/randomUUID)
         tmp (d/tempid :db.part/user)
-        {:keys [resolve]} (transact! conn [{:db/id tmp
-                                            :intent/id id
-                                            :intent/data intent}])
+        {:keys [resolve]} (transact! conn [(cond-> {:db/id tmp
+                                                    :intent/id id
+                                                    :intent/data intent}
+                                             intent-type (assoc :intent/type intent-type)
+                                             intent-conf (assoc :intent/confidence intent-conf)
+                                             intent-source (assoc :intent/source intent-source)
+                                             (seq pruned-candidates) (assoc :intent/candidates pruned-candidates))])
         eid (resolve tmp)]
     {:id id
      :db/eid eid
-     :data intent}))
+     :data intent
+     :type intent-type
+     :conf intent-conf}))
 
 (defn- conn->db [conn-or-db]
   (if (and (map? conn-or-db) (:schema conn-or-db))

@@ -1,0 +1,10 @@
+{:default 0.6
+ :inquiry 0.55
+ :directive 0.6
+ :scheduling 0.58
+ :status-update 0.62
+ :support-request 0.6
+ :planning 0.6
+ :follow-up 0.55
+ :risk-escalation 0.52
+ :delivery-commit 0.63}

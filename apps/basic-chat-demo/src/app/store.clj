@@ -790,11 +790,22 @@
         relation-types (->> (d/q '[:find ?t :where [?r :relation/type ?t]] db)
                             (map first)
                             (remove nil?)
-                            set)]
+                            set)
+        utterance-intents (->> (d/q '[:find ?t :where [?u :utterance/intent ?t]] db)
+                               (map first)
+                               (remove nil?)
+                               set)
+        stored-intents (->> (d/q '[:find ?t :where [?i :intent/type ?t]] db)
+                            (map first)
+                            (remove nil?)
+                            set)
+        intent-types (set (concat utterance-intents stored-intents))]
     (when (seq entity-types)
       (types/ensure! :entity entity-types))
     (when (seq relation-types)
-      (types/ensure! :relation relation-types))))
+      (types/ensure! :relation relation-types))
+    (when (seq intent-types)
+      (types/ensure! :intent intent-types))))
 
 (defn tx!
   "Apply event to conn and append it to the event log.
@@ -1047,4 +1058,3 @@
                        (take (max 1 limit))
                        vec)]
        sorted))))
-

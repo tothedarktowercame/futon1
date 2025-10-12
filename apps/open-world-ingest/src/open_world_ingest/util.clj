@@ -3,7 +3,8 @@
   (:import (java.math BigInteger)
            (java.nio.charset StandardCharsets)
            (java.security MessageDigest)
-           (java.time Instant)))
+           (java.time Instant)
+           (java.util UUID)))
 
 (defn sha1
   ^String
@@ -11,6 +12,12 @@
   (let [digest (MessageDigest/getInstance "SHA-1")]
     (.update digest (.getBytes s StandardCharsets/UTF_8))
     (format "%040x" (BigInteger. 1 (.digest digest)))))
+
+(defn stable-uuid
+  ^UUID
+  [value]
+  (when (some? value)
+    (UUID/nameUUIDFromBytes (.getBytes (str value) StandardCharsets/UTF_8))))
 
 (defn canonical-kind
   [kind]

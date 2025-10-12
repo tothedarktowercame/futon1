@@ -10,7 +10,7 @@
             [graph-memory.main :as gm]
             [protocols.registry :as registry]))
 
-(def default-protocol "basic-chat/v5")
+(def default-protocol "basic-chat/v6")
 
 (def exit-commands #{":quit" ":exit" "quit" "exit"})
 

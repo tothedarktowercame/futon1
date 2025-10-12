@@ -19,3 +19,9 @@ Create test namespaces that mirror production namespaces and end in `-test`. Kee
 ## Commit & Pull Request Guidelines
 Commit messages should be concise, present-tense imperatives (history examples: “add a test…”, “remove old dir”). Squash incidental WIP commits locally; keep one logical change per commit. Pull requests need a short summary of why the change matters, links to any tracked issues, notes on manual verification, and screenshots or transcripts for UI or agent workflow impacts.
 
+## Separation of concerns
+
+- `apps/open-world-ingest` owns the NLP pipeline and exposes ingestion adapters; it should call into the shared storage layer rather than redefine persistence.
+- `apps/graph-memory` provides the storage/graph primitives (entity/relation handling, XT utilities). Reuse these from other apps.
+- `apps/basic-chat-demo` and `apps/headless-api` must remain thin: parse input, call shared adapters/protocols, format responses. Do **not** reimplement ingest logic.
+- When adding capabilities, extend the feature module (e.g. open-world ingest or graph-memory) first, then delegate to it from the frontends.

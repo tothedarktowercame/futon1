@@ -2,7 +2,6 @@
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [headless_api.handlers.graph :as graph]
-            [headless_api.handlers.ingest :as ingest]
             [headless_api.handlers.me :as me]
             [headless_api.handlers.turns :as turns]
             [headless_api.handlers.types :as types]
@@ -149,11 +148,6 @@
     (text-response text 200 (cond-> {}
                               profile (assoc "X-Profile" profile)))))
 
-(defn- ingest-handler [request]
-  (let [raw (read-body request)
-        result (ingest/ingest! request raw)]
-    (json-response result)))
-
 (defn- entity-handler [request]
   (let [body (parse-json-body request)
         result (graph/ensure-entity! request body)]
@@ -191,7 +185,6 @@
       [:get "/api/α/me"] (me-get-handler request)
       [:post "/api/α/me"] (me-post-handler request)
       [:get "/api/α/me/summary"] (me-summary-handler request)
-      [:post "/api/α/ingest"] (ingest-handler request)
       [:post "/api/α/entity"] (entity-handler request)
       [:post "/api/α/relation"] (relation-handler request)
       [:get "/api/α/types"] (types-handler request)

@@ -16,7 +16,7 @@
     :assoc-fn (fn [m k v]
                 (assoc m k (if (nil? v)
                              true
-                             v)))]]))
+                             v)))]] )
 
 (defn usage [options-summary]
   (->> ["Open-world ingest module"

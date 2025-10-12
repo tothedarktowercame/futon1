@@ -2,10 +2,13 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
         cheshire/cheshire {:mvn/version "5.11.0"}
         basic-chat-demo/basic-chat-demo {:local/root "../basic-chat-demo"}
+        open-world-ingest/open-world-ingest {:local/root "../open-world-ingest"}
         protocols/protocols {:local/root "../../protocols"}}
 
  :aliases
- {:run-m {:main-opts ["-m" "headless_api.server"]}
+ {:run-m {:extra-deps {edu.stanford.nlp/stanford-corenlp$models {:mvn/version "4.5.4"}
+                       edu.stanford.nlp/stanford-corenlp$models-english {:mvn/version "4.5.4"}}
+          :main-opts ["-m" "headless_api.server"]}
   :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.10"}}
           :ns-default build}
   :test {:extra-paths ["test"]

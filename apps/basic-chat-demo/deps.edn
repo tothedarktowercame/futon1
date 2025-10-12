@@ -5,13 +5,16 @@
         cheshire/cheshire {:mvn/version "5.11.0"}
         nlp-interface/nlp-interface {:local/root "../nlp-interface"}
         graph-memory/graph-memory {:local/root "../graph-memory"}
+        open-world-ingest/open-world-ingest {:local/root "../open-world-ingest"}
         protocols/protocols {:local/root "../../protocols"}}
 
  :mvn/repos {"central" {:url "https://repo1.maven.org/maven2/"}
              "clojars" {:url "https://repo.clojars.org/"}}
 
  :aliases
- {:run-m {:main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
+ {:run-m {:extra-deps {edu.stanford.nlp/stanford-corenlp$models {:mvn/version "4.5.4"}
+                       edu.stanford.nlp/stanford-corenlp$models-english {:mvn/version "4.5.4"}}
+          :main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
   :run-x {:ns-default basic-chat-demo.basic-chat-demo
           :exec-fn greet
           :exec-args {:name "Clojure"}}

@@ -6,7 +6,7 @@
             [headless_api.store-manager :as store-manager]
             [protocols.registry :as registry]))
 
-(def default-protocol "basic-chat/v5")
+(def default-protocol "basic-chat/v6")
 
 (defonce ^:private !contexts (atom {}))
 

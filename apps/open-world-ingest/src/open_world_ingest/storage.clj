@@ -53,7 +53,7 @@
 
 (defn- entity-doc
   [existing now {:entity/keys [id label lower-label kind]} alias-labels]
-  {:xt/id [:entity/id id]
+  {:xt/id id
    :entity/id id
    :entity/label label
    :entity/lower-label lower-label
@@ -67,7 +67,7 @@
   (keep (fn [{:entity/keys [label sentence] :mention/keys [span]}]
           (when span
             (let [mention-id (str (UUID/randomUUID))]
-              {:xt/id [:mention/id mention-id]
+              {:xt/id mention-id
                :mention/id mention-id
                :mention/entity entity-id
                :mention/utterance utterance-id
@@ -104,11 +104,12 @@
   [utterance-id now relations]
   (map (fn [{:relation/keys [src dst label polarity confidence subject object sentence time loc]}]
          (let [rid (util/sha1 (str src ":" label ":" dst ":" utterance-id))]
-           (cond-> {:xt/id [:relation/id rid]
-                    :relation/id rid
-                    :relation/src src
-                    :relation/dst dst
+           (cond-> {:xt/id rid
+                     :relation/id rid
+                     :relation/src src
+                     :relation/dst dst
                     :relation/label label
+                    :relation/type label
                     :relation/subject subject
                     :relation/object object
                     :relation/polarity polarity
@@ -129,7 +130,7 @@
         entity-results (map (fn [occurrences]
                               (let [entity (first occurrences)
                                     entity-id (:entity/id entity)
-                                    existing (xt/entity db [:entity/id entity-id])
+                                    existing (xt/entity db entity-id)
                                     labels (set (map :entity/label occurrences))
                                     doc (entity-doc existing now entity labels)]
                                 {:doc doc
@@ -144,7 +145,7 @@
         mention-docs' (mapcat (fn [{:keys [id occurrences]}]
                                 (mention-docs utterance-id now id occurrences))
                               entity-results)
-        utterance-doc {:xt/id [:utterance/id utterance-id]
+        utterance-doc {:xt/id utterance-id
                        :utterance/id utterance-id
                        :utterance/text text
                        :utterance/ts now

@@ -140,7 +140,7 @@
         "Me")))
 
 (defn profile-interlocutor-name
-  "Return a name to use for the default interlocutor ("you")."
+  "Return a name to use for the default interlocutor (\"you\")."
   [profile]
   (let [doc (profile-doc profile)]
     (or (:interlocutor-name doc)
@@ -149,7 +149,7 @@
         "You")))
 
 (defn profile-collective-name
-  "Return a name representing the default collective ("we")."
+  "Return a name representing the default collective (\"we\")."
   [profile]
   (let [doc (profile-doc profile)
         me (profile-name profile)

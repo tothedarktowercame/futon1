@@ -74,6 +74,15 @@ When nil, use the current `default-directory` at invocation time."
   :type 'integer
   :group 'tatami1)
 
+(defcustom tatami1-data-directory nil
+  "Directory that stores the headless API data files.
+
+When nil an absolute path to `apps/headless-api/data` is inferred relative to
+`tatami1-start-directory` (or the current `default-directory` when
+`tatami1-start-directory` is unset)."
+  :type '(choice (const :tag "Infer from project" nil) directory)
+  :group 'tatami1)
+
 (defvar tatami1--server-process nil
   "The process object for a server started by Emacs.")
 
@@ -89,6 +98,14 @@ When nil, use the current `default-directory` at invocation time."
 (defun tatami1-last-error ()
   "Return the last recorded Tatami1 error message."
   tatami1--last-error)
+
+(defun tatami1--default-data-directory ()
+  (let* ((base (or tatami1-data-directory
+                   (and tatami1-start-directory
+                        (expand-file-name "apps/headless-api/data"
+                                          tatami1-start-directory))
+                   (expand-file-name "apps/headless-api/data" default-directory))))
+    (expand-file-name base)))
 
 (defun tatami1--make-url (path)
   (concat (string-remove-suffix "/" tatami1-base-url) path))
@@ -194,6 +211,30 @@ string.  If no sentence remains, return nil."
     (delete-process tatami1--server-process)
     (setq tatami1--server-process nil)
     (message "Stopped headless server process")))
+
+(defun tatami1-reset-storage (&optional directory)
+  "Delete the headless API data directory.
+When called interactively without a prefix argument the directory is inferred
+from `tatami1-data-directory` / `tatami1-start-directory`.  With a prefix
+argument prompt for the directory to delete.  The server process is stopped
+before deletion when it was started from Emacs."
+  (interactive)
+  (let* ((default-dir (tatami1--default-data-directory))
+         (target (expand-file-name (or directory
+                                       (if current-prefix-arg
+                                           (read-directory-name
+                                            "Delete data directory: "
+                                            default-dir nil t)
+                                         default-dir)))))
+    (if (file-directory-p target)
+        (when (yes-or-no-p (format "Really delete data directory %s? " target))
+          (tatami1-stop-server)
+          (delete-directory target t)
+          (make-directory target t)
+          (message "Reset headless data directory %s" target))
+      (if (called-interactively-p 'interactive)
+          (message "No data directory at %s" target)
+        (tatami1--note-error "No data directory at %s" target)))))
 
 (defun tatami1--process-sentinel (proc event)
   "Internal sentinel to report when PROC terminates unexpectedly.

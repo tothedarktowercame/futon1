@@ -26,7 +26,7 @@
 (def ^:private relation-triples-annotation
   (delay
     (try
-      (Class/forName "edu.stanford.nlp.naturalli.OpenIEAnnotations$RelationTriplesAnnotation")
+      (Class/forName "edu.stanford.nlp.naturalli.NaturalLogicAnnotations$RelationTriplesAnnotation")
       (catch ClassNotFoundException _
         nil))))
 
@@ -247,7 +247,8 @@
   [label tokens sentence-idx span]
   (let [kind (entity-kind tokens)
         lower-label (str/lower-case label)
-        entity-id (util/sha1 (str lower-label ":" (name kind)))]
+        entity-key (str lower-label ":" (name kind))
+        entity-id (util/stable-uuid entity-key)]
     {:entity/id entity-id
      :entity/label label
      :entity/lower-label lower-label
@@ -327,7 +328,7 @@
         object-lemma (.objectLemmaGloss triple)
         relation-gloss (.relationGloss triple)
         relation-lemma (.relationLemmaGloss triple)
-        negated? (.isNegated triple)
+        negated? (boolean (maybe-invoke triple "isNegated"))
         confidence (.confidence triple)
         subj-span (span->vec (maybe-invoke triple "subjectTokenSpan"))
         obj-span (span->vec (maybe-invoke triple "objectTokenSpan"))

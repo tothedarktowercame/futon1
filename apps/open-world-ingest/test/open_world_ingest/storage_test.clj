@@ -48,8 +48,7 @@
                           ::db)
                   xt/entity (fn [db eid]
                               (is (= ::db db))
-                              (is (contains? #{[:entity/id alice-id]
-                                               [:entity/id acme-id]}
+                              (is (contains? #{alice-id acme-id}
                                              eid))
                               nil)
                   xt/submit-tx (fn [node ops]
@@ -68,8 +67,8 @@
                                  nil)]
       (let [summary (storage/store-analysis! "Alice works at Acme Corp." analysis)
             docs (map second @submitted)
-            entity-doc (some #(when (= [:entity/id alice-id] (:xt/id %)) %) docs)
-            acme-doc (some #(when (= [:entity/id acme-id] (:xt/id %)) %) docs)
+            entity-doc (some #(when (= alice-id (:xt/id %)) %) docs)
+            acme-doc (some #(when (= acme-id (:xt/id %)) %) docs)
             relation-doc (some #(when (= (:relation/src %) alice-id) %) docs)
             mention-docs (filter :mention/id docs)
             utterance-doc (some #(when (:utterance/id %) %) docs)]
@@ -89,6 +88,7 @@
                (:entity/aliases entity-doc)))
         (is (= "Acme Corp" (:entity/label acme-doc)))
         (is (= :works-at (:relation/label relation-doc)))
+        (is (= :works-at (:relation/type relation-doc)))
         (is (= #{alice-id acme-id}
                (set (map :mention/entity mention-docs))))
         (is (= "Alice works at Acme Corp." (:utterance/text utterance-doc)))

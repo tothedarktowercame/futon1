@@ -106,8 +106,8 @@
         rel (#'open-world-ingest.nlp/relation->map normalized entities now)]
     (is (= :alice (:relation/src rel)))
     (is (= :acme (:relation/dst rel)))
-    (is (= :works-at (:relation/label rel)))
-    (is (= [:work-at] (:relation/type-aliases rel)))
+    (is (= :corp/works-at (:relation/label rel)))
+    (is (= [:work-at :works-at] (:relation/type-aliases rel)))
     (is (= :asserted (:relation/polarity rel)))
     (is (= 0 (:relation/sentence rel)))
     (is (= :acme (:relation/loc rel)))

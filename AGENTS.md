@@ -23,5 +23,5 @@ Commit messages should be concise, present-tense imperatives (history examples: 
 
 - `apps/open-world-ingest` owns the NLP pipeline and exposes ingestion adapters; it should call into the shared storage layer rather than redefine persistence.
 - `apps/graph-memory` provides the storage/graph primitives (entity/relation handling, XT utilities). Reuse these from other apps.
-- `apps/basic-chat-demo` and `apps/headless-api` must remain thin: parse input, call shared adapters/protocols, format responses. Do **not** reimplement ingest logic.
+- `apps/basic-chat-demo` and `apps/api` must remain thin: parse input, call shared adapters/protocols, format responses. Do **not** reimplement ingest logic.
 - When adding capabilities, extend the feature module (e.g. open-world ingest or graph-memory) first, then delegate to it from the frontends.

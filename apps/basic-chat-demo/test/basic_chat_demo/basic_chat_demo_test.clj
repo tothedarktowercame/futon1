@@ -63,6 +63,7 @@
         got' (mapv (fn [m]
                      (-> m
                          (dissoc :context :focus-header :focus-header-json :focus-header-lines)
+                         (update :intent #(select-keys % [:type :conf]))
                          (update :links (fn [ls] (mapv (constantly {}) ls)))))
                    got)
         exp (-> "test/golden/hello.out.edn" slurp edn/read-string)]
@@ -79,6 +80,7 @@
         got' (mapv (fn [m]
                      (-> m
                          (dissoc :context :focus-header :focus-header-json :focus-header-lines)
+                         (update :intent #(select-keys % [:type :conf]))
                          (update :entities (fn [ents]
                                              (mapv #(select-keys % [:name :type]) ents)))
                          (update :relations (fn [rels]
@@ -134,3 +136,10 @@
            (f partial)))
     (is (= {}
            (f none)))))
+
+(deftest supports-entity-commands
+  (let [supports? #'sut/supports-entity-commands?]
+    (doseq [id ["basic-chat/v3" "basic-chat/v4" "basic-chat/v5" "basic-chat/v6"]]
+      (is (supports? id) (str id " should enable slash commands")))
+    (doseq [id ["basic-chat/v1" "basic-chat/v2" "unknown"]]
+      (is (not (supports? id)) (str id " should not enable slash commands")))))

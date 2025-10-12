@@ -29,7 +29,7 @@ can start the server (via `clojure -M:run-m` by default), retrieve the current
    profile:
 
    ```elisp
-   (setq tatami1-start-directory "/path/to/futon1/apps/headless-api")
+   (setq tatami1-start-directory "/path/to/futon1/apps/api")
    (setq tatami1-start-command '("clojure" "-M:run-m"))
    (setq tatami1-base-url "http://localhost:8080")
    (setq tatami1-profile "default")

@@ -12,8 +12,7 @@
              "clojars" {:url "https://repo.clojars.org/"}}
 
  :aliases
- {:run-m {:extra-deps {edu.stanford.nlp/stanford-corenlp$models {:mvn/version "4.5.4"}
-                       edu.stanford.nlp/stanford-corenlp$models-english {:mvn/version "4.5.4"}}
+ {:run-m {:extra-deps {edu.stanford.nlp/stanford-corenlp$models {:mvn/version "4.5.4"}}
           :main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
   :run-x {:ns-default basic-chat-demo.basic-chat-demo
           :exec-fn greet

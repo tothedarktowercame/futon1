@@ -5,6 +5,8 @@
         com.xtdb/xtdb-rocksdb             {:mvn/version "1.24.4"}
         org.slf4j/slf4j-nop               {:mvn/version "1.7.36"}
         edu.stanford.nlp/stanford-corenlp {:mvn/version "4.5.4"}
+        edu.stanford.nlp/stanford-corenlp$models {:mvn/version "4.5.4"}
+        edu.stanford.nlp/stanford-corenlp$models-english {:mvn/version "4.5.4"}
         graph-memory/graph-memory        {:local/root "../graph-memory"}}
 
  :mvn/repos {"central"   {:url "https://repo.maven.apache.org/maven2/"}
@@ -12,9 +14,7 @@
              "clojars"   {:url "https://repo.clojars.org/"}}
 
  :aliases
- {:run-m {:extra-deps {edu.stanford.nlp/stanford-corenlp$models-english
-                       {:mvn/version "4.5.4"}
-                       edu.stanford.nlp/stanford-corenlp$models
+ {:run-m {:extra-deps {edu.stanford.nlp/stanford-corenlp$models
                        {:mvn/version "4.5.4"}}
           :main-opts  ["-m" "open-world-ingest.core"]}
 
@@ -24,8 +24,6 @@
 
   :repl  {:extra-deps {nrepl/nrepl                            {:mvn/version "1.1.1"}
                        cider/cider-nrepl                      {:mvn/version "0.49.0"}
-                       edu.stanford.nlp/stanford-corenlp$models-english
-                       {:mvn/version "4.5.4"}
                        edu.stanford.nlp/stanford-corenlp$models
                        {:mvn/version "4.5.4"}}
           :main-opts  ["-m" "nrepl.cmdline"
@@ -38,8 +36,6 @@
          :extra-deps  {io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}
                        com.xtdb/xtdb-mem-kv {:mvn/version "1.24.4"}
-                       edu.stanford.nlp/stanford-corenlp$models-english
-                       {:mvn/version "4.5.4"}
                        edu.stanford.nlp/stanford-corenlp$models
                        {:mvn/version "4.5.4"}}
          :main-opts   ["-m" "cognitect.test-runner"]}}}

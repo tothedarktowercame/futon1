@@ -2,7 +2,8 @@
   (:require [clojure.string :as str]
             [graph-memory.main :as gm]
             [open-world-ingest.nlp :as ingest-nlp]
-            [open-world-ingest.storage :as ingest-storage]))
+            [open-world-ingest.storage :as ingest-storage])
+  (:import (java.io File)))
 
 (def intro
   ["Protocol basic-chat/v6 — routes utterances through open-world ingest so"
@@ -14,10 +15,18 @@
 (defn configure [ctx _]
   ctx)
 
+(defn- data-root []
+  (or (System/getProperty "basic-chat.data-root")
+      (System/getenv "BASIC_CHAT_DATA_DIR")
+      (.getAbsolutePath (File. "data"))))
+
+(defn- open-world-dir []
+  (.getAbsolutePath (File. (File. (data-root)) "open-world")))
+
 (defn- ensure-node! [ctx]
   (if-let [node @(:node ctx)]
     node
-    (let [node (ingest-storage/start-node! {:data-dir "data/open-world"})]
+    (let [node (ingest-storage/start-node! {:data-dir (open-world-dir)})]
       (reset! (:node ctx) node)
       node)))
 

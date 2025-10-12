@@ -301,7 +301,8 @@
               (recur new-state))))))))
 
 (defn supports-entity-commands? [protocol-id]
-  (contains? #{"basic-chat/v3" "basic-chat/v4" "basic-chat/v5"} protocol-id))
+  (contains? #{"basic-chat/v3" "basic-chat/v4" "basic-chat/v5" "basic-chat/v6"}
+             protocol-id))
 
 (defn context->conn [ctx]
   (if (and (map? ctx) (:db ctx))

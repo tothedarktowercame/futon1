@@ -77,7 +77,7 @@ When nil, use the current `default-directory` at invocation time."
 (defcustom tatami1-data-directory nil
   "Directory that stores the headless API data files.
 
-When nil an absolute path to `apps/headless-api/data` is inferred relative to
+When nil an absolute path to `data` is inferred relative to
 `tatami1-start-directory` (or the current `default-directory` when
 `tatami1-start-directory` is unset)."
   :type '(choice (const :tag "Infer from project" nil) directory)
@@ -102,9 +102,8 @@ When nil an absolute path to `apps/headless-api/data` is inferred relative to
 (defun tatami1--default-data-directory ()
   (let* ((base (or tatami1-data-directory
                    (and tatami1-start-directory
-                        (expand-file-name "apps/headless-api/data"
-                                          tatami1-start-directory))
-                   (expand-file-name "apps/headless-api/data" default-directory))))
+                        (expand-file-name "data" tatami1-start-directory))
+                   (expand-file-name "data" default-directory))))
     (expand-file-name base)))
 
 (defun tatami1--make-url (path)

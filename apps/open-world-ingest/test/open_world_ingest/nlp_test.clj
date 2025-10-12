@@ -1,7 +1,8 @@
 (ns open-world-ingest.nlp-test
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
-            [open-world-ingest.nlp])
+            [clojure.test :refer [deftest is testing]]
+            [open-world-ingest.nlp :as nlp]
+            [open-world-ingest.trace :as trace])
   (:import (edu.stanford.nlp.ling CoreLabel)
            (edu.stanford.nlp.ling CoreAnnotations$LemmaAnnotation
                                   CoreAnnotations$NamedEntityTagAnnotation
@@ -83,3 +84,67 @@
   (is (= "go to" (#'open-world-ingest.nlp/normalize-predicate "go")))
   (is (= "meet" (#'open-world-ingest.nlp/normalize-predicate "meet with")))
   (is (= "something else" (#'open-world-ingest.nlp/normalize-predicate "something else"))))
+
+(deftest relation-map-from-record
+  (let [record {:sent "Alice works at Acme Corp."
+                :sent-idx 0
+                :subj "Alice"
+                :subj-lemma "alice"
+                :obj "Acme Corp"
+                :obj-lemma "acme corp"
+                :pred "works at"
+                :lemma "work at"
+                :confidence 0.92
+                :negated? false
+                :spans {:subj [0 1]
+                        :pred [1 3]
+                        :obj [3 5]}}
+        normalized (#'open-world-ingest.nlp/record->normalized record)
+        now (Instant/parse "2025-01-01T00:00:00Z")
+        entities {"alice" {:entity/id :alice :entity/kind :person}
+                  "acme corp" {:entity/id :acme :entity/kind :org}}
+        rel (#'open-world-ingest.nlp/relation->map normalized entities now)]
+    (is (= :alice (:relation/src rel)))
+    (is (= :acme (:relation/dst rel)))
+    (is (= :works-at (:relation/label rel)))
+    (is (= [:work-at] (:relation/type-aliases rel)))
+    (is (= :asserted (:relation/polarity rel)))
+    (is (= 0 (:relation/sentence rel)))
+    (is (= :acme (:relation/loc rel)))
+    (is (= 0.92 (:relation/confidence rel)))))
+
+(deftest relation-map-falls-back-when-predicate-empty
+  (let [record {:sent "Alice ??? Bob"
+                :sent-idx 0
+                :subj "Alice"
+                :subj-lemma "alice"
+                :obj "Bob"
+                :obj-lemma "bob"
+                :pred "???"
+                :lemma "???"
+                :confidence 0.5
+                :negated? false
+                :spans {:subj [0 1]
+                        :pred [1 2]
+                        :obj [2 3]}}
+        normalized (#'open-world-ingest.nlp/record->normalized record)
+        entities {"alice" {:entity/id :alice :entity/kind :person}
+                  "bob" {:entity/id :bob :entity/kind :person}}
+        rel (#'open-world-ingest.nlp/relation->map normalized entities (Instant/parse "2025-01-01T00:00:00Z"))]
+    (is (= :links-to (:relation/label rel)))
+    (is (nil? (:relation/type-aliases rel)))))
+
+(deftest lookup-replay-prefers-specific-matches
+  (let [records [{:sent-idx 0 :sent "Alpha" :subj "A" :pred "p" :obj "B" :lemma "p" :spans {}}
+                 {:sent-idx 1 :sent "Beta" :subj "C" :pred "p" :obj "D" :lemma "p" :spans {}}]
+        index (trace/index-by-sentence records)]
+    (testing "exact sentence match"
+      (is (= [(first records)]
+             (#'open-world-ingest.nlp/lookup-replay index 0 "Alpha"))))
+    (testing "fallback to global list when missing"
+      (is (= records
+             (#'open-world-ingest.nlp/lookup-replay index 5 "Unknown"))))
+    (testing "missing index returns sentinel"
+      (is (= ::nlp/missing
+             (let [lookup #'open-world-ingest.nlp/lookup-replay]
+               (lookup {} 0 "Empty")))))))

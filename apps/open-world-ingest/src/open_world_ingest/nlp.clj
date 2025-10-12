@@ -1,14 +1,15 @@
 (ns open-world-ingest.nlp
   (:require [clojure.string :as str]
+            [open-world-ingest.trace :as trace]
             [open-world-ingest.util :as util])
   (:import (edu.stanford.nlp.pipeline Annotation StanfordCoreNLP)
            (edu.stanford.nlp.ling CoreAnnotations$LemmaAnnotation
-                                   CoreAnnotations$PartOfSpeechAnnotation
-                                   CoreAnnotations$NamedEntityTagAnnotation
-                                   CoreAnnotations$TextAnnotation
-                                   CoreAnnotations$TokensAnnotation
-                                   CoreAnnotations$SentencesAnnotation
-                                   CoreLabel)
+                                  CoreAnnotations$PartOfSpeechAnnotation
+                                  CoreAnnotations$NamedEntityTagAnnotation
+                                  CoreAnnotations$TextAnnotation
+                                  CoreAnnotations$TokensAnnotation
+                                  CoreAnnotations$SentencesAnnotation
+                                  CoreLabel)
            (edu.stanford.nlp.trees TreeCoreAnnotations$TreeAnnotation Tree)
            (edu.stanford.nlp.ie.util RelationTriple)
            (java.time Instant ZoneId)
@@ -140,7 +141,7 @@
             :proper
             (keyword normalized))))))
 
-(defn- normalize-date
+(defn ^:private normalize-date
   ([s]
    (normalize-date s (Instant/now)))
   ([s ^Instant now]
@@ -155,7 +156,7 @@
          (re-matches #"\d{4}-\d{2}-\d{2}" trimmed) trimmed
          :else nil)))))
 
-(defn- annotate-entity
+(defn ^:private annotate-entity
   [entity now]
   (if (and (= :date (:entity/kind entity))
            (not (:entity/time entity)))
@@ -164,14 +165,83 @@
       entity)
     entity))
 
-(defn- normalize-predicate
+(def ^:private fallback-relation :links-to)
+
+(defn ^:private normalize-predicate
   [lemma]
   (let [p (-> (or lemma "") str/lower-case str/trim)]
-    (cond
-      (re-matches #"(be|am|is|are|was|were)\s+in" p) "be in"
-      (re-matches #"go(\s+to)?" p) "go to"
-      (re-matches #"meet(\s+with)?" p) "meet"
-      :else p)))
+    (when (seq p)
+      (let [normalized (cond
+                         (re-matches #"(be|am|is|are|was|were)\s+in" p) "be in"
+                         (re-matches #"go(\s+to)?" p) "go to"
+                         (re-matches #"meet(\s+with)?" p) "meet"
+                         :else p)]
+        (when (seq normalized)
+          normalized)))))
+
+(defn- sanitize-predicate
+  [predicate]
+  (when-let [normalized (normalize-predicate predicate)]
+    (let [preserved (str/replace normalized #"\s+/\s+" "/")
+          cleaned (-> preserved
+                      (str/replace #"[^a-z0-9/\s-]" " ")
+                      (str/replace #"\s+" "-")
+                      (str/replace #"-+" "-")
+                      (str/replace #"-/-" "/")
+                      (str/replace #"(^-|-$)" ""))]
+      (when (seq cleaned)
+        cleaned))))
+
+(def ^:private namespace-stopwords
+  #{"" "a" "an" "and" "dear" "his" "her" "their" "our" "your"
+    "my" "the" "this" "that" "these" "those" "its" "of" "to" "for"
+    "on" "in" "with" "at" "by" "me" "you" "we" "they"})
+
+(defn- sanitize-label
+  [value]
+  (when-let [text (some-> value str str/lower-case)]
+    (let [clean (-> text
+                    (str/replace #"[^a-z0-9]+" "-")
+                    (str/replace #"-+" "-")
+                    (str/replace #"(^-|-$)" ""))]
+      (when (seq clean)
+        clean))))
+
+(defn- candidate-namespace
+  [object-text]
+  (when-let [sanitized (sanitize-label object-text)]
+    (let [parts (str/split sanitized #"-")
+          candidate (some (fn [token]
+                             (let [token' (str/replace token #"^[^a-z0-9]+|[^a-z0-9]+$" "")]
+                               (when (and (seq token')
+                                          (not (namespace-stopwords token')))
+                                 token')))
+                           (reverse parts))]
+      candidate)))
+
+(defn- derive-relation-type
+  [lemma gloss object-text]
+  (let [candidates (->> [gloss lemma]
+                        (map sanitize-predicate)
+                        (remove nil?)
+                        distinct)
+        primary (first candidates)
+        base-keyword (some-> primary keyword)
+        aliases (->> (rest candidates)
+                     (map keyword)
+                     distinct
+                     vec)
+        ns-label (candidate-namespace object-text)
+        final-label (cond
+                      (and ns-label (seq primary)) (keyword (str ns-label "/" primary))
+                      base-keyword base-keyword
+                      :else nil)
+        aliases' (cond-> aliases
+                   (and base-keyword final-label (not= final-label base-keyword))
+                   (into [base-keyword]))]
+    (when final-label
+      {:label final-label
+       :aliases (vec (distinct aliases'))})))
 
 (defn- build-entity
   [label tokens sentence-idx span]
@@ -185,7 +255,7 @@
      :entity/sentence sentence-idx
      :mention/span span}))
 
-(defn- dedupe-entities
+(defn ^:private dedupe-entities
   [entities]
   (reduce (fn [acc entity]
             (if (some #(= (:entity/id entity) (:entity/id %)) acc)
@@ -194,7 +264,7 @@
           []
           entities))
 
-(defn- ner-entities
+(defn ^:private ner-entities
   [tokens sentence-idx]
   (loop [idx 0
          acc []]
@@ -225,77 +295,186 @@
                     (build-entity text span-tokens sentence-idx [start end])))))
          (remove nil?))))
 
-(defn- relation->map
-  [^RelationTriple triple sentence-idx entities-by-label now]
+(defn- maybe-invoke
+  [obj method]
+  (when (and obj method)
+    (try
+      (clojure.lang.Reflector/invokeInstanceMethod obj method (object-array 0))
+      (catch Exception _
+        nil))))
+
+(defn- span->vec
+  [span]
+  (when span
+    (let [begin (or (some-> (maybe-invoke span "getBegin") int)
+                    (some-> (maybe-invoke span "begin") int)
+                    (some-> (maybe-invoke span "getStart") int)
+                    (some-> (maybe-invoke span "first") int)
+                    (some-> (maybe-invoke span "getFirst") int))
+          end (or (some-> (maybe-invoke span "getEnd") int)
+                  (some-> (maybe-invoke span "end") int)
+                  (some-> (maybe-invoke span "getStop") int)
+                  (some-> (maybe-invoke span "second") int)
+                  (some-> (maybe-invoke span "getSecond") int))]
+      (when (and (number? begin) (number? end))
+        [begin end]))))
+
+(defn- relation-triple->record
+  [^RelationTriple triple sentence sentence-idx]
   (let [subject (.subjectGloss triple)
-        rel (.relationLemmaGloss triple)
+        subject-lemma (.subjectLemmaGloss triple)
         object (.objectGloss triple)
-        polarity (if (.isNegated triple) :negated :asserted)
-        subj-entity (get entities-by-label (str/lower-case subject))
-        obj-entity (get entities-by-label (str/lower-case object))
+        object-lemma (.objectLemmaGloss triple)
+        relation-gloss (.relationGloss triple)
+        relation-lemma (.relationLemmaGloss triple)
+        negated? (.isNegated triple)
+        confidence (.confidence triple)
+        subj-span (span->vec (maybe-invoke triple "subjectTokenSpan"))
+        obj-span (span->vec (maybe-invoke triple "objectTokenSpan"))
+        rel-span (span->vec (maybe-invoke triple "relationTokenSpan"))]
+    {:sent sentence
+     :sent-idx sentence-idx
+     :subj subject
+     :subj-lemma subject-lemma
+     :obj object
+     :obj-lemma object-lemma
+     :pred relation-gloss
+     :lemma relation-lemma
+     :confidence confidence
+     :negated? negated?
+     :spans {:subj subj-span
+             :obj obj-span
+             :pred rel-span}}))
+
+(defn ^:private record->normalized
+  [{:keys [sent sent-idx subj subj-lemma obj obj-lemma pred lemma confidence negated? spans]}]
+  {:sentence sent
+   :sentence-idx sent-idx
+   :subject {:text subj
+             :lemma (or subj-lemma subj)
+             :span (:subj spans)}
+   :object {:text obj
+            :lemma (or obj-lemma obj)
+            :span (:obj spans)}
+   :relation {:text pred
+              :lemma (or lemma pred)
+              :span (:pred spans)}
+   :confidence confidence
+   :negated? (boolean negated?)})
+
+(defn- prepare-replay
+  [replay]
+  (let [records (trace/load-triples replay)]
+    (when (seq records)
+      (trace/index-by-sentence records))))
+
+(defn ^:private lookup-replay
+  [indexed sentence-idx sentence-text]
+  (if (seq indexed)
+    (let [candidates [[sentence-idx sentence-text]
+                      [sentence-idx :any]
+                      [:any sentence-text]
+                      [:any :any]]]
+      (loop [[k & ks] candidates]
+        (cond
+          (nil? k) ::missing
+          (contains? indexed k) (get indexed k)
+          :else (recur ks))))
+    ::missing))
+
+(defn ^:private relation->map
+  [{:keys [sentence-idx subject object relation confidence negated?] :as triple}
+   entities-by-label now]
+  (let [subject-text (:text subject)
+        object-text (:text object)
+        lemma (:lemma relation)
+        relation-text (:text relation)
+        polarity (if negated? :negated :asserted)
+        subj-entity (some-> subject-text str/lower-case entities-by-label)
+        obj-entity (some-> object-text str/lower-case entities-by-label)
         subj-id (:entity/id subj-entity)
         obj-id (:entity/id obj-entity)
-        rel-label (normalize-predicate rel)
-        rel-gloss (.relationGloss triple)
+        {:keys [label aliases]} (derive-relation-type lemma relation-text object-text)
+        rel-label (or label fallback-relation)
+        aliases' (when label
+                   (->> aliases
+                        (remove #(= % rel-label))
+                        vec))
         time-val (or (:entity/time obj-entity)
-                     (normalize-date object now))
-        loc? (when rel-gloss
-               (re-find #"(?i)\b(at|in|on)\b" rel-gloss))]
-    (when (and subj-id obj-id (seq rel))
-      (cond-> {:relation/subject subject
-               :relation/object object
+                     (normalize-date object-text now))
+        loc? (when relation-text
+               (re-find #"(?i)\b(at|in|on)\b" relation-text))]
+    (when (and subj-id obj-id (or (seq lemma) (seq relation-text)))
+      (cond-> {:relation/subject subject-text
+               :relation/object object-text
                :relation/src subj-id
                :relation/dst obj-id
                :relation/label rel-label
                :relation/polarity polarity
-               :relation/confidence (.confidence triple)
+               :relation/confidence confidence
                :relation/sentence sentence-idx}
+        (and (seq aliases') (not= rel-label fallback-relation)) (assoc :relation/type-aliases aliases')
         time-val (assoc :relation/time time-val)
         (and loc? obj-id (#{:place :org} (:entity/kind obj-entity))) (assoc :relation/loc obj-id)))))
 
 (defn- process-sentences
-  [sentences now]
-  (loop [idx 0
-         remaining (seq sentences)
-         entities []
-         relations []
-         ego-present? false]
-    (if-let [sentence (first remaining)]
-      (let [tokens (vec (.get sentence CoreAnnotations$TokensAnnotation))
-            tree (.get sentence TreeCoreAnnotations$TreeAnnotation)
-            sentence-entities (->> (concat (np-entities tokens tree idx)
-                                           (ner-entities tokens idx))
-                                   dedupe-entities
-                                   (map #(annotate-entity % now)))
-            ego (ego-entity idx)
-            pronoun-map {"i" ego "me" ego "my" ego "mine" ego "myself" ego}
-            entities-by-label (into pronoun-map
-                                    (map (fn [e]
-                                           [(:entity/lower-label e) e])
-                                         sentence-entities))
-            annotation @relation-triples-annotation
-            triples (when annotation
-                      (.get sentence annotation))
-            rels (when triples
-                   (keep #(relation->map % idx entities-by-label now) triples))
-            ego-used? (or (some #(= (:relation/src %) ego-entity-id) rels)
-                          (some #(= (:relation/dst %) ego-entity-id) rels))
-            entities' (cond-> (into entities sentence-entities)
-                         (and ego-used? (not ego-present?)) (conj ego))
-            ego-present?' (or ego-present? ego-used?)]
-        (recur (inc idx)
-               (next remaining)
-               entities'
-               (into relations rels)
-               ego-present?'))
-      {:entities entities
-       :relations relations})))
+  [sentences now {:keys [trace replay]}]
+  (let [trace-config (trace/config trace)
+        replay-index (prepare-replay replay)]
+    (loop [idx 0
+           remaining (seq sentences)
+           entities []
+           relations []
+           ego-present? false]
+      (if-let [sentence (first remaining)]
+        (let [tokens (vec (.get sentence CoreAnnotations$TokensAnnotation))
+              tree (.get sentence TreeCoreAnnotations$TreeAnnotation)
+              sentence-text (.get sentence CoreAnnotations$TextAnnotation)
+              sentence-entities (->> (concat (np-entities tokens tree idx)
+                                             (ner-entities tokens idx))
+                                     dedupe-entities
+                                     (map #(annotate-entity % now)))
+              ego (ego-entity idx)
+              pronoun-map {"i" ego "me" ego "my" ego "mine" ego "myself" ego}
+              entities-by-label (into pronoun-map
+                                      (map (fn [e]
+                                             [(:entity/lower-label e) e])
+                                           sentence-entities))
+              annotation @relation-triples-annotation
+              triples (when annotation
+                        (.get sentence annotation))
+              base-records (when triples
+                             (mapv #(relation-triple->record % sentence-text idx) triples))
+              replay-records (lookup-replay replay-index idx sentence-text)
+              effective-records (cond
+                                  (identical? ::missing replay-records) base-records
+                                  :else replay-records)
+              normalized-records (map record->normalized effective-records)
+              rels (keep #(relation->map % entities-by-label now) normalized-records)
+              _ (when (and trace-config (seq base-records))
+                  (trace/append! trace-config base-records))
+              ego-used? (or (some #(= (:relation/src %) ego-entity-id) rels)
+                            (some #(= (:relation/dst %) ego-entity-id) rels))
+              entities' (cond-> (into entities sentence-entities)
+                          (and ego-used? (not ego-present?)) (conj ego))
+              ego-present?' (or ego-present? ego-used?)]
+          (recur (inc idx)
+                 (next remaining)
+                 entities'
+                 (into relations rels)
+                 ego-present?'))
+        {:entities entities
+         :relations relations}))))
 
 (defn analyze
   ([text]
    (analyze text {:now (Instant/now)}))
-  ([text {:keys [now] :or {now (Instant/now)}}]
+  ([text {:keys [now trace-openie replay-openie]
+          :or {now (Instant/now)}}]
    (let [document (Annotation. text)]
      (.annotate ^StanfordCoreNLP @pipeline document)
      (let [sentences (.get document CoreAnnotations$SentencesAnnotation)]
-       (process-sentences sentences now)))))
+       (process-sentences sentences
+                          now
+                          {:trace trace-openie
+                           :replay replay-openie})))))

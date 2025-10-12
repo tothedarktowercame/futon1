@@ -3,13 +3,20 @@
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
             [open-world-ingest.nlp :as nlp]
-            [open-world-ingest.storage :as storage])
+            [open-world-ingest.storage :as storage]
+            [open-world-ingest.trace :as trace])
   (:gen-class))
 
 (def cli-options
   [["-d" "--data-dir DIR" "Directory for XTDB storage"
     :default (-> (io/file "data" "open-world") .getAbsolutePath)]
-   ["-c" "--config PATH" "Path to XTDB configuration file"]])
+   ["-c" "--config PATH" "Path to XTDB configuration file"]
+   ["-t" "--trace-openie [PATH]" "Capture OpenIE triples to an EDN file (optional path)"
+    :default false
+    :assoc-fn (fn [m k v]
+                (assoc m k (if (nil? v)
+                             true
+                             v)))]]))
 
 (defn usage [options-summary]
   (->> ["Open-world ingest module"
@@ -50,8 +57,8 @@
     (println "Relations: none")))
 
 (defn- ingest-line
-  [line]
-  (let [analysis (nlp/analyze line)
+  [line nlp-opts]
+  (let [analysis (nlp/analyze line nlp-opts)
         summary (storage/store-analysis! line analysis)]
     (print-ingest-summary summary)))
 
@@ -68,8 +75,14 @@
         (System/exit 1))
 
       :else
-      (let [config {:data-dir (:data-dir options)
+      (let [trace-config (trace/config (:trace-openie options))
+            nlp-opts (cond-> {}
+                       trace-config (assoc :trace-openie trace-config))
+            config {:data-dir (:data-dir options)
                     :config-path (:config options)}]
+        (when trace-config
+          (trace/reset! trace-config)
+          (println "Tracing OpenIE triples to" (:path trace-config)))
         (storage/start-node! config)
         (.addShutdownHook (Runtime/getRuntime)
                           (Thread. storage/stop!))
@@ -86,7 +99,7 @@
               (do
                 (let [trimmed (str/trim line)]
                   (when (seq trimmed)
-                    (ingest-line trimmed)))
+                    (ingest-line trimmed nlp-opts)))
                 (recur))
             (do
               (println)

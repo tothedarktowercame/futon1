@@ -1,6 +1,7 @@
 (ns open-world-ingest.storage-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [graph-memory.types_registry :as types]
             [open-world-ingest.storage :as storage]
             [open-world-ingest.util :as util]
             [xtdb.api :as xt])
@@ -31,12 +32,15 @@
                                 :relation/object "Acme Corp"
                                 :relation/src alice-id
                                 :relation/dst acme-id
-                                :relation/label "works-at"
+                                :relation/label :works-at
+                                :relation/type-aliases [:work-at]
                                 :relation/polarity :asserted
                                 :relation/confidence 0.88
                                 :relation/sentence 0}]}
         submitted (atom nil)
         awaited (atom [])
+        ensured (atom [])
+        merged (atom [])
         now (Instant/ofEpochMilli 1)]
     (with-redefs [storage/node (constantly ::node)
                   xt/db (fn [node]
@@ -55,7 +59,13 @@
                   xt/await-tx (fn [node tx]
                                 (is (= ::node node))
                                 (swap! awaited conj tx))
-                  util/now (constantly now)]
+                  util/now (constantly now)
+                  types/ensure! (fn [kind type opts]
+                                  (swap! ensured conj [kind type opts])
+                                  {:id type :kind kind})
+                  types/merge! (fn [kind canonical aliases]
+                                 (swap! merged conj [kind canonical aliases])
+                                 nil)]
       (let [summary (storage/store-analysis! "Alice works at Acme Corp." analysis)
             docs (map second @submitted)
             entity-doc (some #(when (= [:entity/id alice-id] (:xt/id %)) %) docs)
@@ -71,17 +81,19 @@
                (set (map :label (:entities summary)))))
         (is (= #{{:subject "Alice"
                   :object "Acme Corp"
-                  :relation "works-at"
+                  :relation :works-at
                   :polarity :asserted
                   :confidence 0.88}}
                (set (:relations summary))))
         (is (= #{"Alice" "A. Smith"}
                (:entity/aliases entity-doc)))
         (is (= "Acme Corp" (:entity/label acme-doc)))
-        (is (= "works-at" (:relation/label relation-doc)))
+        (is (= :works-at (:relation/label relation-doc)))
         (is (= #{alice-id acme-id}
                (set (map :mention/entity mention-docs))))
-        (is (= "Alice works at Acme Corp." (:utterance/text utterance-doc))))))
+        (is (= "Alice works at Acme Corp." (:utterance/text utterance-doc)))
+        (is (= [[:relation :works-at {:parent :relation/works/*}]] @ensured))
+        (is (= [[:relation :works-at [:work-at]]] @merged))))))
 
 (deftest relation-queries-return-recent-and-related-data
   (let [inst1 (Instant/ofEpochMilli 1)
@@ -98,17 +110,17 @@
                              1 (let [[db query] args]
                                  (is (= ::db db))
                                  (is (= 2 (:limit query)))
-                                 [[::rel3 "collaborates-with" alice-id "Alice" :person bob-id "Bob" :person :asserted inst3]
-                                  [::rel2 "mentors" bob-id "Bob" :person alice-id "Alice" :person :asserted inst2]])
+                                 [[::rel3 :collaborates-with alice-id "Alice" :person bob-id "Bob" :person :asserted inst3]
+                                  [::rel2 :mentors bob-id "Bob" :person alice-id "Alice" :person :asserted inst2]])
                              2 (let [[db _query entity] args]
                                  (is (= ::db db))
                                  (is (= alice-id entity))
-                                 [["collaborates-with" bob-id "Bob" :person :asserted inst3]
-                                  ["works-at" acme-id "Acme" :org :asserted inst1]])
+                                 [[:collaborates-with bob-id "Bob" :person :asserted inst3]
+                                  [:works-at acme-id "Acme" :org :asserted inst1]])
                              3 (let [[db _query entity] args]
                                  (is (= ::db db))
                                  (is (= alice-id entity))
-                                 [["mentors" bob-id "Bob" :person :asserted inst2]])
+                                 [[:mentors bob-id "Bob" :person :asserted inst2]])
                              4 (let [[db _query entity] args]
                                  (is (= ::db db))
                                  (is (= alice-id entity))
@@ -116,19 +128,18 @@
                                   [bob-id "Bob" :person 1]]))))]
       (testing "recent relations are returned with newest first"
         (let [recent (storage/recent-relations 2)]
-          (is (= ["collaborates-with" "mentors"] (map :relation recent)))
+          (is (= [:collaborates-with :mentors] (map :relation recent)))
           (is (= ["Alice" "Bob"] (map (comp :label :src) recent)))
           (is (= ["Bob" "Alice"] (map (comp :label :dst) recent)))))
       (testing "ego neighbors include incoming and outgoing relations"
         (let [{:keys [outgoing incoming]} (storage/ego-neighbors alice-id)]
-          (is (= #{{:relation "collaborates-with" :direction :out :entity {:id bob-id :label "Bob" :kind :person}}
-                   {:relation "works-at" :direction :out :entity {:id acme-id :label "Acme" :kind :org}}}
+          (is (= #{{:relation :collaborates-with :direction :out :entity {:id bob-id :label "Bob" :kind :person}}
+                   {:relation :works-at :direction :out :entity {:id acme-id :label "Acme" :kind :org}}}
                  (set (map #(select-keys % [:relation :direction :entity]) outgoing))))
-          (is (= #{{:relation "mentors" :direction :in :entity {:id bob-id :label "Bob" :kind :person}}}
+          (is (= #{{:relation :mentors :direction :in :entity {:id bob-id :label "Bob" :kind :person}}}
                  (set (map #(select-keys % [:relation :direction :entity]) incoming))))))
       (testing "co-occurring entities are tallied"
         (let [coocc (storage/cooccurring-entities alice-id)]
           (is (= #{{:id acme-id :label "Acme" :kind :org :count 1}
                    {:id bob-id :label "Bob" :kind :person :count 1}}
                  (set coocc))))))))
-)

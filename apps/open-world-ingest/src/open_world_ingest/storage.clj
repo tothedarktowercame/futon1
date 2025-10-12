@@ -3,6 +3,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.walk :as walk]
+            [graph-memory.types_registry :as types]
             [open-world-ingest.util :as util]
             [xtdb.api :as xt])
   (:import (java.util UUID)))
@@ -76,6 +77,29 @@
                :mention/ts now})))
         occurrences))
 
+(defn- relation-parent
+  [label]
+  (when (keyword? label)
+    (let [segments (->> (str/split (name label) #"-")
+                        (remove str/blank?))]
+      (when-let [segment (first segments)]
+        (keyword "relation" (str segment "/*"))))))
+
+(defn- register-relation-type!
+  [{:relation/keys [label type-aliases]}]
+  (when (keyword? label)
+    (let [parent (relation-parent label)
+          opts (cond-> {}
+                 parent (assoc :parent parent))
+          aliases (->> type-aliases
+                       (remove nil?)
+                       (remove #(= % label))
+                       distinct
+                       vec)]
+      (types/ensure! :relation label opts)
+      (when (seq aliases)
+        (types/merge! :relation label aliases)))))
+
 (defn- relation-docs
   [utterance-id now relations]
   (map (fn [{:relation/keys [src dst label polarity confidence subject object sentence time loc]}]
@@ -115,6 +139,7 @@
                                  :occurrences occurrences}))
                             grouped)
         distinct-relations (distinct relations)
+        _ (run! register-relation-type! distinct-relations)
         relation-docs' (relation-docs utterance-id now distinct-relations)
         mention-docs' (mapcat (fn [{:keys [id occurrences]}]
                                 (mention-docs utterance-id now id occurrences))
@@ -170,21 +195,22 @@
 (defn recent-relations
   [limit]
   (let [limit (long (or limit 5))
-        query '{:find [?rel-id ?rel ?src-id ?src-label ?src-kind ?dst-id ?dst-label ?dst-kind ?pol ?ts]
-                 :where [[?r :relation/id ?rel-id]
-                         [?r :relation/label ?rel]
-                         [?r :relation/src ?src-id]
-                         [?r :relation/dst ?dst-id]
-                         [?r :relation/polarity ?pol]
-                         [?r :relation/ts ?ts]
-                         [?src :entity/id ?src-id]
-                         [?src :entity/label ?src-label]
-                         [?src :entity/kind ?src-kind]
-                         [?dst :entity/id ?dst-id]
-                         [?dst :entity/label ?dst-label]
-                         [?dst :entity/kind ?dst-kind]]
-                 :order-by [[?ts :desc]]
-                 :limit limit}
+        base-query '{:find [?rel-id ?rel ?src-id ?src-label ?src-kind ?dst-id ?dst-label ?dst-kind ?pol ?ts]
+                      :where [[?r :relation/id ?rel-id]
+                              [?r :relation/label ?rel]
+                              [?r :relation/src ?src-id]
+                              [?r :relation/dst ?dst-id]
+                              [?r :relation/polarity ?pol]
+                              [?r :relation/ts ?ts]
+                              [?src :entity/id ?src-id]
+                              [?src :entity/label ?src-label]
+                              [?src :entity/kind ?src-kind]
+                              [?dst :entity/id ?dst-id]
+                              [?dst :entity/label ?dst-label]
+                              [?dst :entity/kind ?dst-kind]]
+                      :order-by [[?ts :desc]]
+                      :limit limit}
+        query (assoc base-query :limit limit)
         results (xt/q (current-db) query)]
     (map (fn [[rel-id rel src-id src-label src-kind dst-id dst-label dst-kind pol ts]]
            {:id rel-id

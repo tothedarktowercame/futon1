@@ -62,11 +62,12 @@ These TODOs are tracked here so development can resume smoothly if interrupted.
 ## Typed relations
 
 The ingest pipeline now turns Stanford CoreNLP OpenIE triples into typed
-keywords (for example `:works-at`) before they are persisted. New relation
-labels are registered automatically with the Graph Memory type registry, and
-aliases such as lemma vs. gloss variants are merged on first sighting. When
-OpenIE fails to provide a predicate, the system continues to emit the
-`:links-to` fallback so ingestion remains robust.
+keywords (for example `:works-at`, or `:sister/assure` when the predicate can be
+namespaced from its object) before they are persisted. New relation labels are
+registered automatically with the Graph Memory type registry, and aliases such
+as lemma vs. gloss variants are merged on first sighting. When OpenIE fails to
+provide a predicate, the system continues to emit the `:links-to` fallback so
+ingestion remains robust.
 
 ## Operational next steps
 

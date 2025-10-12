@@ -46,8 +46,9 @@ interactive input, scripted conversations, or golden tests.
 - Pronouns such as “I” and “you” are intentionally ignored by
   the deterministic NER layers. They will not create or update entities unless a
   future personification pass resolves them to concrete participants.
-- OpenIE now derives typed relation keywords (e.g. `:works-at`) and registers
-  them in the relation type registry; if a predicate cannot be resolved, the
+- OpenIE now derives typed relation keywords (e.g. `:works-at`, or
+  `:sister/assure` when the object offers a natural namespace) and registers
+  them in the relation type registry; if the predicate cannot be resolved, the
   ingestion pipeline still falls back to the generic `:links-to` edge.
 
 ## Getting started

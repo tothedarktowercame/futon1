@@ -182,7 +182,9 @@
 (defn- sanitize-predicate
   [predicate]
   (when-let [normalized (normalize-predicate predicate)]
-    (let [preserved (str/replace normalized #"\s+/\s+" "/")
+    (let [preserved (-> normalized
+                        (str/replace #"\s+/\s+" "/")
+                        (str/replace #"^'s$" "has"))
           cleaned (-> preserved
                       (str/replace #"[^a-z0-9/\s-]" " ")
                       (str/replace #"\s+" "-")
@@ -393,8 +395,12 @@
         polarity (if negated? :negated :asserted)
         subj-entity (some-> subject-text str/lower-case entities-by-label)
         obj-entity (some-> object-text str/lower-case entities-by-label)
-        subj-id (:entity/id subj-entity)
-        obj-id (:entity/id obj-entity)
+        subj-id (or (:entity/id subj-entity)
+                    (when (seq subject-text)
+                      (util/stable-uuid (str "subj:" (str/lower-case subject-text)))))
+        obj-id (or (:entity/id obj-entity)
+                   (when (seq object-text)
+                     (util/stable-uuid (str "obj:" (str/lower-case object-text)))))
         {:keys [label aliases]} (derive-relation-type lemma relation-text object-text)
         rel-label (or label fallback-relation)
         aliases' (when label
@@ -412,7 +418,7 @@
                :relation/dst obj-id
                :relation/label rel-label
                :relation/polarity polarity
-               :relation/confidence confidence
+               :relation/confidence (or confidence 1.0)
                :relation/sentence sentence-idx}
         (and (seq aliases') (not= rel-label fallback-relation)) (assoc :relation/type-aliases aliases')
         time-val (assoc :relation/time time-val)

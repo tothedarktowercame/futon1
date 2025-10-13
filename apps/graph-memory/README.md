@@ -89,6 +89,10 @@ EOS
 
 # The focus header still lists Serena with the preserved seen-count/last-seen,
 # even though Datascript was freshly initialised.
+
+> **RocksDB note:** XTDB uses RocksDB under the hood. Each server process needs
+> its own `BASIC_CHAT_DATA_DIR`; running multiple JVMs against the same data
+> directory will cause the second startup to fail with a `LOCK`/`BindException`.
 ```
 
 ### Demo: fast local edits

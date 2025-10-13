@@ -69,6 +69,10 @@ as lemma vs. gloss variants are merged on first sighting. When OpenIE fails to
 provide a predicate, the system continues to emit the `:links-to` fallback so
 ingestion remains robust.
 
+- The ingest pipeline currently treats questions as normal assertions. For example,
+  “Do I own a pocketknife?” will store a relation as if the user had asserted the fact.
+  There is no question→Datalog mapping yet, so queries are not run programmatically.
+
 ## Operational next steps
 
 - Track the new focus/XT helper namespaces before publishing a build:

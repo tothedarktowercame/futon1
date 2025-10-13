@@ -83,6 +83,11 @@ When nil an absolute path to `data` is inferred relative to
   :type '(choice (const :tag "Infer from project" nil) directory)
   :group 'tatami1)
 
+(defcustom tatami1-verbose nil
+  "When non-nil, log request/response bodies in the *headless-api-server* buffer."
+  :type 'boolean
+  :group 'tatami1)
+
 (defvar tatami1--server-process nil
   "The process object for a server started by Emacs.")
 
@@ -91,6 +96,13 @@ When nil an absolute path to `data` is inferred relative to
 
 (defvar tatami1--last-command nil
   "Tracks the command vector used to start the server.")
+
+(defun tatami1--write-log (fmt &rest args)
+  "Write formatted message into the *headless-api-server* buffer."
+  (let ((buffer (get-buffer-create "*headless-api-server*")))
+    (with-current-buffer buffer
+      (goto-char (point-max))
+      (insert (apply #'format fmt args) "\n"))))
 
 (defun tatami1--note-error (fmt &rest args)
   (setq tatami1--last-error (apply #'format fmt args)))
@@ -148,6 +160,12 @@ Errors are signalled with a short message; the detailed payload is preserved via
                            (search-forward "\n\n" nil t)
                            (point-min)))
             (let ((body (buffer-substring-no-properties (point) (point-max))))
+              (when tatami1-verbose
+                (tatami1--write-log "%s %s\nrequest: %s\nresponse: %s"
+                                    method
+                                    path
+                                    (if data (json-encode data) "<empty>")
+                                    (string-trim body)))
               (unless (= status 200)
                 (tatami1--note-error "API request failed (%s) %s" status body)
                 (error "API request failed (%s)" status))
@@ -206,10 +224,20 @@ string.  If no sentence remains, return nil."
 (defun tatami1-stop-server ()
   "Stop a headless server started by Emacs."
   (interactive)
-  (when (process-live-p tatami1--server-process)
-    (delete-process tatami1--server-process)
+  (let* ((candidates (remove nil
+                             (list tatami1--server-process
+                                   (get-process "headless-api-server"))))
+         (killed 0))
+    (dolist (proc (cl-delete-duplicates candidates :test #'eq))
+      (when (process-live-p proc)
+        (delete-process proc)
+        (setq killed (1+ killed))))
     (setq tatami1--server-process nil)
-    (message "Stopped headless server process")))
+    (if (> killed 0)
+        (progn
+          (tatami1--note-error "Server stopped explicitly")
+          (message "Tatami1 server stopped"))
+      (message "Tatami1 server not running"))))
 
 (defun tatami1-reset-storage (&optional directory)
   "Delete the headless API data directory.
@@ -236,14 +264,17 @@ before deletion when it was started from Emacs."
         (tatami1--note-error "No data directory at %s" target)))))
 
 (defun tatami1--process-sentinel (proc event)
-  "Internal sentinel to report when PROC terminates unexpectedly.
+  "Internal sentinel to report when PROC terminates.
 EVENT is the raw event string from `set-process-sentinel'."
   (let ((trimmed (string-trim (or event ""))))
-    (unless (or (not (process-live-p proc))
-                (string-empty-p trimmed)
-                (string-match-p "finished" trimmed))
+    (when (eq proc tatami1--server-process)
+      (setq tatami1--server-process nil))
+    (cond
+     ((and (stringp trimmed) (string-match-p "finished" trimmed))
+      (message "Tatami1 server exited: %s" trimmed))
+     ((and (not (process-live-p proc)) (not (string-empty-p trimmed)))
       (tatami1--note-error "Server process %s" trimmed)
-      (message "Tatami1 server process stopped: %s" trimmed))))
+      (message "Tatami1 server process stopped: %s" trimmed)))))
 
 (defun tatami1-start-server ()
   "Start the headless server if it is not already running."
@@ -258,7 +289,8 @@ INTERACTIVE controls messaging."
       (progn
         (when interactive (message "Headless server already running"))
         t)
-    (let* ((default-directory (or tatami1-start-directory default-directory))
+    (let* ((base-dir (or tatami1-start-directory default-directory))
+           (default-directory (file-name-as-directory (expand-file-name base-dir)))
            (command tatami1--last-command)
            (process-name "headless-api-server"))
       (unless (and (listp command) (car command))

@@ -16,7 +16,7 @@ Environment variables:
 
 - `ALPHA_PORT` – listen port (default `8080`).
 - `ALPHA_PROFILE` – default profile name when `X-Profile` header is absent.
-- `BASIC_CHAT_DATA_DIR` – root data directory (default `data` inside the app).
+- `BASIC_CHAT_DATA_DIR` – root data directory (set this explicitly; see below).
 - `BASIC_CHAT_XTDB_RESOURCE` / `BASIC_CHAT_XTDB_ENABLED` – override XTDB config.
 
 A root alias is also available:
@@ -48,6 +48,18 @@ curl -s localhost:8080/api/alpha/me/summary?limit_chars=2000
 
 All routes are mounted twice: `/api/α/...` is canonical while `/api/alpha/...`
 provides an ASCII alias for proxies or clients that cannot emit unicode paths.
+
+> **Important:** The server must not write under `apps/api/data/` in production.
+> Externalise the data root before you start the API:
+>
+> ```bash
+> export BASIC_CHAT_DATA_DIR=$HOME/.local/share/futon1
+> mkdir -p "$BASIC_CHAT_DATA_DIR"
+> export BASIC_CHAT_XTDB_RESOURCE=resources/xtdb.edn
+> ```
+>
+> The default in-repo `data/` folder exists only for tests and should be
+> deleted if you accidentally spill real data there.
 
 ## Routes
 

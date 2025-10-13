@@ -134,11 +134,11 @@
         focus-window-ms (max 1 (- now cutoff))
         type-pred (allowed-type-pred allowed-types)
         allow-all? (or allow-works? (nil? type-pred))
-        out-docs (map first (xt/q '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen :relation/provenance])]
+        out-docs (map first (xt/q '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen :relation/provenance :relation/subject :relation/object])]
                                     :in [$ ?focus]
                                     :where [[?r :relation/src ?focus]]}
                                    focus-id))
-        in-docs  (map first (xt/q '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen :relation/provenance])]
+        in-docs  (map first (xt/q '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen :relation/provenance :relation/subject :relation/object])]
                                     :in [$ ?focus]
                                     :where [[?r :relation/dst ?focus]]}
                                    focus-id))
@@ -164,6 +164,8 @@
                                             :confidence (double (or confidence 1.0))
                                             :last-seen (safe-long last-seen)
                                             :provenance (:relation/provenance rel)
+                                            :subject (:relation/subject rel)
+                                            :object (:relation/object rel)
                                             :score score}))))))
                            (sort-by (comp - :score))
                            (take (or cap k-per-anchor)))))

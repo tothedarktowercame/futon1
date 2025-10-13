@@ -134,6 +134,53 @@
     (is (= :links-to (:relation/label rel)))
     (is (nil? (:relation/type-aliases rel)))))
 
+(deftest derive-additional-records-produce-complement-chains
+  (let [records [{:sentence "Joseph Corneli's long-term aim is to translate good faith into working structure through iterative design."
+                   :sentence-idx 0
+                   :subject {:text "Joseph Corneli's long term aim"
+                             :lemma "Joseph Corneli 's long term aim"
+                             :span [0 7]}
+                   :object {:text "good faith into working structure"
+                            :lemma "good faith into work structure"
+                            :span [10 15]}
+                   :relation {:text "is translate"
+                              :lemma "be translate"
+                              :span [7 10]}
+                   :confidence 1.0
+                   :negated? false}
+                  {:sentence "Joseph Corneli's long-term aim is to translate good faith into working structure through iterative design."
+                   :sentence-idx 0
+                   :subject {:text "Joseph Corneli's long term aim"
+                             :lemma "Joseph Corneli 's long term aim"
+                             :span [0 7]}
+                   :object {:text "iterative design"
+                            :lemma "iterative design"
+                            :span [16 18]}
+                   :relation {:text "is translate faith through"
+                              :lemma "be translate faith through"
+                              :span [7 12]}
+                   :confidence 1.0
+                   :negated? false}]
+        derived (#'open-world-ingest.nlp/derive-additional-records records)
+        now (Instant/parse "2025-01-01T00:00:00Z")
+        entities {"long term aim" {:entity/id :aim :entity/kind :goal}}]
+    (is (= 2 (count derived)))
+    (let [complement (first derived)
+          method (second derived)
+          complement-rel (#'open-world-ingest.nlp/relation->map complement entities now)
+          method-rel (#'open-world-ingest.nlp/relation->map method entities now)]
+      (is (= "long term aim" (get-in complement [:subject :text])))
+      (is (= "translate good faith into working structure" (get-in complement [:object :text])))
+      (is (= "iterative design" (get-in method [:object :text])))
+      (is (= "translate good faith into working structure" (get-in method [:subject :text])))
+      (is (= "long term aim" (:relation/subject complement-rel)))
+      (is (= "translate good faith into working structure" (:relation/object complement-rel)))
+      (is (= :structure/is (:relation/label complement-rel)))
+      (is (= "translate good faith into working structure" (:relation/subject method-rel)))
+      (is (= "iterative design" (:relation/object method-rel)))
+      (is (= :design/requires (:relation/label method-rel))))))
+
+
 (deftest lookup-replay-prefers-specific-matches
   (let [records [{:sent-idx 0 :sent "Alpha" :subj "A" :pred "p" :obj "B" :lemma "p" :spans {}}
                  {:sent-idx 1 :sent "Beta" :subj "C" :pred "p" :obj "D" :lemma "p" :spans {}}]

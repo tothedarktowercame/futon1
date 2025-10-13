@@ -13,6 +13,13 @@
 (defonce ^:private !config (atom nil))
 (defonce ^:private !profiles (atom {}))
 
+(defn- repo-root []
+  (loop [dir (io/file (System/getProperty "user.dir"))]
+    (when dir
+      (if (.exists (io/file dir "AGENTS.md"))
+        dir
+        (recur (.getParentFile dir))))))
+
 (defn- getenv-trim [k]
   (when-let [raw (System/getenv k)]
     (let [trimmed (str/trim raw)]
@@ -35,7 +42,10 @@
 
 (defn default-config []
   (let [data-root (or (getenv-trim "BASIC_CHAT_DATA_DIR")
-                      (.getAbsolutePath (io/file "data")))
+                      (let [root (repo-root)]
+                        (if root
+                          (.getAbsolutePath (io/file root "data"))
+                          (.getAbsolutePath (io/file "data")))))
         snapshot (some-> (getenv-trim "ALPHA_SNAPSHOT_EVERY") Integer/parseInt)
         profile (or (getenv-trim "ALPHA_PROFILE") "default")]
     {:data-root (.getAbsolutePath (io/file data-root))

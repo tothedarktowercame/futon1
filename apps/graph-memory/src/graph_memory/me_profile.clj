@@ -209,12 +209,14 @@
 
 (defn- convert-relation [{relation-id :relation/id
                           relation-type :relation/type
-                          :keys [direction neighbor score confidence last-seen provenance]}]
+                          :keys [direction neighbor score confidence last-seen provenance subject object]}]
   (let [neighbor' (normalize-entity neighbor)]
     (cond-> {:id relation-id
              :type relation-type
              :direction direction
-             :score (to-double score)}
+             :score (to-double score)
+             :subject subject
+             :object object}
       neighbor' (assoc :neighbor neighbor')
       confidence (assoc :confidence (to-double confidence))
       last-seen (assoc :last-seen (coerce-long last-seen))
@@ -289,32 +291,113 @@
          :topics topics
          :generated-at now}))))
 
-(defn- relation-line [entity-name {:keys [type direction score confidence last-seen provenance] :as rel}]
-  (let [neighbor (get-in rel [:neighbor :name] "?")
-        focus (or entity-name "?")
-        relation-label (or (humanize-keyword type) "relation")
-        [subject object arrow] (if (= direction :in)
-                                 [neighbor focus "←"]
-                                 [focus neighbor "→"])
-        base (format "- %s —%s %s %s" subject relation-label arrow object)
-        extras (->> [(when (number? score) (format "score %.2f" (double score)))
-                     (when (number? confidence) (format "conf %.2f" (double confidence)))
-                     (when last-seen (str "last " (format-ts last-seen)))
-                     (when (map? provenance)
-                       (let [pairs (->> provenance
-                                        (take 4)
-                                        (map (fn [[k v]]
-                                               (str (name k) "=" (if (string? v)
-                                                                    v
-                                                                    (pr-str v)))))
-                                        (str/join ", "))]
-                         (when (seq pairs)
-                           (str "prov " pairs))))]
-                    (remove str/blank?)
-                    (str/join ", "))]
-    (if (seq extras)
-      (str base " (" extras ")")
-      base)))
+(defn- relation-line
+  ([entity-name rel]
+   (relation-line entity-name rel 0 true))
+  ([entity-name {:keys [type direction score confidence last-seen provenance subject object] :as rel} indent display-subject?]
+   (let [neighbor-name (get-in rel [:neighbor :name])
+         focus (or entity-name "?")
+         subject-text (or subject (if (= direction :in)
+                                    (or neighbor-name "?")
+                                    focus))
+         object-text (or object (if (= direction :in)
+                                   focus
+                                   (or neighbor-name "?")))
+         relation-label (or (humanize-keyword type) "relation")
+         arrow (if (= direction :in) "←" "→")
+         indent-prefix (if (zero? indent)
+                         "- "
+                         (apply str (repeat indent "    ")))
+         base (if display-subject?
+                (str indent-prefix subject-text " —" relation-label " " arrow " " object-text)
+                (str indent-prefix "—" relation-label " " arrow " " object-text))
+         extras (->> [(when (number? score) (format "score %.2f" (double score)))
+                      (when (number? confidence) (format "conf %.2f" (double confidence)))
+                      (when last-seen (str "last " (format-ts last-seen)))
+                      (when (map? provenance)
+                        (let [pairs (->> provenance
+                                         (take 4)
+                                         (map (fn [[k v]]
+                                                (str (name k) "=" (if (string? v)
+                                                                     v
+                                                                     (pr-str v)))))
+                                         (str/join ", "))]
+                          (when (seq pairs)
+                            (str "prov " pairs))))]
+                     (remove str/blank?)
+                     (str/join ", "))]
+     (if (seq extras)
+       (str base " (" extras ")")
+       base))))
+
+(defn- chain-key
+  [text]
+  (when-let [clean (some-> text
+                            str
+                            (str/replace #"[’]" "'")
+                            (str/replace #"\s+-\s+" "-")
+                            (str/replace #"\s+" " ")
+                            str/trim)]
+    (when (seq clean)
+      (str/lower-case clean))))
+
+(defn- prepare-relations-for-chain
+  [entity-name relations]
+  (let [focus (or entity-name "?")]
+    (map (fn [rel]
+           (let [subject (or (:subject rel) (if (= :in (:direction rel))
+                                              (get-in rel [:neighbor :name])
+                                              focus))
+                 object (or (:object rel) (if (= :in (:direction rel))
+                                            focus
+                                            (get-in rel [:neighbor :name])))
+                 rel-id (or (:id rel) (hash rel))]
+             (assoc rel
+                    :subject subject
+                    :object object
+                    ::rel-id rel-id
+                    ::subject-key (chain-key subject)
+                    ::object-key (chain-key object))))
+         relations)))
+
+(defn- emit-chain-lines
+  [entity-name rel indent parent-key visited by-subject]
+  (let [rel-id (::rel-id rel)]
+    (if (visited rel-id)
+      [visited []]
+      (let [visited' (conj visited rel-id)
+            subject-key (::subject-key rel)
+            display-subject? (or (zero? indent)
+                                 (nil? parent-key)
+                                 (not= parent-key subject-key)
+                                 (str/blank? (:subject rel)))
+            line (relation-line entity-name rel indent display-subject?)
+            object-key (::object-key rel)
+            children (->> (get by-subject object-key)
+                          (remove #(contains? visited' (::rel-id %))))
+            [visited'' child-lines]
+            (reduce (fn [[v acc] child]
+                      (let [[v' lines'] (emit-chain-lines entity-name child (inc indent) object-key v by-subject)]
+                        [v' (into acc lines')]))
+                    [visited' []]
+                    children)]
+        [visited'' (cons line child-lines)]))))
+
+(defn- relation-lines-with-chains
+  [entity-name relations]
+  (let [prepared (vec (prepare-relations-for-chain entity-name relations))
+        by-subject (group-by ::subject-key prepared)]
+    (loop [remaining prepared
+           visited #{}
+           acc []]
+      (if (empty? remaining)
+        acc
+        (let [rel (first remaining)
+              rel-id (::rel-id rel)]
+          (if (visited rel-id)
+            (recur (rest remaining) visited acc)
+            (let [[visited' lines] (emit-chain-lines entity-name rel 0 nil visited by-subject)]
+              (recur (rest remaining) visited' (into acc lines)))))))))
 
 (defn- topic-line [{:keys [type neighbors score]}]
   (let [label (or (humanize-keyword type) "focus")
@@ -375,9 +458,9 @@
          topic-block (if (seq topics)
                        (into ["Focus priorities:"] (map topic-line topics))
                        ["Focus priorities:" "- (no dominant themes in window)"])
-         relation-block (if (seq relations)
-                          (into ["Hot relations:"]
-                                (map #(relation-line entity-name %) relations))
+         relation-lines (relation-lines-with-chains entity-name relations)
+         relation-block (if (seq relation-lines)
+                          (into ["Hot relations:"] relation-lines)
                           ["Hot relations:" "- (none in window)"])
          manual-block (manual-lines manual)
          generated-line (when generated-at

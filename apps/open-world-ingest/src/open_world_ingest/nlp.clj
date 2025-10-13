@@ -192,7 +192,7 @@
                       (str/replace #"-/-" "/")
                       (str/replace #"(^-|-$)" ""))]
       (when (seq cleaned)
-        cleaned))))
+        (if (= cleaned "s") "has" cleaned)))))
 
 (def ^:private namespace-stopwords
   #{"" "a" "an" "and" "dear" "his" "her" "their" "our" "your"
@@ -385,6 +385,136 @@
           :else (recur ks))))
     ::missing))
 
+
+(defn- normalize-fragment
+  [value]
+  (when value
+    (let [text (-> value
+                   str
+                   (str/replace #"[’]" "'")
+                   (str/replace #"\s+-\s+" "-")
+                   (str/replace #"\s+" " ")
+                   str/trim)]
+      (when (seq text)
+        text))))
+
+(defn- normalized-lower
+  [value]
+  (when-let [fragment (normalize-fragment value)]
+    (let [lower (str/lower-case fragment)]
+      (when (seq lower)
+        lower))))
+
+(defn- extract-owned-text
+  [value]
+  (when-let [fragment (normalize-fragment value)]
+    (when-let [[_ owned] (re-find #"(?i)^(?:.*?)(?:'s|’s|s')\s+(.*)$" fragment)]
+      (normalize-fragment owned))))
+
+(defn- subject-owned
+  [{:keys [text lemma]}]
+  (or (extract-owned-text text)
+      (extract-owned-text lemma)))
+
+(defn- subject-key
+  [subject]
+  (or (normalized-lower (subject-owned subject))
+      (normalized-lower (:text subject))
+      (normalized-lower (:lemma subject))))
+
+(defn- simple-be-verb
+  [lemma]
+  (when-let [fragment (normalized-lower lemma)]
+    (when-let [[_ verb] (re-find #"^be(?:[-\s]+)([a-z][a-z-]*)$" fragment)]
+      verb)))
+
+(defn- complement-candidates
+  [records]
+  (->> records
+       (keep (fn [record]
+               (let [verb (simple-be-verb (get-in record [:relation :lemma]))
+                     object-text (normalize-fragment (get-in record [:object :text]))
+                     subject (:subject record)
+                     subject-text (or (subject-owned subject)
+                                      (normalize-fragment (:text subject)))
+                     key (subject-key subject)]
+                 (when (and verb subject-text key object-text)
+                   {:record record
+                    :verb verb
+                    :object-text object-text
+                    :subject-text subject-text
+                    :subject-key key}))))
+       (group-by (juxt :subject-key :verb))
+       (keep (fn [[_ candidates]]
+               (when-let [best (apply max-key #(count (:object-text %)) candidates)]
+                 (let [record (:record best)
+                       subject-text (normalize-fragment (:subject-text best))
+                       action-text (normalize-fragment (str (:verb best) " " (:object-text best)))]
+                   (when (and subject-text action-text)
+                     {:subject-key (:subject-key best)
+                      :action-text action-text
+                      :normalized {:sentence (:sentence record)
+                                   :sentence-idx (:sentence-idx record)
+                                   :subject {:text subject-text
+                                             :lemma (normalized-lower subject-text)
+                                             :span (get-in record [:subject :span])}
+                                   :object {:text action-text
+                                            :lemma (normalized-lower action-text)
+                                            :span nil}
+                                   :relation {:text "is"
+                                              :lemma "be"
+                                              :span nil}
+                                   :confidence (:confidence record)
+                                   :negated? (:negated? record)}})))))
+       vec))
+
+(defn- method-records
+  [records complements]
+  (let [by-key (into {} (map (juxt :subject-key identity) complements))]
+    (->> records
+         (keep (fn [record]
+                 (let [subject (get record :subject)
+                       key (subject-key subject)
+                       complement (get by-key key)
+                       method-text (normalize-fragment (get-in record [:object :text]))
+                       lemma (normalized-lower (get-in record [:relation :lemma]))
+                       rel-text (normalized-lower (get-in record [:relation :text]))]
+                   (when (and complement key method-text
+                              (or (and lemma (str/includes? lemma " through"))
+                                  (and rel-text (str/includes? rel-text " through"))))
+                     {:record record
+                      :method-text method-text
+                      :complement complement
+                      :subject-key key}))))
+         (group-by (juxt :subject-key (comp normalized-lower :method-text)))
+         (keep (fn [[_ entries]]
+                 (when-let [best (apply max-key #(count (:method-text %)) entries)]
+                   (let [record (:record best)
+                         complement (:complement best)
+                         action-text (:action-text complement)
+                         method-text (:method-text best)]
+                     {:sentence (:sentence record)
+                      :sentence-idx (:sentence-idx record)
+                      :subject {:text action-text
+                                :lemma (normalized-lower action-text)
+                                :span nil}
+                      :object {:text method-text
+                               :lemma (normalized-lower method-text)
+                               :span (get-in record [:object :span])}
+                      :relation {:text "requires"
+                                 :lemma "require"
+                                 :span nil}
+                      :confidence (:confidence record)
+                      :negated? (:negated? record)}))))
+         vec)))
+
+(defn- derive-additional-records
+  [records]
+  (let [complements (complement-candidates records)
+        complement-records (map :normalized complements)
+        methods (method-records records complements)]
+    (vec (concat complement-records methods))))
+
 (defn ^:private relation->map
   [{:keys [sentence-idx subject object relation confidence negated?] :as triple}
    entities-by-label now]
@@ -457,7 +587,14 @@
                                   (identical? ::missing replay-records) base-records
                                   :else replay-records)
               normalized-records (map record->normalized effective-records)
-              rels (keep #(relation->map % entities-by-label now) normalized-records)
+              derived-records (derive-additional-records normalized-records)
+              base-relations (->> normalized-records
+                                  (keep #(relation->map % entities-by-label now))
+                                  vec)
+              derived-relations (->> derived-records
+                                     (keep #(relation->map % entities-by-label now))
+                                     vec)
+              rels (into base-relations derived-relations)
               _ (when (and trace-config (seq base-records))
                   (trace/append! trace-config base-records))
               ego-used? (or (some #(= (:relation/src %) ego-entity-id) rels)

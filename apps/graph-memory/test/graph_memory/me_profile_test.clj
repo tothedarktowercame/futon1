@@ -1,6 +1,7 @@
 (ns graph-memory.me-profile-test
   (:require [app.xt :as xt]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [graph-memory.me-profile :as me-profile])
   (:import (java.io File)
@@ -115,6 +116,32 @@
       (is (= 12 (get salience :seen-count)))
       (is (= 60 (get-in salience [:window :days])))
       (is (= now (:generated-at profile))))))
+
+(deftest relation-lines-with-chains-groups-linked-relations
+  (let [relations [{:id :r1
+                     :type :aim/has
+                     :direction :out
+                     :subject "Joe"
+                     :object "long term aim"
+                     :score 1.0}
+                    {:id :r2
+                     :type :structure/is
+                     :direction :out
+                     :subject "long term aim"
+                     :object "translate good faith into structure"
+                     :score 0.8}
+                    {:id :r3
+                     :type :design/requires
+                     :direction :out
+                     :subject "translate good faith into structure"
+                     :object "iterative design"
+                     :score 0.7}]
+        lines (#'graph-memory.me-profile/relation-lines-with-chains "Joe" relations)]
+    (is (= 3 (count lines)))
+    (is (str/starts-with? (first lines) "- Joe —has → long term aim"))
+    (is (str/starts-with? (second lines) "    —is → translate good faith into structure"))
+    (is (str/starts-with? (nth lines 2) "        —requires → iterative design"))))
+
 
 (deftest summary-reflects-profile-and-manual
   (let [now 1700000000000

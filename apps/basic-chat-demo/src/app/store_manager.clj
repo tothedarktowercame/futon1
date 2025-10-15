@@ -5,8 +5,10 @@
             [app.xt :as xt]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str])
-  (:import (java.io PushbackReader)))
+            [clojure.string :as str]
+            [graph-memory.me-profile :as me-profile])
+  (:import (java.io PushbackReader)
+           (java.util UUID)))
 
 (def ^:private profile-filename "profile.edn")
 
@@ -103,38 +105,6 @@
     (.mkdirs (.getParentFile file))
     (spit file (pr-str doc))))
 
-(defn- create-profile-state [profile]
-  (let [{:keys [snapshot-every xtdb]} (config)
-        dir (ensure-dir! (profile-dir profile))
-        env {:data-dir dir
-             :snapshot-every snapshot-every
-             :xtdb xtdb}
-        conn (store/restore! env)
-        me-doc (read-profile dir)]
-    {:profile profile
-     :profile-dir dir
-     :env env
-     :conn conn
-     :me (atom (or me-doc {}))
-     :last-anchors (atom [])}))
-
-(defn ensure-profile!
-  "Return the state map for the given profile, creating it when necessary."
-  ([profile]
-   (let [id (or profile (default-profile))]
-     (or (get @!profiles id)
-         (let [state (create-profile-state id)]
-           (swap! !profiles assoc id state)
-           state))))
-  ([]
-   (ensure-profile! nil)))
-
-(defn conn [profile]
-  (:conn (ensure-profile! profile)))
-
-(defn env [profile]
-  (:env (ensure-profile! profile)))
-
 (defn profile-doc [profile]
   @(-> (ensure-profile! profile) :me))
 
@@ -171,6 +141,61 @@
         (when-let [aliases (:collective-aliases doc)]
           (some identity aliases))
         (str me " & " you))))
+
+(defn- ensure-me-entity!
+  "Ensure the primary :me entity exists and is linked to the profile."
+  [{:keys [conn env me]}]
+  (let [doc @me
+        prefs (me-profile/preferences-from-manual doc)
+        me-entity (or (me-profile/profile prefs)
+                      (let [name (profile-name doc)
+                            new-id (UUID/randomUUID)
+                            entity-spec {:id new-id
+                                         :name name
+                                         :type :person
+                                         :pinned? true}]
+                        (store/ensure-entity! conn env entity-spec)
+                        (swap! me assoc :entity/id new-id)
+                        (write-profile! (:data-dir env) @me)
+                        (xt/entity new-id)))]
+    me-entity))
+
+(defn- create-profile-state [profile]
+  (let [{:keys [snapshot-every xtdb]} (config)
+        dir (ensure-dir! (profile-dir profile))
+        env {:data-dir dir
+             :snapshot-every snapshot-every
+             :xtdb xtdb}
+        conn (store/restore! env)
+        me-doc (read-profile dir)
+        state {:profile profile
+               :profile-dir dir
+               :env env
+               :conn conn
+               :me (atom (or me-doc {}))
+               :last-anchors (atom [])}]
+    (ensure-me-entity! state)
+    state))
+
+(defn ensure-profile!
+  "Return the state map for the given profile, creating it when necessary."
+  ([profile]
+   (let [id (or profile (default-profile))]
+     (or (get @!profiles id)
+         (let [state (create-profile-state id)]
+           (swap! !profiles assoc id state)
+           state))))
+  ([]
+   (ensure-profile! nil)))
+
+(defn conn [profile]
+  (:conn (ensure-profile! profile)))
+
+(defn env [profile]
+  (:env (ensure-profile! profile)))
+
+(defn profile-doc [profile]
+  @(-> (ensure-profile! profile) :me))
 
 (defn upsert-profile!
   [profile patch]

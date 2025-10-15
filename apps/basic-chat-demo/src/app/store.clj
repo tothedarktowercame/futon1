@@ -845,18 +845,15 @@
           xt-count  (when xt-result
                       (+ (:entity-count xt-result 0)
                          (:relation-count xt-result 0)))]
-      (let [conn (if (pos? (or xt-count 0))
-                   (do
-                     (swap! !event-count assoc data-dir 0)
-                     conn)
-                   (let [legacy (hydrate-from-legacy! conn data-dir)]
-                     (swap! !event-count assoc data-dir (:event-count legacy 0))
-                     (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
-                       (sync-to-xtdb! conn))
-                     conn))]
-        (when (and (xt-enabled? xtdb-opts) (xt/started?))
-          (register-types-from-db! conn))
-        conn))))
+      (if (pos? (or xt-count 0))
+        (swap! !event-count assoc data-dir 0)
+        (let [legacy (hydrate-from-legacy! conn data-dir)]
+          (swap! !event-count assoc data-dir (:event-count legacy 0))
+          (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
+            (sync-to-xtdb! conn))))
+      (when (and (xt-enabled? xtdb-opts) (xt/started?))
+        (register-types-from-db! conn))
+      conn)))
 
 (defn compact!
   "Force a snapshot and event-log reset for the given data directory."

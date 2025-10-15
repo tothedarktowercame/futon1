@@ -184,7 +184,10 @@
   (when-let [normalized (normalize-predicate predicate)]
     (let [preserved (-> normalized
                         (str/replace #"\s+/\s+" "/")
-                        (str/replace #"^'s$" "has"))
+                        ;; I’m not sure how to disambiguate between "Joe’s hat" (Joe has hat) and "Joe’s going" (Joe is going)
+                        (str/replace #"^'s$" "has")
+                        (str/replace #"^'ll$" "will")
+                        (str/replace #"^'m$" "am"))
           cleaned (-> preserved
                       (str/replace #"[^a-z0-9/\s-]" " ")
                       (str/replace #"\s+" "-")

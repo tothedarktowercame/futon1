@@ -151,7 +151,7 @@
                  ["Usage: /me set {<edn map>}"]))
       ;; default -> show profile doc
       (safe-exec
-       #(profile-lines (svc/fetch-profile {:profile nil
+       #(pprint-lines (svc/fetch-profile {:profile nil
                                            :query-params {}
                                            :now (System/currentTimeMillis)}))))))
 

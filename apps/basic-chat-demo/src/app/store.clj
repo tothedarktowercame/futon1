@@ -23,7 +23,7 @@
 ;; Keeps track of pending event counts per data directory to trigger compaction.
 (defonce ^:private !event-count (atom {}))
 
-(declare apply-event! coerce-double coerce-long entity-by-id entity-by-name entity->public relation->public)
+(declare apply-event! coerce-double coerce-long entity-by-id entity-by-name entity->public relation->public normalize-type)
 
 (defn- ensure-dir!
   [dir]
@@ -302,7 +302,7 @@
       (cond-> {:xt/id id
                :entity/id id
                :entity/name name}
-        type (assoc :entity/type type)
+        type (assoc :entity/type (normalize-type type))
         (:last-seen entity) (assoc :entity/last-seen (:last-seen entity))
         (:seen-count entity) (assoc :entity/seen-count (:seen-count entity))
         (contains? entity :pinned?) (assoc :entity/pinned? (boolean (:pinned? entity)))))))

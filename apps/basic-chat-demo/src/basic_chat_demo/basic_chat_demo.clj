@@ -29,18 +29,35 @@
     (when (and v (not (str/blank? v)))
       v)))
 
+(defn- repo-root []
+  (loop [dir (io/file (System/getProperty "user.dir"))]
+    (when dir
+      (if (.exists (io/file dir "AGENTS.md"))
+        dir
+        (recur (.getParentFile dir))))))
+
+(defn- resolve-data-dir []
+  (let [from-env (getenv-nonblank "BASIC_CHAT_DATA_DIR")
+        from-prop (some-> (System/getProperty "basic-chat.data-root") str/trim not-empty)
+        repo-data (some-> (repo-root) (io/file "data") .getAbsolutePath)
+        fallback (.getAbsolutePath (io/file "data"))
+        chosen (or from-env from-prop repo-data fallback)
+        absolute (.getAbsolutePath (io/file chosen))]
+    (System/setProperty "basic-chat.data-root" absolute)
+    absolute))
+
 (defn- xt-enabled-env? []
   (let [raw (some-> (System/getenv "BASIC_CHAT_XTDB_ENABLED") str/lower-case)]
     (not (contains? #{"false" "0" "off" "no"} raw))))
 
 (defn- default-env []
-  (let [data-dir (or (getenv-nonblank "BASIC_CHAT_DATA_DIR") "data")
+  (let [data-dir (resolve-data-dir)
         xt-resource (getenv-nonblank "BASIC_CHAT_XTDB_RESOURCE")
         xt-config (cond-> {:enabled? (xt-enabled-env?)}
                     xt-resource (assoc :resource xt-resource)
                     (and (nil? xt-resource)
                          (io/resource "xtdb.edn")) (assoc :config-path (some-> (io/resource "xtdb.edn") io/file .getAbsolutePath)))]
-    {:data-dir (-> data-dir io/file .getAbsolutePath)
+    {:data-dir data-dir
      :snapshot-every 100
      :xtdb xt-config}))
 

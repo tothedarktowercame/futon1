@@ -2,7 +2,7 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
         datascript/datascript {:mvn/version "1.6.5"}
         com.xtdb/xtdb-core {:mvn/version "1.24.4"}
-        com.xtdb/xtdb-rocksdb {:mvn/version "1.24.4"}
+        com.xtdb/xtdb-lmdb {:mvn/version "1.24.4"}
         org.slf4j/slf4j-nop {:mvn/version "1.7.36"}}
 
  :mvn/repos {"central"   {:url "https://repo.maven.apache.org/maven2/"}

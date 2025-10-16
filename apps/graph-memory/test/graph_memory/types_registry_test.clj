@@ -2,7 +2,7 @@
   (:require [app.xt :as xt]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [graph-memory.types_registry :as types])
+            [graph-memory.types-registry :as types])
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)))
 

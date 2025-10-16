@@ -75,6 +75,42 @@
        (xt/await-tx node tx-res))
      tx-res)))
 
+(defn sync-node!
+  "Force the node to index all pending transactions."
+  []
+  (let [node (ensure-node)]
+    (.sync node nil)))
+
+(defn sync-node!
+  "Force the node to index all pending transactions."
+  []
+  (let [node (ensure-node)]
+    (.sync node nil)))
+
+(defn sync-node!
+  "Force the node to index all pending transactions."
+  []
+  (let [node (ensure-node)]
+    (.sync node nil)))
+
+(defn sync-node!
+  "Force the node to index all pending transactions."
+  []
+  (let [node (ensure-node)]
+    (.sync node nil)))
+
+(defn sync-node!
+  "Force the node to index all pending transactions."
+  []
+  (let [node (ensure-node)]
+    (.sync node nil)))
+
+(defn sync-node!
+  "Force the node to index all pending transactions."
+  []
+  (let [node (ensure-node)]
+    (.sync node nil)))
+
 (defn- coerce-id [doc]
   (cond
     (:xt/id doc) doc

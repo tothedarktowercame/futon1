@@ -3,7 +3,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.walk :as walk]
-            [graph-memory.types_registry :as types]
+            [graph-memory.types-registry :as types]
             [open-world-ingest.util :as util]
             [xtdb.api :as xt])
   (:import (java.util UUID)))

@@ -1,6 +1,6 @@
 [{:in "Meet Tom in Minneapolis on 12 Oct about XTDB v5 with Isabella."
   :intent {:type :social-behavior :conf 0.6200000000000001}
-  :entities [{:name "Tom" :type :person :source :pos :confidence 0.7
+  :entities [{:name "Tom" :type :person :source :catalog :confidence 0.88
               :id "E:person:tom" :span {:start 5 :end 8} :aliases []}
              {:name "Minneapolis" :type :place :source :gazetteer :confidence 0.9
               :id "E:place:minneapolis" :span {:start 12 :end 23} :aliases []}

@@ -4,6 +4,7 @@
             [app.header :as header]
             [app.slash :as slash]
             [app.store :as store]
+            [app.store-manager :as store-manager]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -49,31 +50,6 @@
 (defn- xt-enabled-env? []
   (let [raw (some-> (System/getenv "BASIC_CHAT_XTDB_ENABLED") str/lower-case)]
     (not (contains? #{"false" "0" "off" "no"} raw))))
-
-(defn- default-env []
-  (let [data-dir (resolve-data-dir)
-        xt-resource (getenv-nonblank "BASIC_CHAT_XTDB_RESOURCE")
-        xt-config (cond-> {:enabled? (xt-enabled-env?)}
-                    xt-resource (assoc :resource xt-resource)
-                    (and (nil? xt-resource)
-                         (io/resource "xtdb.edn")) (assoc :config-path (some-> (io/resource "xtdb.edn") io/file .getAbsolutePath)))]
-    {:data-dir data-dir
-     :snapshot-every 100
-     :xtdb xt-config}))
-
-(defonce !env (atom (default-env)))
-
-(defonce !conn (atom nil))
-
-(defn boot! []
-  (let [conn (store/restore! @!env)]
-    (reset! !conn conn)
-    conn))
-
-(defn ensure-booted! []
-  (when (nil? @!conn)
-    (boot!))
-  @!conn)
 
 (defn usage []
   (println "Usage: clojure -M:run-m [-- --protocol basic-chat/vN]")
@@ -160,6 +136,11 @@
 
         "--reset"
         (recur (assoc opts :reset? true) more)
+
+        "--data-root"
+        (if-let [value (first more)]
+          (recur (assoc opts :data-root value) (rest more))
+          (do (println "Missing value for --data-root") (usage)))
 
         "--export"
         (if-let [value (first more)]
@@ -393,34 +374,37 @@
                          raw-opts)
         opts (cond-> base-opts
                (:focus-header-only? base-opts) (assoc :focus-header? true))
+        _ (store-manager/configure! opts)
+        profile (store-manager/default-profile)
+        conn (store-manager/conn profile)
+        env (store-manager/env profile)
         {:keys [protocol script]} opts
         entry (registry/fetch protocol)]
     (when-not entry
       (println "Unknown protocol" protocol)
       (usage))
-    (ensure-booted!)
-    (let [data-dir (:data-dir @!env)
+    (let [data-dir (:data-dir env)
           data-file (io/file data-dir)]
       (when (:reset? opts)
         (when (.exists data-file)
           (io/delete-file data-file true))
         (.mkdirs data-file)
-        (boot!)
+        (store-manager/ensure-profile! profile)
         (println (str "Store reset: " (.getAbsolutePath data-file))))
       (when (:compact? opts)
-        (store/compact! @!conn {:data-dir data-dir})
+        (store/compact! conn {:data-dir data-dir})
         (println "Snapshot saved."))
       (when-let [export (:export opts)]
         (case (str/lower-case export)
-          "edn" (do (println (pr-str (store/export-edn @!conn)))
+          "edn" (do (println (pr-str (store/export-edn conn)))
                     (System/exit 0))
           (do (println "Unsupported export format" export)
               (System/exit 1)))))
     (let [ctx-base ((:init entry))
           ctx-with-conn (if (map? ctx-base)
                           (cond-> ctx-base
-                            @!conn (assoc :db @!conn))
-                          (or @!conn ctx-base))
+                            conn (assoc :db conn))
+                          (or conn ctx-base))
           ctx (if-let [configure (:configure entry)]
                 (configure ctx-with-conn opts)
                 ctx-with-conn)
@@ -432,49 +416,49 @@
                           :allow-works? (:allow-works? opts)}
           fh-policy (focus-policy-overrides opts)
           runner (fn [text ts]
-                    (let [env-now (assoc @!env :now ts)
-                          res (handle ctx text ts)
+                   (let [env-now (assoc env :now ts)
+                         res (handle ctx text ts)
                          ensured (into {}
-                                        (for [{:keys [name type]} (:entities res)
-                                               :when (seq name)]
-                                           [name (store/ensure-entity! @!conn env-now {:name name :type type})]))
+                                       (for [{:keys [name type]} (:entities res)
+                                             :when (seq name)]
+                                         [name (store/ensure-entity! conn env-now {:name name :type type})]))
                          _ (doseq [{:keys [type src dst]} (:relations res)
                                    :when (and type src dst)]
-                              (let [src-spec (or (some-> (get ensured src)
-                                                         (select-keys [:id :name :type]))
-                                                 {:name src})
-                                    dst-spec (or (some-> (get ensured dst)
-                                                         (select-keys [:id :name :type]))
-                                                 {:name dst})]
+                             (let [src-spec (or (some-> (get ensured src)
+                                                        (select-keys [:id :name :type]))
+                                                {:name src})
+                                   dst-spec (or (some-> (get ensured dst)
+                                                        (select-keys [:id :name :type]))
+                                                {:name dst})]
 
-                                (store/upsert-relation! @!conn env-now {:type type
-                                                                        :src src-spec
-                                                                        :dst dst-spec})))
-                          context-lines (context/enrich-with-neighbors @!conn (:entities res)
-                                                                                  (assoc context-config
-                                                                                         :anchors (vals ensured)
-                                                                                         :timestamp ts))
-                          fh-policy (focus-policy-overrides opts)
-                          fh (when (:focus-header? opts)
-                               (header/focus-header nil {:anchors (vals ensured)
-                                                         :intent (:intent res)
-                                                         :time ts
-                                                         :policy fh-policy
-                                                         :turn-id ts
-                                                         :focus-limit (:context-cap opts)
-                                                         :debug? (:focus-header-debug? opts)}))
-                          fh-lines (when fh (focus-header-lines fh))
-                          fh-json (when fh (focus-header-json-str fh))]
-              (-> res
-                  (cond-> context-lines (assoc :context context-lines))
-                  (cond-> fh (assoc :focus-header fh))
-                  (cond-> fh-json (assoc :focus-header-json fh-json))
-                  (cond-> fh-lines (assoc :focus-header-lines fh-lines)))))
+                               (store/upsert-relation! conn env-now {:type type
+                                                                       :src src-spec
+                                                                       :dst dst-spec})))
+                         context-lines (context/enrich-with-neighbors conn (:entities res)
+                                                                                 (assoc context-config
+                                                                                        :anchors (vals ensured)
+                                                                                        :timestamp ts))
+                         fh-policy (focus-policy-overrides opts)
+                         fh (when (:focus-header? opts)
+                              (header/focus-header nil {:anchors (vals ensured)
+                                                        :intent (:intent res)
+                                                        :time ts
+                                                        :policy fh-policy
+                                                        :turn-id ts
+                                                        :focus-limit (:context-cap opts)
+                                                        :debug? (:focus-header-debug? opts)}))
+                         fh-lines (when fh (focus-header-lines fh))
+                         fh-json (when fh (focus-header-json-str fh))]
+                     (-> res
+                         (cond-> context-lines (assoc :context context-lines))
+                         (cond-> fh (assoc :focus-header fh))
+                         (cond-> fh-json (assoc :focus-header-json fh-json))
+                         (cond-> fh-lines (assoc :focus-header-lines fh-lines)))))
 
           entry-command-handler (when-let [ch (:command-handler entry)]
                                   (ch ctx))
           slash-command-handler (when (supports-entity-commands? protocol)
-                                  (slash/handler @!conn @!env))
+                                  (slash/handler conn env))
           command-handler (cond
                             (and entry-command-handler slash-command-handler)
                             (fn [cmd state]
@@ -488,7 +472,7 @@
           bang-handler (when (supports-entity-commands? protocol)
                          (fn [cmd state]
                            (try
-                             (let [{:keys [message result]} (commands/handle @!conn @!env cmd)]
+                             (let [{:keys [message result]} (commands/handle conn env cmd)]
                                {:message message
                                 :new-state (if result
                                              (assoc state :last-command result)
@@ -503,12 +487,13 @@
                                    (runner line (+ now i)))
                                  lines)]
           (println (pr-str (vec out)))
-          (maybe-run-exploration! protocol ctx opts))
+          (maybe-run-exploration! protocol ctx opts)
+          (store-manager/shutdown!))
         (let [after-turn (when (and (supports-entity-commands? protocol)
                                     (or (:list-entities? opts)
                                         (:links opts)))
-                           #(maybe-run-exploration! protocol ctx opts))]
-          (maybe-run-exploration! protocol ctx opts)
+                           #(maybe-run-exploration! protocol conn opts))]
+          (maybe-run-exploration! protocol conn opts)
           (when (:focus-header? opts)
             (let [now (System/currentTimeMillis)
                   fh-policy (focus-policy-overrides opts)

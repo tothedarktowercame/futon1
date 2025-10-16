@@ -134,44 +134,45 @@
               {:keys [relation]} (svc/upsert-relation! {:conn conn :env opts} spec)]
           (relation-lines relation))))))
 
-(defn- me-section [arg]
+(defn- me-section [conn opts arg]
   (let [[sub & rest] (->> (str/split arg #"\s+")
                           (remove str/blank?))
-        sub (some-> sub str/lower-case)]
+        sub (some-> sub str/lower-case)
+        svc-ctx {:conn conn :env opts :profile nil :now (System/currentTimeMillis)}]
     (case sub
       "summary" (let [limit (some-> (first rest) parse-int)]
-                   (safe-exec
-                    #(profile-summary-lines
-                      (svc/profile-summary {:profile nil :query-params {} :now (System/currentTimeMillis)}
-                                            limit))))
+                  (safe-exec
+                   #(profile-summary-lines
+                     (svc/profile-summary svc-ctx limit))))
       "set" (let [payload-str (str/join " " rest)
-                   payload (parse-edn-safe payload-str)]
-               (if (map? payload)
-                 (safe-exec #(profile-lines (svc/upsert-profile! {:profile nil} payload)))
-                 ["Usage: /me set {<edn map>}"]))
+                  payload (parse-edn-safe payload-str)]
+              (if (map? payload)
+                (safe-exec #(profile-lines (svc/upsert-profile! svc-ctx payload)))
+                ["Usage: /me set {<edn map>}"]))
       ;; default -> show profile doc
       (safe-exec
-       #(pprint-lines (svc/fetch-profile {:profile nil
-                                           :query-params {}
-                                           :now (System/currentTimeMillis)}))))))
+       #(pprint-lines (svc/fetch-profile svc-ctx))))))
 
-(defn- types-section [arg]
+(defn- types-section [conn opts arg]
   (let [[sub & rest] (->> (str/split arg #"\s+")
                           (remove str/blank?))
         sub (some-> sub str/lower-case)]
     (case sub
       "parent" (let [[type parent kind & _] rest
-                      body {:type type
-                            :parent parent
-                            :kind kind}]
-                  (safe-exec #(types-lines {:types [(svc/set-type-parent! body)]})))
+                     body {:type type
+                           :parent parent
+                           :kind kind}]
+                 (safe-exec #(types-lines {:types [(svc/set-type-parent! body)]})))
       "merge" (let [[into & aliases] rest
-                     body {:into into :aliases aliases}]
-                 (safe-exec #(types-lines {:types [(svc/merge-aliases! body)]})))
+                    body {:into into :aliases aliases}]
+                (safe-exec #(types-lines {:types [(svc/merge-aliases! body)]})))
       ;; default -> list all types
-      (safe-exec #(types-lines (svc/list-types))))))
-
-(defn- format-timestamp [ts]
+      (safe-exec #(let [results (svc/list-types conn)
+                        all-types (->> (:types results)
+                                       vals
+                                       (apply concat)
+                                       (sort-by :id))]
+                    (types-lines {:types all-types}))))))(defn- format-timestamp [ts]
   (when (number? ts)
     (try
       (.toString (Instant/ofEpochMilli (long ts)))
@@ -304,11 +305,11 @@
                        :new-state state}
             "relation" {:message (relation-section conn opts arg)
                          :new-state state}
-            "me" {:message (me-section arg)
-                   :new-state state}
-            "types" {:message (types-section arg)
-                      :new-state state}
-            "help" {:message help-lines
+            "me" {:message (me-section conn opts arg)
+                  :new-state state}
+            "types" {:message (types-section conn opts arg)
                      :new-state state}
+            "help" {:message help-lines
+                    :new-state state}
             {:message (str "unknown command: /" cmd)
              :new-state state}))))))

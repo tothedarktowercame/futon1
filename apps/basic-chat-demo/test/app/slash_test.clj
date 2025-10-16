@@ -4,7 +4,8 @@
             [app.store :as store]
             [app.store-manager :as store-manager]
             [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [datascript.core :as d])
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)))
 
@@ -25,7 +26,8 @@
   (fn [f]
     (let [tmp (temp-dir)
           env {:data-dir (.getAbsolutePath tmp)
-               :snapshot-every 100}
+               :snapshot-every 100
+               :xtdb {:enabled? false}}
           conn (store/restore! env)]
       (store-manager/configure! {:data-root (.getAbsolutePath tmp)})
       (try
@@ -42,6 +44,12 @@
   ([line state]
    (let [handler (slash/handler *conn* *env*)]
      (handler line state))))
+
+(deftest types-command-with-data
+  (testing "types command lists types from the database"
+    (store/ensure-entity! *conn* *env* {:name "Barney" :type :person})
+    (let [{:keys [message]} (run-command "types")]
+      (is (some #(str/includes? % "person") message)))))
 
 (deftest help-includes-new-commands
   (let [{:keys [message]} (run-command "help")]
@@ -66,3 +74,4 @@
   (let [{:keys [message]} (run-command "types")]
     (is (= "Registered types:" (first message)))
     (is (>= (count message) 2))))
+

@@ -10,6 +10,8 @@
   (:import (java.io PushbackReader)
            (java.util UUID)))
 
+(declare profile-doc)
+
 (def ^:private profile-filename "profile.edn")
 
 (defonce ^:private !config (atom nil))
@@ -105,9 +107,6 @@
     (.mkdirs (.getParentFile file))
     (spit file (pr-str doc))))
 
-(defn profile-doc [profile]
-  @(-> (ensure-profile! profile) :me))
-
 (defn profile-name
   "Return a human-friendly name for the profile."
   [profile]
@@ -142,39 +141,34 @@
           (some identity aliases))
         (str me " & " you))))
 
-(defn- ensure-me-entity!
-  "Ensure the primary :me entity exists and is linked to the profile."
-  [{:keys [conn env me]}]
-  (let [doc @me
-        prefs (me-profile/preferences-from-manual doc)
-        me-entity (or (me-profile/profile prefs)
-                      (let [name (profile-name doc)
-                            new-id (UUID/randomUUID)
-                            entity-spec {:id new-id
-                                         :name name
-                                         :type :person
-                                         :pinned? true}]
-                        (store/ensure-entity! conn env entity-spec)
-                        (swap! me assoc :entity/id new-id)
-                        (write-profile! (:data-dir env) @me)
-                        (xt/entity new-id)))]
-    me-entity))
+(defn- raw-profile-name [doc profile-id]
+  (let [prefs (me-profile/preferences-from-manual doc)
+        names (:preferred-names prefs)]
+    (or (first names)
+        (some-> profile-id str str/trim not-empty)
+        "Me")))
 
 (defn- create-profile-state [profile]
   (let [{:keys [snapshot-every xtdb]} (config)
         dir (ensure-dir! (profile-dir profile))
+        me-doc (read-profile dir)
         env {:data-dir dir
              :snapshot-every snapshot-every
              :xtdb xtdb}
-        conn (store/restore! env)
-        me-doc (read-profile dir)
+        conn (store/restore! env me-doc)
         state {:profile profile
                :profile-dir dir
                :env env
                :conn conn
                :me (atom (or me-doc {}))
                :last-anchors (atom [])}]
-    (ensure-me-entity! state)
+    (when-not (-> state :me deref :entity/id)
+      (let [name (raw-profile-name @(:me state) profile)
+            new-id (UUID/randomUUID)
+            entity-spec {:id new-id, :name name, :type :person, :pinned? true}]
+        (store/ensure-entity! conn env entity-spec)
+        (swap! (:me state) assoc :entity/id new-id)
+        (write-profile! dir @(:me state))))
     state))
 
 (defn ensure-profile!

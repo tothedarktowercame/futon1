@@ -2,7 +2,7 @@
   (:require [app.focus :as focus]
             [cheshire.core :as json]
             [clojure.string :as str]
-            [graph-memory.types_registry :as types]))
+            [graph-memory.types-registry :as types]))
 
 (def default-policy
   {:allow-types focus/default-allowed-types

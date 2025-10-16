@@ -1,6 +1,7 @@
 (ns basic-chat-demo.basic-chat-demo-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [basic-chat-demo.basic-chat-demo :as sut]
+            [app.store-manager :as store-manager]
             [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.java.io :as io])
@@ -16,21 +17,20 @@
     (doseq [file (reverse (file-seq f))]
       (io/delete-file file true))))
 
+(def ^:dynamic *data-root* nil)
+
 (use-fixtures
   :each
   (fn [f]
-    (let [tmp (temp-dir-file)
-          orig-env @sut/!env
-          orig-conn @sut/!conn]
-      (reset! sut/!env {:data-dir (.getAbsolutePath tmp)
-                        :snapshot-every 100})
-      (reset! sut/!conn nil)
-      (try
-        (f)
-        (finally
-          (reset! sut/!conn orig-conn)
-          (reset! sut/!env orig-env)
-          (delete-recursively tmp))))))
+    (let [tmp (temp-dir-file)]
+      (binding [*data-root* (.getAbsolutePath tmp)]
+        (store-manager/configure! {:data-root *data-root*
+                                   :xtdb {:enabled? false}})
+        (try
+          (f)
+          (finally
+            (store-manager/shutdown!)
+            (delete-recursively tmp)))))))
 
 (defn- temp-dir []
   (let [file (java.io.File/createTempFile "basic-chat-test" "")]

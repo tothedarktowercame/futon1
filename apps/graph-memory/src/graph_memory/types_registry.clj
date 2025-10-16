@@ -1,4 +1,4 @@
-(ns graph-memory.types_registry
+(ns graph-memory.types-registry
   "XT-backed registry for entity and relation types with parent inference and alias support."
   (:require [app.xt :as xt]
             [clojure.edn :as edn]
@@ -15,7 +15,7 @@
 (def ^:private namespace-map
   (delay
     (if-let [res (io/resource "type_namespace_map.edn")]
-      (edn/read-string (slurp res))
+      (-> res io/reader (java.io.PushbackReader.) edn/read)
       {})))
 
 (defn- now-ms []
@@ -104,29 +104,23 @@
 (defn- fetch-doc [kind type]
   (let [kind (normalize-kind kind)
         type (->keyword type)]
-    (when (and (xt-available?) kind type)
-      (normalize-doc (xt/entity (doc-id kind type))))))
+    (if (xt-available?)
+      (when (and kind type)
+        (normalize-doc (xt/entity (doc-id kind type))))
+      (get-in (ensure-cache!) [:types [kind type]]))))
 
 (defn- assoc-aliases [doc aliases]
   (update doc :aliases #(into (set (or % #{})) aliases)))
 
 (defn- store-doc! [doc]
-  (if (xt-available?)
-    (do
-      (xt/submit! [[::xtdb/put (denormalize-doc doc)]])
-      (load-cache!)
-      doc)
-    (do
-      (swap! !cache
-             (fn [cache]
-               (let [cache (or cache {:docs []})
-                     docs (->> (:docs cache)
-                               (remove #(and (= (:kind %) (:kind doc))
-                                             (= (:id %) (:id doc))))
-                               (conj doc)
-                               vec)]
-                 (assoc cache :docs docs))))
-      doc)))
+  (when (xt-available?)
+    (xt/submit! [[::xtdb/put (denormalize-doc doc)]]))
+  ;; optimistically update the cache for both test and prod environments
+  (swap! !cache (fn [cache]
+                  (let [docs (vec (distinct (conj (or (:docs cache) []) doc)))]
+                    (assoc cache :docs docs))))
+  (load-cache!)
+  doc)
 
 (defn- canonical-of [cache kind type]
   (loop [current type]
@@ -209,7 +203,8 @@
                           :parent (when parent (do (ensure! kind parent {:parent nil}) parent))
                           :aliases #{}
                           :inferred? inferred?}]
-                 (store-doc! doc))))))))))
+                 (store-doc! doc)
+                 doc)))))))))
 
 (defn set-parent!
   "Override the parent for the provided kind/type pair."

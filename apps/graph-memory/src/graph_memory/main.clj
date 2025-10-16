@@ -1,7 +1,7 @@
 (ns graph-memory.main
   (:require [clojure.string :as str]
             [datascript.core :as d]
-            [graph-memory.types_registry :as types])
+            [graph-memory.types-registry :as types])
   (:import (java.util UUID)))
 
 (def schema
@@ -52,8 +52,8 @@
   (cond
     (keyword? source) source
     (string? source) (let [trimmed (str/trim source)]
-                      (when (seq trimmed)
-                        (keyword trimmed)))
+                       (when (seq trimmed)
+                         (keyword trimmed)))
     :else nil))
 
 (defn add-utterance!

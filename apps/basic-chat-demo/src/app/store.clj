@@ -7,7 +7,7 @@
             [clojure.string :as str]
             [datascript.core :as d]
             [graph-memory.main :as gm]
-            [graph-memory.types_registry :as types]
+            [graph-memory.types-registry :as types]
             [xtdb.api :as xtdb])
   (:import (java.io PushbackReader)
            (java.util UUID))
@@ -99,10 +99,8 @@
                                   (when default-data-dir
                                     (.getAbsolutePath (io/file default-data-dir "xtdb"))))
             start-opts (cond-> {}
-                          resolved-data-dir (assoc :data-dir (->absolute-path resolved-data-dir)))]
-        (when (xt/started?)
-          (xt/stop!))
-        (xt/start! cfg start-opts)))))
+                         resolved-data-dir (assoc :data-dir (->absolute-path resolved-data-dir)))]
+        (xt/restart! cfg start-opts)))))
 
 (defn- xt-entity->tx
   [doc]
@@ -155,7 +153,7 @@
                          (map first))
         entity-txs  (->> entity-docs
                          (map xt-entity->tx)
-                         (remove nil?)
+                         (remove (comp nil? :entity/id))
                          (vec))
         known-ids   (atom #{})
         stubbed!    (atom #{})
@@ -780,7 +778,7 @@
                           :unpinned? unpin?}}
          :result updated}))))
 
-(defn- register-types-from-db!
+(defn register-types-from-db!
   [conn]
   (let [db @conn
         entity-types (->> (d/q '[:find ?t :where [?e :entity/type ?t]] db)
@@ -830,32 +828,38 @@
 (defn restore!
   "Restore a Datascript connection using XTDB when available, falling back to legacy files.
    Accepts either a data-dir string or an opts map containing :data-dir and optional :xtdb map."
-  [cfg]
-  (let [{:keys [data-dir xtdb] :as opts} (if (string? cfg)
-                                           {:data-dir cfg}
-                                           cfg)
-        xtdb-opts (or xtdb {})]
-    (when-not data-dir
-      (throw (ex-info "Missing data-dir" {:opts opts})))
-    (ensure-dir! data-dir)
-    (ensure-xt-node! xtdb-opts data-dir)
-    (let [conn (d/create-conn schema)
-          xt-result (when (and (xt-enabled? xtdb-opts) (xt/started?))
-                      (hydrate-from-xtdb! conn))
-          xt-count  (when xt-result
-                      (+ (:entity-count xt-result 0)
-                         (:relation-count xt-result 0)))]
-      (if (pos? (or xt-count 0))
-        (swap! !event-count assoc data-dir 0)
-        (let [legacy (hydrate-from-legacy! conn data-dir)]
-          (swap! !event-count assoc data-dir (:event-count legacy 0))
-          (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
-            (sync-to-xtdb! conn))))
-      (when (and (xt-enabled? xtdb-opts) (xt/started?))
-        (register-types-from-db! conn))
-      conn)))
-
-(defn compact!
+  ([cfg]
+   (restore! cfg nil))
+  ([cfg me-doc]
+   (let [{:keys [data-dir xtdb] :as opts} (if (string? cfg)
+                                            {:data-dir cfg}
+                                            cfg)
+         xtdb-opts (or xtdb {})]
+     (when-not data-dir
+       (throw (ex-info "Missing data-dir" {:opts opts})))
+     (ensure-dir! data-dir)
+     (ensure-xt-node! xtdb-opts data-dir)
+     (let [conn (d/create-conn schema)
+           xt-result (when (and (xt-enabled? xtdb-opts) (xt/started?))
+                       (hydrate-from-xtdb! conn))
+           xt-count  (when xt-result
+                       (+ (:entity-count xt-result 0)
+                          (:relation-count xt-result 0)))]
+             (if (pos? (or xt-count 0))
+               (do
+                 (swap! !event-count assoc data-dir 0)
+                 (register-types-from-db! conn))
+               (let [legacy (hydrate-from-legacy! conn data-dir)]
+                 (swap! !event-count assoc data-dir (:event-count legacy 0))
+                            (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
+                              (sync-to-xtdb! conn))))
+                        (when-let [id (:entity/id me-doc)]
+                          (when-not (entity-by-id conn id)
+                            (let [name (:name me-doc "Me")
+                                  tx {:entity/id id, :entity/name name, :entity/type :person, :entity/pinned? true}]
+                              (d/transact! conn [tx]))))
+                        (register-types-from-db! conn)
+                        conn))))(defn compact!
   "Force a snapshot and event-log reset for the given data directory."
   [conn {:keys [data-dir]}]
   (when-not data-dir

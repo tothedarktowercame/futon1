@@ -5,7 +5,7 @@
             [clojure.string :as str]
             [graph-memory.main :as gm]
             [graph-memory.me-profile :as me-profile]
-            [graph-memory.types_registry :as types]))
+            [graph-memory.types-registry :as types]))
 
 ;; -- Relation/Entity helpers -------------------------------------------------
 
@@ -173,15 +173,15 @@
 
   ctx expects :profile and optionally :query-params.
   The Datascript connection is established via store-manager."
-  [{:keys [profile query-params now]}]
+  [{:keys [profile query-params now conn]}]
   (let [profile-name (or profile (store-manager/default-profile))
-        _ (store-manager/conn profile-name)
+        conn (or conn (store-manager/conn profile-name))
         manual (store-manager/profile-doc profile-name)
         options (request-options {:query-params (or query-params {})
                                   :manual manual
                                   :now now})
         graph (try
-                (me-profile/profile options)
+                (me-profile/profile (assoc options :db conn))
                 (catch clojure.lang.ExceptionInfo e
                   (let [status (:status (ex-data e))]
                     (when-not (= 404 status)
@@ -262,7 +262,7 @@
 
 (defn list-types
   "Return the registered entity/relation types grouped by kind."
-  []
+  [conn]
   (let [docs (:docs (types/load-cache!))]
     {:types {:entity (sort-docs docs :entity)
              :relation (sort-docs docs :relation)
@@ -297,7 +297,7 @@
     (let [kind (or kind :entity)
           doc (or (types/set-parent! kind type-kw parent-kw)
                   (get-in (types/load-cache!) [:types [kind type-kw]]))]
-      {:type (doc->response doc)})))
+      (doc->response doc))))
 
 (defn merge-aliases!
   "Merge aliases into the canonical type."
@@ -317,4 +317,4 @@
                   {:id target
                    :kind kind
                    :aliases (set alias-vec)})]
-      {:type (doc->response doc)})))
+      (doc->response doc))))

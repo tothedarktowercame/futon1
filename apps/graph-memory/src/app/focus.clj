@@ -2,7 +2,7 @@
   (:require [app.xt :as xt]
             [clojure.math :as math]
             [clojure.set :as set]
-            [graph-memory.types_registry :as types]
+            [graph-memory.types-registry :as types]
             [xtdb.api :as xtdb]))
 
 (def default-allowed-types

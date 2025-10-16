@@ -1,7 +1,7 @@
 (ns open-world-ingest.storage-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [graph-memory.types_registry :as types]
+            [graph-memory.types-registry :as types]
             [open-world-ingest.storage :as storage]
             [open-world-ingest.util :as util]
             [xtdb.api :as xt])

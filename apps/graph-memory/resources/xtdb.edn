@@ -1,6 +1,6 @@
-{:xtdb/tx-log {:kv-store {:xtdb/module xtdb.rocksdb/->kv-store
+{:xtdb/tx-log {:kv-store {:xtdb/module xtdb.lmdb/->kv-store
                           :db-dir "tx-log"}}
- :xtdb/document-store {:kv-store {:xtdb/module xtdb.rocksdb/->kv-store
+ :xtdb/document-store {:kv-store {:xtdb/module xtdb.lmdb/->kv-store
                                   :db-dir "doc-store"}}
- :xtdb/index-store {:kv-store {:xtdb/module xtdb.rocksdb/->kv-store
+ :xtdb/index-store {:kv-store {:xtdb/module xtdb.lmdb/->kv-store
                                :db-dir "index-store"}}}

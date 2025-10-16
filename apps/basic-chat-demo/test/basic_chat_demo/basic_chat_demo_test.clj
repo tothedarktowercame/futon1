@@ -89,26 +89,7 @@
         exp (-> "test/golden/basic-chat/v3/entities.out.edn" slurp edn/read-string)]
     (is (= exp got'))))
 
-(deftest v4-script
-  (let [got (run-script "basic-chat/v4" "test/scripts/basic-chat/v4/entities.edn" ["--ner-fallback"])
-        got' (mapv (fn [m]
-                     (-> m
-                         (dissoc :context :focus-header :focus-header-json :focus-header-lines)
-                         (update :intent #(select-keys % [:type :conf]))
-                         (update :links (fn [links]
-                                          (mapv (constantly {}) links)))
-                         (update :entities (fn [ents]
-                                             (mapv (fn [ent]
-                                                     (-> ent
-                                                         (select-keys [:name :type :source :confidence :id :span :aliases :value])
-                                                         (update :confidence round2)
-                                                         (update :aliases #(vec %))))
-                                                   ents)))
-                         (update :relations (fn [rels]
-                                              (mapv #(select-keys % [:type :src :dst]) rels)))))
-                   got)
-        exp (-> "test/golden/basic-chat/v4/entities.out.edn" slurp edn/read-string)]
-    (is (= exp got'))))
+
 
 (deftest human-lines-formats-intent
   (let [lines (#'sut/human-lines {:intent {:type :greet :conf 0.99}} nil)

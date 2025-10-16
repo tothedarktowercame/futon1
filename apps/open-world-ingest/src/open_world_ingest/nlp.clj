@@ -1,7 +1,8 @@
 (ns open-world-ingest.nlp
   (:require [clojure.string :as str]
             [open-world-ingest.trace :as trace]
-            [open-world-ingest.util :as util])
+            [open-world-ingest.util :as util]
+            [app.store-manager :as store-manager])
   (:import (edu.stanford.nlp.pipeline Annotation StanfordCoreNLP)
            (edu.stanford.nlp.ling CoreAnnotations$LemmaAnnotation
                                   CoreAnnotations$PartOfSpeechAnnotation
@@ -557,6 +558,18 @@
         time-val (assoc :relation/time time-val)
         (and loc? obj-id (#{:place :org} (:entity/kind obj-entity))) (assoc :relation/loc obj-id)))))
 
+(defn- handle-ego-relation!
+  [relation]
+  (when (= ego-entity-id (:relation/src relation))
+    (let [subject (some-> (:relation/subject relation) str/lower-case)
+          object (some-> (:relation/object relation) str/trim)
+          relation-label (some-> (:relation/label relation) name)]
+      (when (and object relation-label)
+        (cond
+          (and (= "my name" subject) (= "be" relation-label))
+          (let [profile (store-manager/default-profile)]
+            (store-manager/upsert-profile! profile {:name object})))))))
+
 (defn- process-sentences
   [sentences now {:keys [trace replay]}]
   (let [trace-config (trace/config trace)
@@ -598,6 +611,7 @@
                                      (keep #(relation->map % entities-by-label now))
                                      vec)
               rels (into base-relations derived-relations)
+              _ (doseq [rel rels] (handle-ego-relation! rel))
               _ (when (and trace-config (seq base-records))
                   (trace/append! trace-config base-records))
               ego-used? (or (some #(= (:relation/src %) ego-entity-id) rels)

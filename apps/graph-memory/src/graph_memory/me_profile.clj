@@ -167,7 +167,7 @@
   (when (seq entities)
     (first (sort-by salience-key entities))))
 
-(defn- select-me [{:keys [preferred-ids preferred-names]}]
+(defn select-me [{:keys [preferred-ids preferred-names]}]
   (let [candidate-fns [#(resolve-by-ids preferred-ids)
                        #(resolve-by-names preferred-names)
                        #(run-entity-query '[[?e :entity/type :person]
@@ -222,13 +222,13 @@
       last-seen (assoc :last-seen (coerce-long last-seen))
       (seq provenance) (assoc :provenance provenance))))
 
-(defn- hot-relations [entity {:keys [neighbor-limit per-type-caps window-days now allow-works? allowed-types]}]
+(defn- hot-relations [db entity {:keys [neighbor-limit per-type-caps window-days now allow-works? allowed-types]}]
   (let [now (or now (now-ms))
         days (long (or window-days default-window-days))
         day-ms (* 24 60 60 1000)
         cutoff (- now (* days day-ms))
         limit (max 1 (or neighbor-limit default-neighbor-limit))
-        neighbors (focus/top-neighbors nil (:id entity)
+        neighbors (focus/top-neighbors db [(:id entity)]
                                        {:k-per-anchor limit
                                         :per-edge-caps per-type-caps
                                         :allowed-types allowed-types
@@ -263,33 +263,41 @@
   "Build a structured profile for the :me entity using salience-weighted relations."
   ([]
    (profile {}))
-  ([{:keys [preferred-ids preferred-names neighbor-limit per-type-caps window-days allow-works? allowed-types now] :as _opts}]
-    (let [now (or now (now-ms))
-          days (long (or window-days default-window-days))
-          day-ms (* 24 60 60 1000)
-          cutoff (- now (* days day-ms))
-          me (or (select-me {:preferred-ids preferred-ids
-                             :preferred-names preferred-names})
-                 (throw (ex-info "No candidate entity found for :me" {:status 404})))]
-      (let [relations (hot-relations me {:neighbor-limit neighbor-limit
-                                         :per-type-caps per-type-caps
-                                         :window-days days
-                                         :now now
-                                         :allow-works? allow-works?
-                                         :allowed-types allowed-types})
-            topics (build-topics relations default-topic-limit)
-            salience-score (entity-salience me now cutoff)]
-        {:entity me
-         :salience {:score salience-score
-                    :seen-count (:seen-count me)
-                    :last-seen (:last-seen me)
-                    :pinned? (:pinned? me)
-                    :window {:days days
-                             :cutoff cutoff
-                             :now now}}
-         :relations relations
-         :topics topics
-         :generated-at now}))))
+  ([{:keys [db preferred-ids preferred-names neighbor-limit per-type-caps window-days allow-works? allowed-types now entity] :as opts}]
+   (let [now (or now (now-ms))
+         days (long (or window-days default-window-days))
+         day-ms (* 24 60 60 1000)
+         cutoff (- now (* days day-ms))
+         me (or entity
+                (select-me {:preferred-ids preferred-ids
+                            :preferred-names preferred-names})
+                (throw (ex-info "No candidate entity found for :me" {:status 404})))
+         hot-opts {:neighbor-limit neighbor-limit
+                   :per-type-caps per-type-caps
+                   :window-days days
+                   :now now
+                   :allow-works? allow-works?
+                   :allowed-types allowed-types}
+         relations (hot-relations db me hot-opts)
+         salience-score (entity-salience me now cutoff)]
+     (let [me-relations (when (not= :me (:id me))
+                          (hot-relations db {:id :me} hot-opts))
+           all-relations (->> (concat relations me-relations)
+                              (sort-by :score >)
+                              (take (or neighbor-limit 8))
+                              vec)
+           topics (build-topics all-relations default-topic-limit)]
+       {:entity me
+        :salience {:score salience-score
+                   :seen-count (:seen-count me)
+                   :last-seen (:last-seen me)
+                   :pinned? (:pinned? me)
+                   :window {:days days
+                            :cutoff cutoff
+                            :now now}}
+        :relations all-relations
+        :topics topics
+        :generated-at now}))))
 
 (defn- relation-line
   ([entity-name rel]

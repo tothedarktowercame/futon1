@@ -83,8 +83,9 @@
   (:default-profile (config)))
 
 (defn- profile-dir [profile]
-  (let [{:keys [data-root]} (config)]
-    (.getAbsolutePath (io/file data-root profile))))
+  (let [{:keys [data-root]} (config)
+        profile-id (if (= :me profile) (default-profile) profile)]
+    (.getAbsolutePath (io/file data-root profile-id))))
 
 (defn- ensure-dir! [^String path]
   (let [file (io/file path)]
@@ -163,11 +164,9 @@
                :me (atom (or me-doc {}))
                :last-anchors (atom [])}]
     (when-not (-> state :me deref :entity/id)
-      (let [name (raw-profile-name @(:me state) profile)
-            new-id (UUID/randomUUID)
-            entity-spec {:id new-id, :name name, :type :person, :pinned? true}]
+      (let [entity-spec {:id :me, :name "Me", :type :person, :pinned? true}]
         (store/ensure-entity! conn env entity-spec)
-        (swap! (:me state) assoc :entity/id new-id)
+        (swap! (:me state) assoc :entity/id :me)
         (write-profile! dir @(:me state))))
     state))
 

@@ -127,21 +127,22 @@
 
 (defn top-neighbors
   "Return ranked neighbors for focus entity with per-type caps."
-  [_node focus-id {:keys [k-per-anchor per-edge-caps per-type-caps allow-works? allowed-types time-hint] :as _opts}]
+  [_node focus-ids {:keys [k-per-anchor per-edge-caps per-type-caps allow-works? allowed-types time-hint] :as _opts}]
   (let [db (xt/db)
         now (now-ms)
+        focus-id-set (set (if (coll? focus-ids) focus-ids [focus-ids]))
         cutoff (or time-hint (- now (* 30 24 60 60 1000)))
         focus-window-ms (max 1 (- now cutoff))
         type-pred (allowed-type-pred allowed-types)
         allow-all? (or allow-works? (nil? type-pred))
         out-docs (map first (xt/q '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen :relation/provenance :relation/subject :relation/object])]
-                                    :in [$ ?focus]
+                                    :in [$ [?focus ...]]
                                     :where [[?r :relation/src ?focus]]}
-                                   focus-id))
+                                   focus-id-set))
         in-docs  (map first (xt/q '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen :relation/provenance :relation/subject :relation/object])]
-                                    :in [$ ?focus]
+                                    :in [$ [?focus ...]]
                                     :where [[?r :relation/dst ?focus]]}
-                                   focus-id))
+                                   focus-id-set))
         raw (concat (map #(assoc % :direction :out :target-id (:relation/dst %)) out-docs)
                     (map #(assoc % :direction :in :target-id (:relation/src %)) in-docs))
         grouped (group-by :relation/type raw)
@@ -158,7 +159,7 @@
                                                                                            :last-seen (safe-long last-seen)})]
                                            {:relation/id (:relation/id rel)
                                             :relation/type rel-type
-                                            :focus-id focus-id
+                                            :focus-id (:relation/src rel)
                                             :direction (:direction rel)
                                             :neighbor neighbor
                                             :confidence (double (or confidence 1.0))

@@ -154,9 +154,11 @@
 
 (defn entity
   ([eid]
-   (xt/entity (xt/db (ensure-node)) eid))
+   (when-not (= :me eid)
+     (xt/entity (xt/db (ensure-node)) eid)))
   ([eid valid-time]
-   (xt/entity (xt/db (ensure-node) valid-time) eid)))
+   (when-not (= :me eid)
+     (xt/entity (xt/db (ensure-node) valid-time) eid))))
 
 (defn db
   ([] (xt/db (ensure-node)))

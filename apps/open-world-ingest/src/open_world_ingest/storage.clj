@@ -121,6 +121,20 @@
              loc (assoc :relation/loc loc))))
        relations))
 
+(defn- canonical-ego-id
+  [id]
+  (if (= :open-world-ingest.nlp/ego id)
+    :me
+    id))
+
+(defn- canonical-ego-doc
+  [doc]
+  (-> doc
+      (update :xt/id canonical-ego-id)
+      (update :entity/id canonical-ego-id)
+      (update :relation/src canonical-ego-id)
+      (update :relation/dst canonical-ego-id)))
+
 (defn store-analysis!
   [text {:keys [entities relations]}]
   (let [now (util/now)
@@ -130,7 +144,7 @@
         entity-results (map (fn [occurrences]
                               (let [entity (first occurrences)
                                     entity-id (:entity/id entity)
-                                    existing (xt/entity db entity-id)
+                                    existing (xt/entity db (canonical-ego-id entity-id))
                                     labels (set (map :entity/label occurrences))
                                     doc (entity-doc existing now entity labels)]
                                 {:doc doc
@@ -153,11 +167,11 @@
                        :utterance/relation-count (count distinct-relations)}
         ops (-> []
                 (into (map (fn [{:keys [doc]}]
-                             [::xt/put doc]) entity-results))
+                             [::xt/put (canonical-ego-doc doc)]) entity-results))
                 (into (map (fn [doc]
-                             [::xt/put doc]) mention-docs'))
+                             [::xt/put (canonical-ego-doc doc)]) mention-docs'))
                 (into (map (fn [doc]
-                             [::xt/put doc]) relation-docs'))
+                             [::xt/put (canonical-ego-doc doc)]) relation-docs'))
                 (conj [::xt/put utterance-doc]))
         tx (xt/submit-tx (node) ops)]
     (xt/await-tx (node) tx)

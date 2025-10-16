@@ -1,22 +1,18 @@
 [{:in "Meet Tom in Minneapolis on 12 Oct about XTDB v5 with Isabella."
   :intent {:type :social-behavior :conf 0.6200000000000001}
-  :entities [{:name "Tom" :type :person :source :catalog :confidence 0.88
-              :id "E:person:tom" :span {:start 5 :end 8} :aliases []}
-             {:name "Minneapolis" :type :place :source :gazetteer :confidence 0.9
-              :id "E:place:minneapolis" :span {:start 12 :end 23} :aliases []}
-             {:name "12 Oct" :type :date :source :pattern :confidence 0.85
-              :id "E:date:12-oct" :span {:start 27 :end 33} :aliases [] :value "2025-10-12"}
-             {:name "XTDB" :type :tool :source :gazetteer :confidence 0.8
-              :id "E:tool:xtdb" :span {:start 40 :end 44} :aliases []}
-             {:name "Isabella von Holstein" :type :person :source :gazetteer :confidence 0.8
-              :id "E:person:isabella-von-holstein" :span {:start 53 :end 61}
-              :aliases ["Isabella" "Isabella vH"]}]
-  :relations [{:type :located-in :src "Tom" :dst "Minneapolis"}
+  :entities [{:name "Me" :type :person :source :catalog :confidence 0.83 :id "E:person:me" :span {:start 0 :end 2} :aliases []}
+             {:name "Tom" :type :person :source :catalog :confidence 0.88 :id "E:person:tom" :span {:start 5 :end 8} :aliases []}
+             {:name "Minneapolis" :type :place :source :gazetteer :confidence 0.9 :id "E:place:minneapolis" :span {:start 12 :end 23} :aliases []}
+             {:name "12 Oct" :type :date :source :pattern :confidence 0.85 :id "E:date:12-oct" :span {:start 27 :end 33} :aliases [] :value "2025-10-12"}
+             {:name "XTDB" :type :tool :source :gazetteer :confidence 0.8 :id "E:tool:xtdb" :span {:start 40 :end 44} :aliases []}
+             {:name "Isabella von Holstein" :type :person :source :gazetteer :confidence 0.8 :id "E:person:isabella-von-holstein" :span {:start 53 :end 61} :aliases ["Isabella" "Isabella vH"]}]
+  :relations [{:type :links-to :src "Me" :dst "Tom"}
+              {:type :located-in :src "Tom" :dst "Minneapolis"}
               {:type :scheduled :src "Minneapolis" :dst "12 Oct"}
               {:type :links-to :src "12 Oct" :dst "XTDB"}
               {:type :with :src "XTDB" :dst "Isabella von Holstein"}]
-  :tokens ["Meet" "Tom" "in" "Minneapolis" "on" "12" "Oct" "about" "XTDB" "v5" "with" "Isabella"]
+  :tokens ["Meet" "Tom" "in" "Minneapolis" "on" "12" "Oct" "about" "XTDB" "v5" "with" "Isabella" "."]
   :pos [["Meet" "NNP"] ["Tom" "NNP"] ["in" "NN"] ["Minneapolis" "NNP"] ["on" "NN"]
         ["12" "CD"] ["Oct" "NNP"] ["about" "NN"] ["XTDB" "NN"] ["v5" "NN"]
-        ["with" "NN"] ["Isabella" "NNP"]]
+        ["with" "NN"] ["Isabella" "NNP"] [".", "NN"]]
   :links [{}]}]

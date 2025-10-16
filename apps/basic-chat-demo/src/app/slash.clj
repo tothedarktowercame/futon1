@@ -14,8 +14,8 @@
    "  /expire NAME   Reset salience counters for the named entity"
    "  /entity NAME [TYPE]   Ensure an entity exists (optionally set type)"
    "  /relation TYPE SRC DST   Upsert a relation between SRC and DST"
-   "  /me            Show the current profile document"
-   "  /me summary [limit]  Render the profile summary (default 2000 chars)"
+   "  /me [summary] [limit]  Render the profile summary (default 2000 chars)"
+   "  /me doc          Show the raw profile document"
    "  /types         List registered entity/relation/intent types"
    "  /types parent TYPE [PARENT] [KIND]  Override a type's parent"
    "  /types merge INTO ALIAS...  Merge aliases into a canonical type"
@@ -55,9 +55,19 @@
   (try
     (thunk)
     (catch clojure.lang.ExceptionInfo e
-      [(or (ex-message e) "command failed")])
+      (let [writer (java.io.StringWriter.)]
+        (.printStackTrace e (java.io.PrintWriter. writer))
+        (->> (.toString writer)
+             str/split-lines
+             (cons (str "ERROR: " (or (ex-message e) "command failed")))
+             vec)))
     (catch Exception e
-      [(or (.getMessage e) "command failed")])))
+      (let [writer (java.io.StringWriter.)]
+        (.printStackTrace e (java.io.PrintWriter. writer))
+        (->> (.toString writer)
+             str/split-lines
+             (cons (str "ERROR: " (or (.getMessage e) "command failed")))
+             vec)))))
 
 (defn- entity-lines [{:keys [name type seen-count last-seen pinned?]}]
   (let [header (str "Entity ensured: " (name-with-type name type))
@@ -138,20 +148,20 @@
   (let [[sub & rest] (->> (str/split arg #"\s+")
                           (remove str/blank?))
         sub (some-> sub str/lower-case)
-        svc-ctx {:conn conn :env opts :profile nil :now (System/currentTimeMillis)}]
+        svc-ctx {:conn conn :env opts :profile :me :now (System/currentTimeMillis)}]
     (case sub
-      "summary" (let [limit (some-> (first rest) parse-int)]
-                  (safe-exec
-                   #(profile-summary-lines
-                     (svc/profile-summary svc-ctx limit))))
       "set" (let [payload-str (str/join " " rest)
                   payload (parse-edn-safe payload-str)]
               (if (map? payload)
                 (safe-exec #(profile-lines (svc/upsert-profile! svc-ctx payload)))
                 ["Usage: /me set {<edn map>}"]))
-      ;; default -> show profile doc
-      (safe-exec
-       #(pprint-lines (svc/fetch-profile svc-ctx))))))
+      "doc" (safe-exec
+             #(pprint-lines (svc/fetch-profile svc-ctx)))
+      ;; default -> show summary
+      (let [limit (if (= "summary" sub) (some-> (first rest) parse-int) nil)]
+        (safe-exec
+         #(profile-summary-lines
+           (svc/profile-summary svc-ctx limit)))))))
 
 (defn- types-section [conn opts arg]
   (let [[sub & rest] (->> (str/split arg #"\s+")
@@ -278,11 +288,12 @@
 
 (defn handler
   "Return a slash-command handler bound to the Datascript connection."
-  [conn opts]
-  (fn [raw state]
-    (let [trimmed (str/trim raw)]
+  [opts !state]
+  (fn [raw _]
+    (let [trimmed (str/trim raw)
+          conn (:conn @!state)]
       (if (str/blank? trimmed)
-        {:message help-lines :new-state state}
+        {:message help-lines}
         (let [[cmd & _] (str/split trimmed #"\s+" 2)
               cmd (str/lower-case cmd)
               space-idx (.indexOf trimmed " ")
@@ -291,25 +302,14 @@
           (case cmd
             "tail" (let [limit (parse-int (first (str/split arg #"\s+")))
                          relations (svc/tail conn (or limit 5))]
-                     {:message (tail-section relations)
-                      :new-state state})
-            "ego" {:message (ego-section conn arg)
-                   :new-state state}
-            "cooccur" {:message (cooccur-section conn arg)
-                        :new-state state}
-            "forget" {:message (forget-section conn opts arg)
-                       :new-state state}
-            "expire" {:message (expire-section conn opts arg)
-                       :new-state state}
-            "entity" {:message (entity-section conn opts arg)
-                       :new-state state}
-            "relation" {:message (relation-section conn opts arg)
-                         :new-state state}
-            "me" {:message (me-section conn opts arg)
-                  :new-state state}
-            "types" {:message (types-section conn opts arg)
-                     :new-state state}
-            "help" {:message help-lines
-                    :new-state state}
-            {:message (str "unknown command: /" cmd)
-             :new-state state}))))))
+                     {:message (tail-section relations)})
+            "ego" {:message (ego-section conn arg)}
+            "cooccur" {:message (cooccur-section conn arg)}
+            "forget" {:message (forget-section conn opts arg)}
+            "expire" {:message (expire-section conn opts arg)}
+            "entity" {:message (entity-section conn opts arg)}
+            "relation" {:message (relation-section conn opts arg)}
+            "me" {:message (me-section conn opts arg)}
+            "types" {:message (types-section conn opts arg)}
+            "help" {:message help-lines}
+            {:message (str "unknown command: /" cmd)}))))))

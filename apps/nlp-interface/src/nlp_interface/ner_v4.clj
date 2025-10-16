@@ -555,7 +555,19 @@
               (update res-base :gazetteer merge-gazetteers catalog')
               res-base)
         token-data (token-spans text tokens)
-        candidates (concat (merge-gazetteer text token-data res)
+        me-ents (let [tokens-lower (map str/lower-case tokens)
+                      i-idx (.indexOf tokens-lower "i")
+                      me-idx (.indexOf tokens-lower "me")]
+                  (cond
+                    (>= i-idx 0)
+                    [{:label "Me" :type :person :layer :gazetteer :source :alias :confidence 0.99
+                      :span {:start i-idx :end (inc i-idx)}}]
+                    (>= me-idx 0)
+                    [{:label "Me" :type :person :layer :gazetteer :source :alias :confidence 0.99
+                      :span {:start me-idx :end (inc me-idx)}}]
+                    :else []))
+        candidates (concat me-ents
+                           (merge-gazetteer text token-data res)
                            (pattern-candidates text now res)
                            (pos-titlecase-candidates token-data pos-tags res)
                            (domain-candidates text res)

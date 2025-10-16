@@ -238,13 +238,13 @@
 
 
 (defn interactive-loop! [{:keys [runner command-handler bang-handler intro-lines after-turn
-                                 focus-header? focus-header-only?]}]
+                                 focus-header? focus-header-only? !state]}]
 
   (println "basic-chat-demo interactive mode")
   (println "Type your message and press enter. Use :quit to exit.")
   (doseq [line intro-lines]
     (println line))
-  (loop [state {}]
+  (loop []
     (print "you> ")
     (flush)
     (let [line (try (read-line)
@@ -259,25 +259,23 @@
                 (System/exit 0))
 
             (str/blank? line)
-            (recur state)
+            (recur)
 
             (and bang-handler (str/starts-with? line "!"))
             (let [cmd (subs line 1)
-                  {:keys [message new-state] :or {new-state state}}
-                  (bang-handler cmd state)]
+                  {:keys [message]} (bang-handler cmd !state)]
               (when message
                 (println (str "bot> " message)))
-              (recur new-state))
+              (recur))
 
             (and command-handler (str/starts-with? line "/"))
             (let [cmd (subs line 1)
-                  {:keys [message new-state] :or {new-state state}}
-                  (command-handler cmd state)]
+                  {:keys [message]} (command-handler cmd !state)]
               (when message
                 (if (sequential? message)
                   (print-bot-lines message)
                   (println (str "bot> " message))))
-              (recur new-state))
+              (recur))
 
             :else
             (let [ts (System/currentTimeMillis)
@@ -288,15 +286,15 @@
                                 (cond-> context-lines (dissoc :context))
                                 (dissoc :focus-header))
                   rendered (context/render-context context-lines)
-                  human (human-lines printable rendered)
-                  new-state (assoc state :last-result out)]
+                  human (human-lines printable rendered)]
+              (swap! !state assoc :last-result out)
               (when-not focus-header-only?
                 (print-bot-lines human))
               (when (and focus-header? (seq focus-header-lines*))
                 (print-focus-header-lines! focus-header-lines*))
               (when after-turn
                 (after-turn))
-              (recur new-state))))))))
+              (recur))))))))
 
 (defn supports-entity-commands? [protocol-id]
   (contains? #{"basic-chat/v3" "basic-chat/v4" "basic-chat/v5" "basic-chat/v6"}
@@ -378,6 +376,7 @@
         profile (store-manager/default-profile)
         conn (store-manager/conn profile)
         env (store-manager/env profile)
+        !state (atom {:conn conn})
         {:keys [protocol script]} opts
         entry (registry/fetch protocol)]
     (when-not entry
@@ -424,12 +423,16 @@
                                          [name (store/ensure-entity! conn env-now {:name name :type type})]))
                          _ (doseq [{:keys [type src dst]} (:relations res)
                                    :when (and type src dst)]
-                             (let [src-spec (or (some-> (get ensured src)
+                             (let [src-name (str/trim (str src))
+                                   src-is-me? (= "I" src-name)
+                                   src-spec (if src-is-me?
+                                              {:id :me :name src-name}
+                                              (or (some-> (get ensured src-name)
+                                                          (select-keys [:id :name :type]))
+                                                  {:name src-name}))
+                                   dst-spec (or (some-> (get ensured (str/trim (str dst)))
                                                         (select-keys [:id :name :type]))
-                                                {:name src})
-                                   dst-spec (or (some-> (get ensured dst)
-                                                        (select-keys [:id :name :type]))
-                                                {:name dst})]
+                                                {:name (str/trim (str dst))})]
 
                                (store/upsert-relation! conn env-now {:type type
                                                                        :src src-spec
@@ -458,7 +461,7 @@
           entry-command-handler (when-let [ch (:command-handler entry)]
                                   (ch ctx))
           slash-command-handler (when (supports-entity-commands? protocol)
-                                  (slash/handler conn env))
+                                  (slash/handler env !state))
           command-handler (cond
                             (and entry-command-handler slash-command-handler)
                             (fn [cmd state]
@@ -512,4 +515,5 @@
                               :intro-lines (seq (:intro entry))
                               :after-turn after-turn
                               :focus-header? (:focus-header? opts)
-                              :focus-header-only? (:focus-header-only? opts)}))))))
+                              :focus-header-only? (:focus-header-only? opts)
+                              :!state !state}))))))

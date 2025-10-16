@@ -10,7 +10,7 @@
 
 (def ^:private !cache (atom nil))
 
-(declare load-cache!)
+(declare load-cache! merge! ensure!)
 
 (def ^:private namespace-map
   (delay
@@ -176,52 +176,6 @@
     (reset! !cache cache)
     cache))
 
-(defn ensure!
-  "Ensure type docs exist for the given kind/type or sequence of types.
-   Optional opts map may include :parent to override inferred parent."
-  ([kind types]
-   (ensure! kind types {}))
-  ([kind types {:keys [parent] :as opts}]
-   (let [kind (normalize-kind kind)]
-     (cond
-       (nil? kind) nil
-       (sequential? types)
-       (do (doseq [t types]
-             (ensure! kind t opts))
-           (ensure-cache!))
-       :else
-       (let [type (->keyword types)]
-         (when type
-           (let [parent (some-> parent ->keyword)
-                 existing (fetch-doc kind type)]
-             (if existing
-               existing
-               (let [parent (or parent (infer-parent kind type))
-                     inferred? (boolean (and parent (not (contains? opts :parent))))
-                     doc {:id type
-                          :kind kind
-                          :parent (when parent (do (ensure! kind parent {:parent nil}) parent))
-                          :aliases #{}
-                          :inferred? inferred?}]
-                 (store-doc! doc)
-                 doc)))))))))
-
-(defn set-parent!
-  "Override the parent for the provided kind/type pair."
-  [kind type parent]
-  (let [kind (normalize-kind kind)
-        type (->keyword type)
-        parent (some-> parent ->keyword)]
-    (when (and kind type)
-      (when parent
-        (ensure! kind parent))
-      (let [existing (or (fetch-doc kind type)
-                         (ensure! kind type {:parent parent}))
-            updated (-> existing
-                        (assoc :parent parent)
-                        (assoc :inferred? false))]
-        (store-doc! updated)))))
-
 (defn merge!
   "Mark aliases for the canonical type and refresh the cache.
    aliases may be a single type or a collection."
@@ -250,6 +204,54 @@
                           (dissoc :parent)))))
       (let [doc (fetch-doc kind canonical)
             updated (assoc-aliases doc alias-set)]
+        (store-doc! updated)))))
+
+(defn ensure!
+  "Ensure type docs exist for the given kind/type or sequence of types.
+   Optional opts map may include :parent to override inferred parent."
+  ([kind types]
+   (ensure! kind types {}))
+  ([kind types {:keys [parent] :as opts}]
+   (let [kind (normalize-kind kind)]
+     (cond
+       (nil? kind) nil
+       (sequential? types)
+       (do (doseq [t types]
+             (ensure! kind t opts))
+           (ensure-cache!))
+       :else
+       (let [type (->keyword types)]
+         (when type
+           (let [parent (some-> parent ->keyword)
+                 existing (fetch-doc kind type)]
+             (if existing
+               existing
+               (do
+                 (when (and (= :entity kind) (= :person type))
+                   (merge! :entity :me ["i"]))
+                 (let [parent (or parent (infer-parent kind type))
+                       inferred? (boolean (and parent (not (contains? opts :parent))))
+                       doc {:id type
+                            :kind kind
+                            :parent (when parent (do (ensure! kind parent {:parent nil}) parent))
+                            :aliases #{}
+                            :inferred? inferred?}]
+                   (store-doc! doc)))))))))))
+
+(defn set-parent!
+  "Override the parent for the provided kind/type pair."
+  [kind type parent]
+  (let [kind (normalize-kind kind)
+        type (->keyword type)
+        parent (some-> parent ->keyword)]
+    (when (and kind type)
+      (when parent
+        (ensure! kind parent))
+      (let [existing (or (fetch-doc kind type)
+                         (ensure! kind type {:parent parent}))
+            updated (-> existing
+                        (assoc :parent parent)
+                        (assoc :inferred? false))]
         (store-doc! updated)))))
 
 (defn descendants-of

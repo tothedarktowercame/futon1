@@ -10,7 +10,7 @@
 (def gazetteer (delay (ner-er/load-gazetteer)))
 
 (defn tokenize [text]
-  (->> (re-seq #"[\p{L}\p{Nd}]+(?:'[\p{L}\p{Nd}]+)?" text)
+  (->> (re-seq #"\b\w+\b|'s|'re|'ve|'ll|'d|n't|[.,?!]" text)
         (map #(apply str %))
         vec))
 
@@ -47,14 +47,22 @@
    (intent/analyze text {:tokens tokens})))
 
 (defn pos-tag [tokens]
-  (->> tokens
-       (map (fn [t]
-              (cond
-                (re-matches #"[A-Z][a-z]+" t) [t "NNP"]
-                (re-matches #"[0-9]+" t)      [t "CD"]
-                (re-matches #".+ing" t)       [t "VBG"]
-                :else                          [t "NN"])))
-       vec))
+  (loop [idx 0
+         acc []]
+    (if-let [token (get tokens idx)]
+      (let [next-token (get tokens (inc idx))
+            tag (cond
+                  (= "'s" token)
+                  (if (and next-token (re-matches #".+ing" next-token))
+                    "VBZ"  ; Verb, present tense singular
+                    "POS")  ; Possessive marker
+
+                  (re-matches #"[A-Z][a-z]+" token) "NNP"
+                  (re-matches #"[0-9]+" token)      "CD"
+                  (re-matches #".+ing" token)       "VBG"
+                  :else                          "NN")]
+        (recur (inc idx) (conj acc [token tag])))
+      acc)))
 
 (defn parse-tree [tagged]
   (into [:utterance]
@@ -119,6 +127,12 @@
          catalog (entity-catalog db)
          ner-opts (assoc opts :catalog catalog)
          entities (ner-v4/recognize-entities tokens tagged text now ner-opts)
+         ;; alias resolution
+         entities (mapv (fn [ent]
+                          (if (and (:label ent) (.equalsIgnoreCase "i" (:label ent)))
+                            (assoc ent :label "Me" :type :person)
+                            ent))
+                        entities)
          stored (mapv (fn [ent]
                         (let [entity (gm/ensure-entity! db {:name (:label ent)
                                                            :type (:type ent)})]
@@ -150,7 +164,7 @@
                                    :else
                                    {:type :links-to :src src :dst dst}))))
                         (remove nil?)
-                       vec)]
+                        vec)]
      {:utterance utt-node
       :intent intent
       :intent-candidates intent-candidates

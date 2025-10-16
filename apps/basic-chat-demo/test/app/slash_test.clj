@@ -2,12 +2,15 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [app.slash :as slash]
             [app.store :as store]
+            [app.command-service :as svc]
             [app.store-manager :as store-manager]
+            [app.xt :as xt]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [datascript.core :as d])
   (:import (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+           (java.nio.file.attribute FileAttribute)
+           (java.util UUID)))
 
 (def ^:dynamic *conn* nil)
 (def ^:dynamic *env* nil)
@@ -69,6 +72,55 @@
   (let [{:keys [message]} (run-command "me summary 10")]
     (is (>= (count message) 3))
     (is (str/includes? (first message) "Profile:"))))
+
+(deftest me-summary-includes-me-relations
+  (testing "/me summary includes relations linked to the generic :me entity"
+    (let [joe-id (UUID/randomUUID)
+          willie-id (UUID/randomUUID)
+          config-path (-> (io/resource "xtdb-test.edn") io/file .getAbsolutePath)]
+      (xt/start! config-path {:data-dir (:data-dir *env*)})
+      (try
+        (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
+        (xt/put-entity! {:entity/id willie-id :entity/name "Willie Dixon" :entity/type :person})
+        (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :likes :relation/src :me :relation/dst willie-id} nil nil)
+        (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
+        (let [summary (svc/profile-summary {:profile :me} nil)]
+          (is (str/includes? (:text summary) "Willie Dixon")))
+        (finally
+          (xt/stop!))))))
+
+(deftest me-summary-includes-me-relations
+  (testing "/me summary includes relations linked to the generic :me entity"
+    (let [joe-id (UUID/randomUUID)
+          uk-id (UUID/randomUUID)
+          config-path (-> (io/resource "xtdb-test.edn") io/file .getAbsolutePath)]
+      (xt/start! config-path {:data-dir (:data-dir *env*)})
+      (try
+        (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
+        (xt/put-entity! {:entity/id uk-id :entity/name "UK" :entity/type :place})
+        (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :lives-in :relation/src :me :relation/dst uk-id} nil nil)
+        (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
+        (let [summary (svc/profile-summary {:profile :me} nil)]
+          (is (str/includes? (:text summary) "UK")))
+        (finally
+          (xt/stop!))))))
+
+(deftest me-summary-includes-me-relations
+  (testing "/me summary includes relations linked to the generic :me entity"
+    (let [joe-id (UUID/randomUUID)
+          uk-id (UUID/randomUUID)
+          config-path (-> (io/resource "xtdb-test.edn") io/file .getAbsolutePath)]
+      (xt/start! config-path {:data-dir (:data-dir *env*)})
+      (try
+        (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
+        (xt/put-entity! {:entity/id uk-id :entity/name "UK" :entity/type :place})
+        (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :lives-in :relation/src :me :relation/dst uk-id} nil nil)
+        (xt/sync-node!)
+        (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
+        (let [summary (svc/profile-summary {:profile :me} nil)]
+          (is (str/includes? (:text summary) "UK")))
+        (finally
+          (xt/stop!))))))
 
 (deftest types-command
   (let [{:keys [message]} (run-command "types")]

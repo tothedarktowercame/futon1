@@ -854,9 +854,9 @@
                             (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
                               (sync-to-xtdb! conn))))
                         (when-let [id (:entity/id me-doc)]
-                          (when-not (entity-by-id conn id)
+                          (when-not (entity-by-id conn :me)
                             (let [name (:name me-doc "Me")
-                                  tx {:entity/id id, :entity/name name, :entity/type :person, :entity/pinned? true}]
+                                  tx {:entity/id :me, :entity/name name, :entity/type :person, :entity/pinned? true}]
                               (d/transact! conn [tx]))))
                         (register-types-from-db! conn)
                         conn))))(defn compact!

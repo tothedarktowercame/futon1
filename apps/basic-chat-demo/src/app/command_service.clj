@@ -206,15 +206,14 @@
 
 (defn profile-summary
   "Render the profile summary text."
-  [{:keys [profile query-params now]} limit]
+  [{:keys [profile query-params now conn]} limit]
   (let [profile-name (or profile (store-manager/default-profile))
-        _ (store-manager/conn profile-name)
         manual (store-manager/profile-doc profile-name)
         options (request-options {:query-params (or query-params {})
                                   :manual manual
                                   :now now})
         profile-map (or (try
-                          (me-profile/profile options)
+                          (me-profile/profile (assoc options :db conn))
                           (catch clojure.lang.ExceptionInfo e
                             (let [status (:status (ex-data e))]
                               (when-not (= 404 status)

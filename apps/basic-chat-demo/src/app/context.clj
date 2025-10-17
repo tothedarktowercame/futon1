@@ -2,7 +2,8 @@
   "Context utilities for printing nearby graph neighbors."
   (:require [app.focus :as focus]
             [clojure.string :as str]
-            [graph-memory.main :as gm]))
+            [graph-memory.main :as gm]
+            [xtdb.api :as xt]))
 
 (defn- distinct-by [f coll]
   (let [seen (volatile! #{})]
@@ -53,24 +54,25 @@
 
 (defn enrich-with-neighbors
   "Return a flattened vector of top neighbors for the provided entities."
-  [conn entities {:keys [neighbors context-cap context? anchors timestamp focus-days per-type-caps allow-works? focus-limit]
-                  :or {neighbors 3 context-cap 10 context? true focus-days 30}}]
+  [xt-node conn entities {:keys [neighbors context-cap context? anchors timestamp focus-days per-type-caps allow-works? focus-limit]
+                          :or {neighbors 3 context-cap 10 context? true focus-days 30}}]
   (when context?
-    (let [anchor-ids (->> anchors (map :id) (remove nil?) set)]
+    (let [anchor-ids (->> anchors (map :id) (remove nil?) set)
+          xt-db (xtdb.api/db xt-node)]
       (if (seq anchor-ids)
         (let [day-ms (* 24 60 60 1000)
               now (or timestamp (System/currentTimeMillis))
               cutoff (- now (* focus-days day-ms))
               focus-count (or focus-limit context-cap)
-              candidates (->> (focus/focus-candidates nil anchor-ids cutoff focus-count)
-                               (filter #(or (:anchor? %) (:pinned? %))))
+              candidates (->> (focus/focus-candidates xt-node anchor-ids cutoff focus-count)
+                              (filter #(or (:anchor? %) (:pinned? %))))
               focus-map (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
               per-type (or per-type-caps default-per-type-caps)
               neighbor-results (mapcat (fn [{:keys [id]}]
-                                         (focus/top-neighbors nil id {:k-per-anchor neighbors
-                                                                      :per-type-caps per-type
-                                                                      :allow-works? allow-works?
-                                                                      :time-hint cutoff}))
+                                         (focus/top-neighbors conn xt-db id {:k-per-anchor neighbors
+                                                                             :per-type-caps per-type
+                                                                             :allow-works? allow-works?
+                                                                             :time-hint cutoff}))
                                        candidates)
               trimmed (->> neighbor-results
                            (sort-by (comp - :score))

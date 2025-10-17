@@ -2,7 +2,8 @@
   (:require [app.focus :as focus]
             [cheshire.core :as json]
             [clojure.string :as str]
-            [graph-memory.types-registry :as types]))
+            [graph-memory.types-registry :as types]
+            [xtdb.api :as xt]))
 
 (def default-policy
   {:allow-types focus/default-allowed-types
@@ -119,9 +120,10 @@
 
 (defn focus-header
   "Build a focus header map based on anchors, intent, and policy overrides."
-  [_node {:keys [anchors intent time policy turn-id dimensions focus-limit debug?]}]
+  [xt-node {:keys [anchors intent time policy turn-id dimensions focus-limit debug?]}]
   (let [policy' (merge default-policy (or policy {}))
         now (or time (System/currentTimeMillis))
+        xt-db (xtdb.api/db xt-node)
         focus-days (:focus-days policy')
         cutoff (- now (* focus-days millis-per-day))
         anchor-ids (->> anchors (map :id) (remove nil?) set)
@@ -131,17 +133,17 @@
                        (nil? allowed-config) nil
                        (ifn? allowed-config) allowed-config
                        :else (types/effective-pred :entity allowed-config))
-        candidates (focus/focus-candidates nil anchor-ids cutoff focus-count {:allowed-types allowed-config})
+        candidates (focus/focus-candidates xt-node anchor-ids cutoff focus-count {:allowed-types allowed-config})
         focus-map (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
         per-edge (or (:per-edge-caps policy')
                      (:per-type-caps policy'))
         neighbor-entries (->> candidates
                               (mapcat (fn [{:keys [id]}]
-                                        (focus/top-neighbors nil id {:k-per-anchor (:k-per-anchor policy')
-                                                                     :per-edge-caps per-edge
-                                                                     :allowed-types allowed-config
-                                                                     :allow-works? (:allow-works? policy')
-                                                                     :time-hint cutoff})))
+                                        (focus/top-neighbors nil xt-db id {:k-per-anchor (:k-per-anchor policy')
+                                                                           :per-edge-caps per-edge
+                                                                           :allowed-types allowed-config
+                                                                           :allow-works? (:allow-works? policy')
+                                                                           :time-hint cutoff})))
                               (filter (fn [{:keys [neighbor]}]
                                         (let [etype (:entity/type neighbor)]
                                           (or (nil? allowed-pred)

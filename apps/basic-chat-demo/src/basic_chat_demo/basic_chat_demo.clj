@@ -5,6 +5,7 @@
             [app.slash :as slash]
             [app.store :as store]
             [app.store-manager :as store-manager]
+            [app.xt :as xt]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -349,13 +350,13 @@
 
 (defn- focus-header-data
   [{:keys [anchors intent time turn-id policy focus-limit debug?]}]
-  (when-let [fh (header/focus-header nil {:anchors anchors
-                                          :intent intent
-                                          :time time
-                                          :turn-id turn-id
-                                          :policy policy
-                                          :focus-limit focus-limit
-                                          :debug? debug?})]
+  (when-let [fh (header/focus-header (app.xt/node) {:anchors anchors
+                                                    :intent intent
+                                                    :time time
+                                                    :turn-id turn-id
+                                                    :policy policy
+                                                    :focus-limit focus-limit
+                                                    :debug? debug?})]
     (let [fh-json (focus-header-json-str fh)
           fh-lines (focus-header-lines fh)]
       (cond-> {:focus-header fh}
@@ -437,19 +438,19 @@
                                (store/upsert-relation! conn env-now {:type type
                                                                        :src src-spec
                                                                        :dst dst-spec})))
-                         context-lines (context/enrich-with-neighbors conn (:entities res)
-                                                                                 (assoc context-config
-                                                                                        :anchors (vals ensured)
-                                                                                        :timestamp ts))
+                         context-lines (context/enrich-with-neighbors (app.xt/node) conn (:entities res)
+                                                                      (assoc context-config
+                                                                             :anchors (vals ensured)
+                                                                             :timestamp ts))
                          fh-policy (focus-policy-overrides opts)
                          fh (when (:focus-header? opts)
-                              (header/focus-header nil {:anchors (vals ensured)
-                                                        :intent (:intent res)
-                                                        :time ts
-                                                        :policy fh-policy
-                                                        :turn-id ts
-                                                        :focus-limit (:context-cap opts)
-                                                        :debug? (:focus-header-debug? opts)}))
+                              (header/focus-header (app.xt/node) {:anchors (vals ensured)
+                                                                   :intent (:intent res)
+                                                                   :time ts
+                                                                   :policy fh-policy
+                                                                   :turn-id ts
+                                                                   :focus-limit (:context-cap opts)
+                                                                   :debug? (:focus-header-debug? opts)}))
                          fh-lines (when fh (focus-header-lines fh))
                          fh-json (when fh (focus-header-json-str fh))]
                      (-> res
@@ -500,12 +501,12 @@
           (when (:focus-header? opts)
             (let [now (System/currentTimeMillis)
                   fh-policy (focus-policy-overrides opts)
-                  fh (header/focus-header nil {:anchors []
-                                               :time now
-                                               :turn-id now
-                                               :policy fh-policy
-                                               :focus-limit (:context-cap opts)
-                                               :debug? (:focus-header-debug? opts)})
+                  fh (header/focus-header (app.xt/node) {:anchors []
+                                                         :time now
+                                                         :turn-id now
+                                                         :policy fh-policy
+                                                         :focus-limit (:context-cap opts)
+                                                         :debug? (:focus-header-debug? opts)})
                   fh-lines (focus-header-lines fh)]
               (when fh-lines
                 (print-focus-header-lines! fh-lines))))

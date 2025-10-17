@@ -76,7 +76,7 @@
                    prov))))
         (testing "context shows top neighbor"
           (let [v4 (store/resolve-name->eid conn' "v4")
-                ctx (context/enrich-with-neighbors conn' [{:name "v4" :entity-id (:id v4)}]
+                ctx (context/enrich-with-neighbors nil conn' [{:name "v4" :entity-id (:id v4)}]
                                                    {:neighbors 1 :context-cap 5})]
             (is (= 1 (count ctx)))
             (is (= {:entity "v4"

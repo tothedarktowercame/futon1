@@ -3,3 +3,29 @@
 .lsp/
 apps/basic-chat-demo/data/xtdb/
 apps/headless-api/data/
+# Build/targets
+**/target/
+# Clojure tool artifacts
+.pom/
+.classpath
+.cpcache/
+.nrepl-port
+# Editor backups
+**/*~
+**/\#*#
+# Local data & RocksDB (centralised)
+data/
+# If any app keeps a private data dir, ignore it too
+**/data/
+# XTDB/RocksDB chatter just in case
+**/doc-store/
+**/index-store/
+**/tx-log/
+CURRENT
+IDENTITY
+LOCK
+LOG*
+MANIFEST-*
+OPTIONS-*
+*.sst
+*.log

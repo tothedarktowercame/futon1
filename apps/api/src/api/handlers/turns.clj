@@ -116,17 +116,17 @@
           rels (persist-relations! conn env-now ensured (:relations result))
           anchors (->> ensured vals (remove nil?) vec)
           _ (store-manager/record-anchors! profile anchors)
-          context-lines (context/enrich-with-neighbors @conn (:entities result)
-                                                      (assoc options
-                                                             :anchors anchors
-                                                             :timestamp ts))
-          fh (header/focus-header nil {:anchors anchors
-                                       :intent (:intent result)
-                                       :time ts
-                                       :turn-id ts
-                                       :policy {:focus-days (:focus-days options)
-                                                :allow-works? (:allow-works? options)}
-                                       :focus-limit 10})]
+          context-lines (context/enrich-with-neighbors (:xtdb-node request) @conn (:entities result)
+                                                       (assoc options
+                                                              :anchors anchors
+                                                              :timestamp ts))
+          fh (header/focus-header (:xtdb-node request) {:anchors anchors
+                                                        :intent (:intent result)
+                                                        :time ts
+                                                        :turn-id ts
+                                                        :policy {:focus-days (:focus-days options)
+                                                                 :allow-works? (:allow-works? options)}
+                                                        :focus-limit 10})]
       {:turn_id ts
        :entities (->> ensured vals (map #(select-keys % [:id :name :type :seen-count :last-seen :pinned?])) vec)
        :relations (mapv #(select-keys % [:id :type :src :dst :confidence :last-seen]) rels)
@@ -141,11 +141,11 @@
         options (context-options request)
         anchors (store-manager/current-anchors profile)
         now (System/currentTimeMillis)
-        fh (header/focus-header nil {:anchors anchors
-                                     :time now
-                                     :turn-id now
-                                     :policy {:focus-days (:focus-days options)
-                                              :allow-works? (:allow-works? options)}
-                                     :focus-limit 10})]
+        fh (header/focus-header (:xtdb-node request) {:anchors anchors
+                                                      :time now
+                                                      :turn-id now
+                                                      :policy {:focus-days (:focus-days options)
+                                                               :allow-works? (:allow-works? options)}
+                                                      :focus-limit 10})]
     {:profile profile
      :focus_header fh}))

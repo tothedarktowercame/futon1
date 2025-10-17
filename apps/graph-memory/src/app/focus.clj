@@ -19,6 +19,18 @@
    :project 0.7
    :place 0.6})
 
+(defn safe-deref
+  "Return @f if f is a Future, else nil. Never throws on nil."
+  [f]
+  (when (instance? java.util.concurrent.Future f)
+    (deref f)))
+
+;; If you want a completed 'no-op' future for uniformity:
+(defn done-future
+  "A completed future with value v (default nil)."
+  ([] (done-future nil))
+  ([v] (let [p (promise)] (deliver p v) p)))
+
 (defn ds-activated-ids
   "Return a set of entity-ids considered 'activated' in the in-memory DS db."
   [dsdb]
@@ -31,38 +43,59 @@
              dsdb)))
 
 (defn xt-neighbor-rows-for-ids
-  "Query XT for neighbors touching any eid in `seed-ids`."
+  "Query XT for neighbors touching any eid in `seed-ids`.
+   Returns rows shaped for scoring + printing:
+   {:relation kw
+    :direction :out|:in
+    :neighbor {:id uuid :name str :type kw}
+    :confidence double?
+    :last-seen long?
+    :subject str? :object str? :provenance map?}"
   [xt-db seed-ids]
   (let [out-q
-        '[:find ?rel ?nid ?nname
+        '[:find (pull ?r [:relation/type :relation/confidence :relation/last-seen
+                          :relation/subject :relation/object :relation/provenance])
+          (pull ?n [:entity/id :entity/name :entity/type])
           :in $ [?eid ...]
           :where
           [?r :relation/src ?eid]
-          [?r :relation/type ?rel]
-          [?r :relation/dst ?n]
-          [?n :entity/id ?nid]
-          [?n :entity/name ?nname]]
+          [?r :relation/dst ?n]]
 
         in-q
-        '[:find ?rel ?nid ?nname
+        '[:find (pull ?r [:relation/type :relation/confidence :relation/last-seen
+                          :relation/subject :relation/object :relation/provenance])
+          (pull ?n [:entity/id :entity/name :entity/type])
           :in $ [?eid ...]
           :where
           [?r :relation/dst ?eid]
-          [?r :relation/type ?rel]
-          [?r :relation/src ?n]
-          [?n :entity/id ?nid]
-          [?n :entity/name ?nname]]
+          [?r :relation/src ?n]]
 
         outs (if (seq seed-ids) (xt/q out-q seed-ids) [])
         ins  (if (seq seed-ids) (xt/q in-q  seed-ids) [])]
     (concat
-     (map (fn [[rel nid nname]]
-            {:relation rel :direction :out
-             :neighbor nname :neighbor-id nid})
+     (map (fn [[r n]]
+            {:relation   (:relation/type r)
+             :direction  :out
+             :neighbor   {:id (:entity/id n)
+                          :name (:entity/name n)
+                          :type (:entity/type n)}
+             :confidence (:relation/confidence r)
+             :last-seen  (:relation/last-seen r)
+             :subject    (:relation/subject r)
+             :object     (:relation/object r)
+             :provenance (:relation/provenance r)})
           outs)
-     (map (fn [[rel nid nname]]
-            {:relation rel :direction :in
-             :neighbor nname :neighbor-id nid})
+     (map (fn [[r n]]
+            {:relation   (:relation/type r)
+             :direction  :in
+             :neighbor   {:id (:entity/id n)
+                          :name (:entity/name n)
+                          :type (:entity/type n)}
+             :confidence (:relation/confidence r)
+             :last-seen  (:relation/last-seen r)
+             :subject    (:relation/subject r)
+             :object     (:relation/object r)
+             :provenance (:relation/provenance r)})
           ins))))
 
 (defn- now-ms [] (System/currentTimeMillis))
@@ -177,33 +210,70 @@
    - ds-conn-or-db: Datascript conn or db
    - xt-db: XTDB db snapshot (from xta/db or your wrapper)
    - entity-id: UUID of the focal entity
-   - opts: {:k <int>}"
-  [ds-conn-or-db xt-db entity-id {:keys [k] :or {k 3}}]
-  (assert (some? xt-db) "top-neighbors: xt-db is nil")
-  (assert (some? entity-id) "top-neighbors: entity-id is nil")
+   - opts: {:k <int> | :k-per-anchor <int> :time-hint <ms>}"
+  [ds-conn-or-db xt-db entity-id {:keys [k k-per-anchor time-hint] :as _opts}]
+  (let [k (or k k-per-anchor 3)]
+    (assert (some? xt-db) "top-neighbors: xt-db is nil")
+    (assert (some? entity-id) "top-neighbors: entity-id is nil")
 
-  (let [ds-db         (if (d/db? ds-conn-or-db) ds-conn-or-db @ds-conn-or-db)
-        activated-ids (set (or (ds-activated-ids ds-db) []))
-        seed-ids      (cond-> activated-ids (some? entity-id) (conj entity-id))
-        rows          (if (seq seed-ids)
-                        (or (xt-neighbor-rows-for-ids xt-db seed-ids) [])
-                        [])
-        ;; Safely realize rows that might be futures; drop nils/errors.
-        realized-rows (->> rows
-                           (keep (fn [x]
-                                   (cond
-                                     (instance? java.util.concurrent.Future x)
-                                     (try @x (catch Throwable _ nil))
-                                     :else x)))
-                           (remove nil?))
-        ;; Normalize for stable sorting even if some keys are missing.
-        normalized    (map (fn [row]
-                             (-> row
-                                 (update :relation  #(or % :unknown))
-                                 (update :neighbor  #(or % ""))
-                                 (update :direction #(or % :out))))
+    ;; Local helper: realize x if it's a Future, otherwise pass-through.
+    ;; If a future yields a seq (e.g., a batch of rows), we'll flatten later.
+    (letfn [(realize-maybe [x]
+              (cond
+                (instance? java.util.concurrent.Future x)
+                (try @x (catch Throwable _ nil))
+                :else x))]
+
+      (let [;; Accept either a DS db or a conn
+            ds-db         (try
+                            (if (datascript.core/db? ds-conn-or-db)
+                              ds-conn-or-db
+                              @ds-conn-or-db)
+                            (catch Throwable _
+                              ;; Fallback: if it's neither, just use it as-is and
+                              ;; let downstream fail loudly in tests.
+                              ds-conn-or-db))
+
+            ;; We keep DS activation for possible future filtering; not strictly used below.
+            _activated-ids (set (or (ds-activated-ids ds-db) []))
+
+            raw-rows      (or (xt-neighbor-rows-for-ids xt-db #{entity-id}) [])
+            realized-rows (->> raw-rows
+                               (map realize-maybe)
+                               (remove nil?)
+                               (mapcat (fn [v] (if (sequential? v) v [v]))))
+
+            ;; hydrate neighbor map from XT if needed, and compute score
+            now           (now-ms)
+            cutoff        (or time-hint (- now (* 30 24 60 60 1000))) ;; default 30d
+            window-ms     (max 1 (- now cutoff))
+            enriched      (map
+                           (fn [row]
+                             (let [conf  (double (or (:confidence row) 1.0))
+                                   ls    (safe-long (:last-seen row))
+                                   score (neighbor-score now window-ms {:confidence conf
+                                                                        :last-seen  ls})
+                                   ;; ensure neighbor is a map {:id :name :type}
+                                   row'  (if (and (string? (:neighbor row))
+                                                  (:neighbor-id row))
+                                           (let [nid (:neighbor-id row)
+                                                 n   (or (fetch-entity xt-db nid)
+                                                         {:entity/id nid
+                                                          :entity/name (:neighbor row)
+                                                          :entity/type nil})]
+                                             (-> row
+                                                 (assoc :neighbor {:id   (:entity/id n)
+                                                                   :name (:entity/name n)
+                                                                   :type (:entity/type n)})))
+                                           row)]
+                               (-> row'
+                                   (update :relation  #(or % :unknown))
+                                   (update :direction #(or % :out))
+                                   (assoc  :score (double (or (:score row') score))))))
                            realized-rows)]
-    (->> normalized
-         distinct
-         (sort-by (juxt :relation :neighbor :direction))
-         (take k))))
+
+        (->> enriched
+             distinct
+             (sort-by (comp - :score))
+             (take k)
+             vec)))))

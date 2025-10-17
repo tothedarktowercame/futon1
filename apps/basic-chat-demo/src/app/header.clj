@@ -119,51 +119,69 @@
             (recur (cond-> next note (update :notes (fnil conj []) note)))))))))
 
 (defn focus-header
-  "Build a focus header map based on anchors, intent, and policy overrides."
-  [xt-node {:keys [anchors intent time policy turn-id dimensions focus-limit debug?]}]
-  (let [policy' (merge default-policy (or policy {}))
-        now (or time (System/currentTimeMillis))
-        xt-db (xtdb.api/db xt-node)
-        focus-days (:focus-days policy')
-        cutoff (- now (* focus-days millis-per-day))
-        anchor-ids (->> anchors (map :id) (remove nil?) set)
-        focus-count (or focus-limit (:context-cap-total policy'))
+  "Build a focus header map based on anchors, intent, and policy overrides.
+
+   IMPORTANT: First arg is an XTDB DB snapshot (xt-db), NOT a node.
+   If you still have call sites passing a node, wrap with (xtdb.api/db node) there."
+  [xt-db {:keys [anchors intent time policy turn-id dimensions focus-limit debug?]}]
+  (let [policy'        (merge default-policy (or policy {}))
+        now            (or time (System/currentTimeMillis))
+        focus-days     (:focus-days policy')
+        cutoff         (- now (* focus-days millis-per-day))
+        anchor-ids     (->> anchors (map :id) (remove nil?) set)
+        focus-count    (or focus-limit (:context-cap-total policy'))
         allowed-config (:allow-types policy')
-        allowed-pred (cond
-                       (nil? allowed-config) nil
-                       (ifn? allowed-config) allowed-config
-                       :else (types/effective-pred :entity allowed-config))
-        candidates (focus/focus-candidates xt-node anchor-ids cutoff focus-count {:allowed-types allowed-config})
-        focus-map (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
-        per-edge (or (:per-edge-caps policy')
-                     (:per-type-caps policy'))
-        neighbor-entries (->> candidates
-                              (mapcat (fn [{:keys [id]}]
-                                        (focus/top-neighbors nil xt-db id {:k-per-anchor (:k-per-anchor policy')
-                                                                           :per-edge-caps per-edge
-                                                                           :allowed-types allowed-config
-                                                                           :allow-works? (:allow-works? policy')
-                                                                           :time-hint cutoff})))
-                              (filter (fn [{:keys [neighbor]}]
-                                        (let [etype (:entity/type neighbor)]
-                                          (or (nil? allowed-pred)
-                                              (nil? etype)
-                                              (allowed-pred etype)))))
-                              (sort-by (comp - :score))
-                              (take (:context display-limits))
-                              vec)
+        allowed-pred   (cond
+                         (nil? allowed-config) nil
+                         (ifn? allowed-config) allowed-config
+                         :else (types/effective-pred :entity allowed-config))
+        ;; Build minimal candidates directly from anchors (no node access)
+        candidates     (->> anchors
+                            (keep (fn [a] (when-let [id (:id a)]
+                                            {:id id :entity a
+                                             :anchor? true :pinned? (:pinned? a)})))
+                            (take (max 1 focus-count))
+                            vec)
+        focus-map      (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
+        per-edge       (or (:per-edge-caps policy')
+                           (:per-type-caps policy'))
+        k-per-anchor   (max 1 (or (:k-per-anchor policy') 3))
+
+        ;; Gather neighbor entries for each candidate, using the provided xt-db snapshot
+        neighbor-entries
+        (->> candidates
+             (mapcat (fn [{:keys [id]}]
+                       (focus/top-neighbors nil xt-db id {:k-per-anchor  k-per-anchor
+                                                          :per-edge-caps per-edge
+                                                          :allowed-types allowed-config
+                                                          :allow-works?  (:allow-works? policy')
+                                                          :time-hint     cutoff})))
+             ;; filter by allowed types if configured
+             (filter (fn [{:keys [neighbor]}]
+                       (let [etype (:entity/type neighbor)]
+                         (or (nil? allowed-pred)
+                             (nil? etype)
+                             (allowed-pred etype)))))
+             ;; score-safe sort (desc)
+             (map #(update % :score (fnil double 0.0)))
+             (sort-by :score >)
+             (take (min (:context display-limits) focus-count))
+             vec)
+
         current (->> anchors
                      (map current-entry)
                      (remove nil?)
-                     (distinct)
+                     distinct
                      (take (:current display-limits))
                      vec)
+
         history (->> candidates
                      (remove :anchor?)
                      (map history-entry)
                      (remove nil?)
                      (take (:history display-limits))
                      vec)
+
         header {:fh_v 2
                 :turn_id turn-id
                 :time now
@@ -179,6 +197,7 @@
                  debug? (assoc :debug {:policy policy'
                                        :candidates (vec (map raw-candidate-entry candidates))
                                        :neighbors (vec (keep #(neighbor-debug focus-map %) neighbor-entries))}))]
+
     header))
 
 (defn focus-header-json
@@ -199,7 +218,7 @@
                     (remove nil?)
                     (str/join ", "))]
     (str "  - " base (when (seq extras)
-                        (str " — " extras)))))
+                       (str " — " extras)))))
 
 (defn- current-line [{:keys [label type]}]
   (str "  - " (label-with-type label type)))
@@ -232,7 +251,7 @@
           current (:current hdr)
           history (:history hdr)
           context (:context hdr)
-          lines (concat ["Focus header"]
+          lines (concat "Focus header"
                         (section-lines "Current focus" current current-line)
                         (section-lines "History" history history-line)
                         (section-lines "Enriched context" context context-line))]

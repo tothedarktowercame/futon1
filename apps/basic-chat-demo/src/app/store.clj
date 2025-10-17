@@ -10,8 +10,7 @@
             [graph-memory.types-registry :as types]
             [xtdb.api :as xtdb])
   (:import (java.io PushbackReader)
-           (java.util UUID))
-  )
+           (java.util UUID)))
 
 (def schema
   "Datascript schema used by the runtime store."
@@ -108,10 +107,10 @@
     (let [name (:entity/name doc)]
       (cond-> {:entity/id id}
         (some? name) (assoc :entity/name name)
-      (:entity/type doc) (assoc :entity/type (:entity/type doc))
-      (:entity/last-seen doc) (assoc :entity/last-seen (:entity/last-seen doc))
-      (:entity/seen-count doc) (assoc :entity/seen-count (:entity/seen-count doc))
-      (contains? doc :entity/pinned?) (assoc :entity/pinned? (:entity/pinned? doc))))))
+        (:entity/type doc) (assoc :entity/type (:entity/type doc))
+        (:entity/last-seen doc) (assoc :entity/last-seen (:entity/last-seen doc))
+        (:entity/seen-count doc) (assoc :entity/seen-count (:entity/seen-count doc))
+        (contains? doc :entity/pinned?) (assoc :entity/pinned? (:entity/pinned? doc))))))
 
 (defn- xt-relation->tx
   [doc]
@@ -141,15 +140,15 @@
                          (str ": " (str/join ", " ids))
                          ""))))))
 
-(defn- hydrate-from-xtdb!
+(defn hydrate-from-xtdb!
   [conn]
   (let [entity-docs (->> (xt/q '[:find (pull ?e [*])
-                                  :where
-                                  [?e :entity/id _]])
+                                 :where
+                                 [?e :entity/id _]])
                          (map first))
         rel-docs    (->> (xt/q '[:find (pull ?r [*])
-                                  :where
-                                  [?r :relation/id _]])
+                                 :where
+                                 [?r :relation/id _]])
                          (map first))
         entity-txs  (->> entity-docs
                          (map xt-entity->tx)
@@ -184,7 +183,7 @@
                 (if-let [doc (xt/entity eid)]
                   (when-let [tx (xt-entity->tx doc)]
                     (d/transact! conn [(cond-> tx
-                                          (nil? (:entity/name tx)) (dissoc :entity/name))])
+                                         (nil? (:entity/name tx)) (dissoc :entity/name))])
                     (when-let [id (:entity/id tx)]
                       (swap! known-ids conj id)))
                   (let [stub {:entity/id eid}]
@@ -209,9 +208,9 @@
         (let [missing (remove nil? @skipped)
               stubbed (seq @stubbed!)]
           (log-skip! "relation" {:count (count missing)
-                                  :ids missing})
+                                 :ids missing})
           (log-skip! "entity" {:count (count stubbed)
-                                :ids stubbed}))
+                               :ids stubbed}))
         {:entity-count @entity-count
          :relation-count @relation-count}))))
 
@@ -347,8 +346,8 @@
   (let [eid (or (:entity/id endpoint)
                 (:id endpoint))
         stored (or (entity-by-id conn eid)
-                    (when-let [name (:name endpoint)]
-                      (entity-by-name conn name)))
+                   (when-let [name (:name endpoint)]
+                     (entity-by-name conn name)))
         public (some-> stored entity->public)]
     (cond-> endpoint
       public (merge public))))
@@ -356,11 +355,11 @@
 (defn- maybe-mirror-relation!
   [opts relation conn]
   (let [xtdb-opts (:xtdb opts)]
-      (when (and (xt-enabled? xtdb-opts) (xt/started?))
-        (doseq [endpoint (->> [(get relation :src) (get relation :dst)]
-                              (remove nil?))]
-          (let [hydrated (hydrate-endpoint-for-xt conn endpoint)]
-            (maybe-mirror-entity! opts hydrated)))
+    (when (and (xt-enabled? xtdb-opts) (xt/started?))
+      (doseq [endpoint (->> [(get relation :src) (get relation :dst)]
+                            (remove nil?))]
+        (let [hydrated (hydrate-endpoint-for-xt conn endpoint)]
+          (maybe-mirror-entity! opts hydrated)))
       (when-let [doc (relation->xt-doc relation)]
         (try
           (xt/put-rel! doc nil nil)
@@ -448,7 +447,6 @@
                   (Double/parseDouble (str/trim v))
                   (catch NumberFormatException _ nil))
     :else nil))
-
 
 (defn- normalize-type [t]
   (cond
@@ -567,8 +565,8 @@
                         :entity/name name
                         :entity/last-seen now
                         :entity/seen-count final-count}
-                normalized-type (assoc :entity/type normalized-type)
-                (contains? spec :pinned?) (assoc :entity/pinned? pinned-flag))
+                 normalized-type (assoc :entity/type normalized-type)
+                 (contains? spec :pinned?) (assoc :entity/pinned? pinned-flag))
             {:keys [db-after tempids]} (d/transact! conn [tx])
             eid (d/resolve-tempid db-after tempids -1)]
         {:id entity-id
@@ -589,7 +587,7 @@
   (when (and rel-type src-id dst-id)
     (let [db @conn
           result (d/q '[:find (pull ?r [:db/id :relation/id :relation/type :relation/provenance
-                                          :relation/confidence :relation/last-seen])
+                                        :relation/confidence :relation/last-seen])
                         :in $ ?type ?src-id ?dst-id
                         :where
                         [?r :relation/type ?type]
@@ -608,17 +606,17 @@
                   {:relation/dst [:entity/id :entity/name :entity/type :entity/last-seen :entity/seen-count :entity/pinned?]}]
         db @conn
         outgoing (d/q '[:find (pull ?r pattern)
-                         :in $ pattern ?eid
-                         :where
-                         [?src :entity/id ?eid]
-                         [?r :relation/src ?src]]
-                       db pattern entity-id)
+                        :in $ pattern ?eid
+                        :where
+                        [?src :entity/id ?eid]
+                        [?r :relation/src ?src]]
+                      db pattern entity-id)
         incoming (d/q '[:find (pull ?r pattern)
-                         :in $ pattern ?eid
-                         :where
-                         [?dst :entity/id ?eid]
-                         [?r :relation/dst ?dst]]
-                       db pattern entity-id)]
+                        :in $ pattern ?eid
+                        :where
+                        [?dst :entity/id ?eid]
+                        [?r :relation/dst ?dst]]
+                      db pattern entity-id)]
     (->> (concat outgoing incoming)
          (map first)
          (reduce (fn [acc rel]
@@ -659,10 +657,10 @@
         event' {:type :entity/upsert
                 :entity (cond-> {:id (:id upserted)
                                  :name (:name upserted)}
-                           (:type upserted) (assoc :type (:type upserted))
-                           (:last-seen upserted) (assoc :last-seen (:last-seen upserted))
-                           (:seen-count upserted) (assoc :seen-count (:seen-count upserted))
-                           (contains? upserted :pinned?) (assoc :pinned? (:pinned? upserted)))}]
+                          (:type upserted) (assoc :type (:type upserted))
+                          (:last-seen upserted) (assoc :last-seen (:last-seen upserted))
+                          (:seen-count upserted) (assoc :seen-count (:seen-count upserted))
+                          (contains? upserted :pinned?) (assoc :pinned? (:pinned? upserted)))}]
     {:event event'
      :result upserted}))
 
@@ -705,7 +703,7 @@
                                  (remove nil?)))
           {:event {:type :relation/upsert
                    :relation (cond-> base-rel
-                                prov (assoc :provenance prov))}
+                               prov (assoc :provenance prov))}
            :result (assoc event-rel
                           :provenance (or prov (:relation/provenance existing))
                           :confidence conf
@@ -845,29 +843,29 @@
            xt-count  (when xt-result
                        (+ (:entity-count xt-result 0)
                           (:relation-count xt-result 0)))]
-             (if (pos? (or xt-count 0))
-               (do
-                 (swap! !event-count assoc data-dir 0)
-                 (register-types-from-db! conn))
-               (let [legacy (hydrate-from-legacy! conn data-dir)]
-                 (swap! !event-count assoc data-dir (:event-count legacy 0))
-                            (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
-                              (sync-to-xtdb! conn))))
-                        (when-let [id (:entity/id me-doc)]
-                          (when-not (entity-by-id conn :me)
-                            (let [name (:name me-doc "Me")
-                                  tx {:entity/id :me, :entity/name name, :entity/type :person, :entity/pinned? true}]
-                              (d/transact! conn [tx]))))
-                        (register-types-from-db! conn)
-                        conn))))(defn compact!
-  "Force a snapshot and event-log reset for the given data directory."
-  [conn {:keys [data-dir]}]
-  (when-not data-dir
-    (throw (ex-info "Missing data-dir" {})))
-  (save-snapshot! conn data-dir)
-  (reset-event-log! data-dir)
-  (swap! !event-count assoc data-dir 0)
-  :ok)
+       (if (pos? (or xt-count 0))
+         (do
+           (swap! !event-count assoc data-dir 0)
+           (register-types-from-db! conn))
+         (let [legacy (hydrate-from-legacy! conn data-dir)]
+           (swap! !event-count assoc data-dir (:event-count legacy 0))
+           (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
+             (sync-to-xtdb! conn))))
+       (when-let [id (:entity/id me-doc)]
+         (when-not (entity-by-id conn :me)
+           (let [name (:name me-doc "Me")
+                 tx {:entity/id :me, :entity/name name, :entity/type :person, :entity/pinned? true}]
+             (d/transact! conn [tx]))))
+       (register-types-from-db! conn)
+       conn)))) (defn compact!
+                  "Force a snapshot and event-log reset for the given data directory."
+                  [conn {:keys [data-dir]}]
+                  (when-not data-dir
+                    (throw (ex-info "Missing data-dir" {})))
+                  (save-snapshot! conn data-dir)
+                  (reset-event-log! data-dir)
+                  (swap! !event-count assoc data-dir 0)
+                  :ok)
 
 (defn resolve-name->eid
   "Return entity metadata for the exact name match, or nil when absent."
@@ -961,8 +959,8 @@
                            :dst dst-spec
                            :last-seen now
                            :confidence conf}
-                     prov (assoc :provenance prov)
-                     id (assoc :id (coerce-uuid id)))]
+                    prov (assoc :provenance prov)
+                    id (assoc :id (coerce-uuid id)))]
       (let [result (tx! conn opts {:type :relation/upsert
                                    :relation payload})]
         (maybe-mirror-relation! opts result conn)
@@ -977,7 +975,7 @@
                      (vec (d/datoms db :aevt attr))))
         source (if (seq primary) primary (or fallback []))]
     (loop [idx (dec (count source))
-           seen #{ }
+           seen #{}
            acc []]
       (if (or (< idx 0) (>= (count acc) limit))
         acc
@@ -992,28 +990,27 @@
   ([conn]
    (recent-relations conn 5))
   ([conn limit]
-   (let [db @conn
+   (let [db    @conn
          limit (max 1 (long (or limit 5)))
-         eids (latest-by-attr db :relation/last-seen limit)]
+         eids  (latest-by-attr db :relation/last-seen limit)]
      (->> eids
-          (map (fn [eid]
-                 (let [rel (d/pull db '[:relation/id :relation/type :relation/last-seen :relation/confidence
-                                         {:relation/src [:entity/id :entity/name :entity/type]}
-                                         {:relation/dst [:entity/id :entity/name :entity/type]}]
-                                    eid)]
-                   (when rel
-                     {:id (:relation/id rel)
-                      :type (:relation/type rel)
-                      :last-seen (:relation/last-seen rel)
-                      :confidence (:relation/confidence rel)
-                      :src {:id (get-in rel [:relation/src :entity/id])
-                            :name (get-in rel [:relation/src :entity/name])
-                            :type (get-in rel [:relation/src :entity/type])}
-                      :dst {:id (get-in rel [:relation/dst :entity/id])
-                            :name (get-in rel [:relation/dst :entity/name])
-                            :type (get-in rel [:relation/dst :entity/type])}})))
-          (remove nil?)
-          vec)))))
+          (keep (fn [eid]
+                  (when-let [rel (d/pull db
+                                         '[:relation/id :relation/type :relation/last-seen :relation/confidence
+                                           {:relation/src [:entity/id :entity/name :entity/type]}
+                                           {:relation/dst [:entity/id :entity/name :entity/type]}]
+                                         eid)]
+                    {:id         (:relation/id rel)
+                     :type       (:relation/type rel)
+                     :last-seen  (:relation/last-seen rel)
+                     :confidence (:relation/confidence rel)
+                     :src {:id   (get-in rel [:relation/src :entity/id])
+                           :name (get-in rel [:relation/src :entity/name])
+                           :type (get-in rel [:relation/src :entity/type])}
+                     :dst {:id   (get-in rel [:relation/dst :entity/id])
+                           :name (get-in rel [:relation/dst :entity/name])
+                           :type (get-in rel [:relation/dst :entity/type])}})))
+          (into []))))) ; materialise a vector only if you really need one
 
 (defn cooccurring-entities
   "Return entities that share relations with the provided entity-id.

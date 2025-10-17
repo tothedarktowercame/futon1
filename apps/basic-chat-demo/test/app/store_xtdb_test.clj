@@ -67,10 +67,11 @@
             (is (= (:seen-count hydrated) (:entity/seen-count entity-doc)))
             (is (= (:last-seen hydrated) (:entity/last-seen entity-doc)))))
         (testing "salience pulls from XTDB graph"
+          (xt/sync-node!)
           (let [pat-id (:entity/id entity-doc)
                 cutoff (- now (* 7 24 60 60 1000))
-                candidates (focus/focus-candidates nil [pat-id] cutoff 5)
-                neighbors (focus/top-neighbors nil pat-id {:k-per-anchor 3})]
+                candidates (focus/focus-candidates (xt/node) [pat-id] cutoff 5)
+                neighbors (focus/top-neighbors conn (xt/db) pat-id {:k-per-anchor 3})]
             (is (seq candidates))
             (let [top (first candidates)]
               (is (= pat-id (:id top)))

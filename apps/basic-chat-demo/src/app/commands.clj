@@ -60,7 +60,7 @@
           provenance (parse-provenance rest)]
       {:command :relation
        :relation (cond-> relation
-                    (seq provenance) (assoc :provenance provenance))})))
+                   (seq provenance) (assoc :provenance provenance))})))
 
 (defn- parse-links-command [tokens]
   (let [[raw-name] tokens
@@ -103,7 +103,7 @@
                      (:name dst))]
     (if (seq provenance)
       (str base " " (str/join ", " (for [[k v] provenance]
-                                      (str (name k) " " v))))
+                                     (str (name k) " " v))))
       base)))
 
 (defn handle
@@ -153,3 +153,15 @@
               {:message message
                :result {:entity entity-info
                         :neighbors neighbors}})))))))
+
+(defn runner
+  [line ts state {:keys [conn env profile] :as ctx}]
+  (let [opts   {:profile profile :env env :state state :interactive? true}
+        try*   (fn [s] (try (handle conn opts s) (catch Throwable _ nil)))
+        out    (or (try* line)                   ;; let handle parse naturally
+                   (try* (str "ingest " line))   ;; force ingest if needed
+                   {:message (str "echo: " line) :result nil})]
+    {:message           (or (:message out) (:result out))
+     :context           (:context out)
+     :focus-header-lines (:focus-header-lines out)
+     :new-state         (assoc state :last-result out)}))

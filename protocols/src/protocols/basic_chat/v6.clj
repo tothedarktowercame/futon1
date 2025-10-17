@@ -1,58 +1,53 @@
 (ns protocols.basic-chat.v6
   (:require [clojure.string :as str]
             [graph-memory.main :as gm]
-            [open-world-ingest.nlp :as ingest-nlp]
-            [open-world-ingest.storage :as ingest-storage])
+            [open-world-ingest.nlp :as ingest-nlp])
   (:import (java.io File)))
 
 (def intro
   ["Protocol basic-chat/v6 — routes utterances through open-world ingest so"
    "entities/relations reflect the OpenIE pipeline and persist in XTDB."])
 
-(defn init []
-  {:node (atom nil)})
+(defn init [] {:node (atom nil)})
+(defn configure [ctx _] ctx)
 
-(defn configure [ctx _]
-  ctx)
+;; Optional env flag for quick visibility while debugging
+(def ^:private debug? (some? (System/getenv "BASIC_CHAT_V6_DEBUG")))
 
-(defn- data-root []
-  (or (System/getProperty "basic-chat.data-root")
-      (System/getenv "BASIC_CHAT_DATA_DIR")
-      (.getAbsolutePath (File. "data"))))
-
-(defn- open-world-dir []
-  (.getAbsolutePath (File. (File. (data-root)) "open-world")))
-
-(defn- ensure-node! [ctx]
-  (if-let [node @(:node ctx)]
-    node
-    (let [node (ingest-storage/start-node! {:data-dir (open-world-dir)})]
-      (reset! (:node ctx) node)
-      node)))
-
-(defn shutdown [_]
-  (ingest-storage/stop!))
-
-(defn handle [ctx line ts]
-  (let [trimmed (str/trim line)
-        _ (ensure-node! ctx)
-        analysis (ingest-nlp/analyze trimmed {:now (java.time.Instant/ofEpochMilli ts)})
-        {:keys [entities relations]} analysis
-        _ (ingest-storage/store-analysis! trimmed analysis)]
-    {:in line
-     :intent nil
-     :entities (mapv (fn [{:entity/keys [label kind id]}]
-                       {:name label :type kind :id id})
-                     entities)
-     :relations (mapv (fn [{:relation/keys [label src dst subject object confidence polarity]}]
-                        {:type label
-                         :src subject
-                         :dst object
-                         :confidence confidence
-                         :polarity polarity
-                         :src-id src
-                         :dst-id dst})
-                      relations)
-     :tokens []
-     :pos []
-     :links []}))
+(defn handle
+  "Analyze text and return {:entities … :relations …} without persisting.
+   API layer (process-turn!) is responsible for persistence and focus header."
+  [ctx line ts]
+  (let [trimmed (str/trim (or line ""))]
+    (when debug?
+      (println "[v6] handle text:" (pr-str trimmed) "ts:" ts))
+    (let [now-inst (java.time.Instant/ofEpochMilli ts)
+          analysis (try
+                     (ingest-nlp/analyze trimmed {:now now-inst})
+                     (catch Throwable t
+                       (when debug? (println "[v6] analyze error:" (.getMessage t)))
+                       nil))
+          ents     (vec (for [{:entity/keys [label kind id] :as e} (or (:entities analysis) [])
+                              :when (some? label)]
+                          {:name label
+                           :type kind
+                           :id   id}))
+          rels     (vec (for [{:relation/keys [label src dst subject object confidence polarity]}
+                              (or (:relations analysis) [])
+                              :when (and subject object label)]
+                          {:type       label
+                           :src        subject
+                           :dst        object
+                           :confidence confidence
+                           :polarity   polarity
+                           :src-id     src
+                           :dst-id     dst}))]
+      (when debug?
+        (println "[v6] ents:" (count ents) "rels:" (count rels)))
+      {:in        line
+       :intent    nil
+       :entities  ents
+       :relations rels
+       :tokens    []
+       :pos       []
+       :links     []})))

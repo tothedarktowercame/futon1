@@ -53,57 +53,117 @@
    :created 0})
 
 (defn enrich-with-neighbors
-  "Return a flattened vector of top neighbors for the provided entities."
-  [xt-node conn entities {:keys [neighbors context-cap context? anchors timestamp focus-days per-type-caps allow-works? focus-limit]
-                          :or {neighbors 3 context-cap 10 context? true focus-days 30}}]
+  "Return a flattened vector of top neighbors for the provided entities.
+
+   NOTE: The first argument is an XTDB DB **snapshot** (xt-db), not a node.
+   If you still have call sites that pass a node, update them to pass (xtdb.api/db node)."
+  [xt-db conn entities
+   {:keys [neighbors context-cap context? anchors timestamp focus-days per-type-caps allow-works? focus-limit]
+    :or   {neighbors 3, context-cap 10, context? true, focus-days 30}}]
   (when context?
-    (let [anchor-ids (->> anchors (map :id) (remove nil?) set)
-          xt-db (xtdb.api/db xt-node)]
-      (if (seq anchor-ids)
-        (let [day-ms (* 24 60 60 1000)
-              now (or timestamp (System/currentTimeMillis))
-              cutoff (- now (* focus-days day-ms))
-              focus-count (or focus-limit context-cap)
-              candidates (->> (focus/focus-candidates xt-node anchor-ids cutoff focus-count)
-                              (filter #(or (:anchor? %) (:pinned? %))))
-              focus-map (into {} (map (fn [{:keys [id entity]}] [id entity]) candidates))
-              per-type (or per-type-caps default-per-type-caps)
-              neighbor-results (mapcat (fn [{:keys [id]}]
-                                         (focus/top-neighbors conn xt-db id {:k-per-anchor neighbors
-                                                                             :per-type-caps per-type
-                                                                             :allow-works? allow-works?
-                                                                             :time-hint cutoff}))
-                                       candidates)
+    (let [day-ms      (* 24 60 60 1000)
+          now         (or timestamp (System/currentTimeMillis))
+          cutoff      (- now (* focus-days day-ms))
+          focus-count (or focus-limit context-cap)
+          ;; Build candidate list directly from the provided anchors (no need for focus-candidates)
+          anchor-cands (->> (or anchors [])
+                            (map (fn [a]
+                                   (when-let [id (:id a)]
+                                     {:id id :entity a :anchor? true :pinned? (:pinned? a)})))
+                            (remove nil?)
+                            vec)
+          per-type     (or per-type-caps default-per-type-caps)
+          ;; Helper: run top-neighbors for one candidate id with safe opts
+          neighbors-for (fn [{:keys [id]}]
+                          (when id
+                            (focus/top-neighbors
+                             conn xt-db id
+                             {:k-per-anchor  (max 1 neighbors)
+                              :per-type-caps per-type
+                              :allow-works?  allow-works?
+                              :time-hint     cutoff})))]
+
+      (if (seq anchor-cands)
+        ;; Use anchors as the foci
+        (let [focus-map        (into {} (map (fn [{:keys [id entity]}] [id entity]) anchor-cands))
+              neighbor-results (mapcat neighbors-for anchor-cands)
+              ;; robust sort: nil-safe, descending by score
+              trimmed          (->> neighbor-results
+                                    (map #(update % :score (fnil double 0.0)))
+                                    (sort-by :score >)
+                                    (take focus-count))]
+          (vec
+           (keep (fn [{:keys [focus-id neighbor direction relation/type] :as entry}]
+                   (when-let [focus-entity (get focus-map focus-id)]
+                     {:entity       (:entity/name focus-entity)
+                      :entity-id    (:entity/id focus-entity)
+                      :neighbor     (:entity/name neighbor)
+                      :neighbor-id  (:entity/id neighbor)
+                      :neighbor-type (:entity/type neighbor)
+                      :relation     (:relation/type entry)  ; keep the original key if present
+                      :direction    direction}))
+                 trimmed)))
+
+        ;; No anchors: fall back to distinct seeds from `entities`
+        (let [seed-ents (->> (or entities [])
+                             (distinct-by :entity-id)   ;; assumes you have distinct-by; if not, replace with a set-based impl
+                             (take focus-count))
+              ;; Seed items are maps like {:entity-id ..., :neighbor ...}? Normalize to ids:
+              seed-ids  (->> seed-ents
+                             (map :entity-id)
+                             (remove nil?)
+                             distinct
+                             vec)
+              ;; Build a minimal focus-map for formatting
+              focus-map (into {}
+                              (map (fn [e]
+                                     (let [eid (:entity-id e)
+                                           nm  (or (:entity/name e) (:name e) (:entity e))]
+                                       [eid {:entity/id eid :entity/name nm}])))
+                              seed-ents)
+              neighbor-results (mapcat (fn [eid]
+                                         (focus/top-neighbors
+                                          conn xt-db eid
+                                          {:k-per-anchor  (max 1 neighbors)
+                                           :per-type-caps per-type
+                                           :allow-works?  allow-works?
+                                           :time-hint     cutoff}))
+                                       seed-ids)
               trimmed (->> neighbor-results
-                           (sort-by (comp - :score))
+                           (map #(update % :score (fnil double 0.0)))
+                           (sort-by :score >)
                            (take context-cap))]
-          (vec (keep (fn [{:keys [focus-id neighbor direction] :as entry}]
-                       (when-let [focus-entity (focus-map focus-id)]
-                         {:entity (:entity/name focus-entity)
-                          :entity-id (:entity/id focus-entity)
-                          :neighbor (:entity/name neighbor)
-                          :neighbor-id (:entity/id neighbor)
-                          :neighbor-type (:entity/type neighbor)
-                          :relation (:relation/type entry)
-                          :direction direction}))
-                     trimmed)))
-        (->> (distinct-by :entity-id entities)
-             (mapcat #(top-neighbors conn % {:k neighbors}))
-             (remove nil?)
-             (take context-cap)
-             vec)))))
+          (vec
+           (keep (fn [{:keys [focus-id neighbor direction] :as entry}]
+                   (when-let [focus-entity (get focus-map focus-id)]
+                     {:entity        (:entity/name focus-entity)
+                      :entity-id     (:entity/id focus-entity)
+                      :neighbor      (:entity/name neighbor)
+                      :neighbor-id   (:entity/id neighbor)
+                      :neighbor-type (:entity/type neighbor)
+                      :relation      (:relation/type entry)
+                      :direction     direction}))
+                 trimmed)))))))
+
+(defn- display-name [x]
+  (cond
+    (string? x) x
+    (map? x)    (or (:entity/name x) (:name x) (str x))
+    :else       (str x)))
 
 (defn render-context
-  "Render context neighbor entries into a multi-line string."
+  "Render context neighbor entries into a multi-line string.
+   Accepts {:entity … :neighbor … :relation kw :direction :in|:out}.
+   :entity / :neighbor can be strings or entity maps with :entity/name."
   [entries]
   (when (seq entries)
     (let [line (fn [{:keys [entity neighbor relation direction]}]
-                 (let [arrow (if (= direction :out) "->" "<-")
+                 (let [arrow   (if (= direction :out) "->" "<-")
                        bracket (name relation)]
                    (format "%s %s[%s]%s %s"
-                           entity
+                           (display-name entity)
                            (if (= arrow "->") "-" "<-")
                            bracket
                            arrow
-                           neighbor)))]
+                           (display-name neighbor))))]
       (str "context:\n" (str/join "\n" (map line entries))))))

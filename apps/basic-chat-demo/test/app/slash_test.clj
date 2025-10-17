@@ -14,6 +14,7 @@
 
 (def ^:dynamic *conn* nil)
 (def ^:dynamic *env* nil)
+(def ^:dynamic !state nil)
 
 (defn- temp-dir []
   (-> (Files/createTempDirectory "slash-test" (make-array FileAttribute 0))
@@ -28,14 +29,17 @@
   :each
   (fn [f]
     (let [tmp (temp-dir)
+          config-path (-> (io/resource "xtdb-test.edn") io/file .getAbsolutePath)
           env {:data-dir (.getAbsolutePath tmp)
                :snapshot-every 100
-               :xtdb {:enabled? false}}
+               :xtdb {:enabled? true
+                      :config-path config-path}}
           conn (store/restore! env)]
       (store-manager/configure! {:data-root (.getAbsolutePath tmp)})
       (try
         (binding [*conn* conn
-                  *env* env]
+                  *env* env
+                  !state (atom {:conn conn})]
           (f))
         (finally
           (store-manager/shutdown!)
@@ -43,9 +47,9 @@
 
 (defn- run-command
   ([line]
-   (run-command line {}))
+   (run-command line @!state))
   ([line state]
-   (let [handler (slash/handler *conn* *env*)]
+   (let [handler (slash/handler *env* !state)]
      (handler line state))))
 
 (deftest types-command-with-data
@@ -69,7 +73,7 @@
     (is (= ["Recent relations:" "  (none)"] tail))))
 
 (deftest me-summary-command
-  (let [{:keys [message]} (run-command "me summary 10")]
+  (let [{:keys [message]} (run-command "me summary 10" (assoc @!state :xt-node (xt/node)))]
     (is (>= (count message) 3))
     (is (str/includes? (first message) "Profile:"))))
 
@@ -77,50 +81,20 @@
   (testing "/me summary includes relations linked to the generic :me entity"
     (let [joe-id (UUID/randomUUID)
           willie-id (UUID/randomUUID)
-          config-path (-> (io/resource "xtdb-test.edn") io/file .getAbsolutePath)]
-      (xt/start! config-path {:data-dir (:data-dir *env*)})
-      (try
-        (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
-        (xt/put-entity! {:entity/id willie-id :entity/name "Willie Dixon" :entity/type :person})
-        (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :likes :relation/src :me :relation/dst willie-id} nil nil)
-        (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
-        (let [summary (svc/profile-summary {:profile :me} nil)]
-          (is (str/includes? (:text summary) "Willie Dixon")))
-        (finally
-          (xt/stop!))))))
+          uk-id (UUID/randomUUID)]
+      (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
+      (xt/put-entity! {:entity/id willie-id :entity/name "Willie Dixon" :entity/type :person})
+      (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :likes :relation/src :me :relation/dst willie-id} nil nil)
+      (xt/sync-node!)
+      (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
+      (let [summary (svc/profile-summary {:profile :me :xt-node (xt/node)} nil)]
+        (is (str/includes? (:text summary) "Willie Dixon")))
 
-(deftest me-summary-includes-me-relations
-  (testing "/me summary includes relations linked to the generic :me entity"
-    (let [joe-id (UUID/randomUUID)
-          uk-id (UUID/randomUUID)
-          config-path (-> (io/resource "xtdb-test.edn") io/file .getAbsolutePath)]
-      (xt/start! config-path {:data-dir (:data-dir *env*)})
-      (try
-        (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
-        (xt/put-entity! {:entity/id uk-id :entity/name "UK" :entity/type :place})
-        (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :lives-in :relation/src :me :relation/dst uk-id} nil nil)
-        (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
-        (let [summary (svc/profile-summary {:profile :me} nil)]
-          (is (str/includes? (:text summary) "UK")))
-        (finally
-          (xt/stop!))))))
-
-(deftest me-summary-includes-me-relations
-  (testing "/me summary includes relations linked to the generic :me entity"
-    (let [joe-id (UUID/randomUUID)
-          uk-id (UUID/randomUUID)
-          config-path (-> (io/resource "xtdb-test.edn") io/file .getAbsolutePath)]
-      (xt/start! config-path {:data-dir (:data-dir *env*)})
-      (try
-        (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
-        (xt/put-entity! {:entity/id uk-id :entity/name "UK" :entity/type :place})
-        (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :lives-in :relation/src :me :relation/dst uk-id} nil nil)
-        (xt/sync-node!)
-        (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
-        (let [summary (svc/profile-summary {:profile :me} nil)]
-          (is (str/includes? (:text summary) "UK")))
-        (finally
-          (xt/stop!))))))
+      (xt/put-entity! {:entity/id uk-id :entity/name "UK" :entity/type :place})
+      (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :lives-in :relation/src :me :relation/dst uk-id} nil nil)
+      (xt/sync-node!)
+      (let [summary (svc/profile-summary {:profile :me :xt-node (xt/node)} nil)]
+        (is (str/includes? (:text summary) "UK"))))))
 
 (deftest types-command
   (let [{:keys [message]} (run-command "types")]

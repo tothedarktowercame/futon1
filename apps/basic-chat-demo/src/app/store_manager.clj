@@ -246,3 +246,22 @@
     (if (str/blank? trimmed)
       "No profile data recorded."
       trimmed)))
+
+(defn ctx
+  "Return a ctx map you can pass around (per-profile)."
+  ([] (ctx (default-profile)))
+  ([profile]
+   (let [state (ensure-profile! profile)]
+     {:profile (:profile state)
+      :profile-dir (:profile-dir state)
+      :env (:env state)               ;; has :xtdb config, etc.
+      :conn (:conn state)})))          ;; datascript conn
+
+(defn start!
+  "Configure and ensure the default profile state is created (starts stores as needed)."
+  ([] (start! {}))
+  ([opts]
+   (configure! opts)
+   (ensure-profile! (default-profile))
+   (ctx)))
+

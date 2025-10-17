@@ -5,7 +5,9 @@
             [clojure.string :as str]
             [graph-memory.main :as gm]
             [graph-memory.me-profile :as me-profile]
-            [graph-memory.types-registry :as types]))
+            [graph-memory.types-registry :as types]
+            [xtdb.api :as xta]
+            [app.xt :as xtcompat]))
 
 ;; -- Relation/Entity helpers -------------------------------------------------
 
@@ -14,10 +16,10 @@
   ([conn]
    (tail conn 5))
   ([conn limit]
-    (try
-      (store/recent-relations conn (or limit 5))
-      (catch Exception _
-        []))))
+   (try
+     (store/recent-relations conn (or limit 5))
+     (catch Exception _
+       []))))
 
 (defn ego
   "Return outgoing and incoming relations for the named entity.
@@ -206,14 +208,16 @@
 
 (defn profile-summary
   "Render the profile summary text."
-  [{:keys [profile query-params now conn]} limit]
-  (let [profile-name (or profile (store-manager/default-profile))
+  [{:keys [profile query-params now conn xt-node]} limit]
+  (let [node (or xt-node (xtcompat/node))
+        db   (xta/db node)
+        profile-name (or profile (store-manager/default-profile))
         manual (store-manager/profile-doc profile-name)
         options (request-options {:query-params (or query-params {})
                                   :manual manual
                                   :now now})
         profile-map (or (try
-                          (me-profile/profile (assoc options :db conn))
+                          (me-profile/profile (assoc options :db conn :xt-db db))
                           (catch clojure.lang.ExceptionInfo e
                             (let [status (:status (ex-data e))]
                               (when-not (= 404 status)

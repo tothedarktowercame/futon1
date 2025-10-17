@@ -2,6 +2,7 @@
   "Derive a salience-aware profile for the :me entity based on XTDB relations."
   (:require [app.focus :as focus]
             [app.xt :as xt]
+            [xtdb.api :as xta]
             [clojure.math :as math]
             [clojure.string :as str])
   (:import (java.time Instant ZoneId)
@@ -203,24 +204,78 @@
   (when ms
     (.format iso-formatter (Instant/ofEpochMilli (long ms)))))
 
-(defn- to-double [v]
-  (when (some? v)
-    (double v)))
+(defn- fetch-entity* [xt-db eid]
+  (some-> (first (xta/q xt-db
+                        '[:find (pull ?e [:entity/id :entity/name :entity/type])
+                          :in $ ?id
+                          :where [?e :entity/id ?id]]
+                        eid))
+          ffirst))
 
-(defn- convert-relation [{relation-id :relation/id
-                          relation-type :relation/type
-                          :keys [direction neighbor score confidence last-seen provenance subject object]}]
-  (let [neighbor' (normalize-entity neighbor)]
-    (cond-> {:id relation-id
-             :type relation-type
-             :direction direction
-             :score (to-double score)
-             :subject subject
-             :object object}
-      neighbor' (assoc :neighbor neighbor')
-      confidence (assoc :confidence (to-double confidence))
-      last-seen (assoc :last-seen (coerce-long last-seen))
-      (seq provenance) (assoc :provenance provenance))))
+(defn- hydrate-neighbor-name [xt-db rel]
+  (if (get-in rel [:neighbor :name])
+    rel
+    (if-let [nid (get-in rel [:neighbor :id])]
+      (if-let [n (fetch-entity* xt-db nid)]
+        (assoc rel :neighbor {:id (:entity/id n)
+                              :name (:entity/name n)
+                              :type (:entity/type n)})
+        rel)
+      rel)))
+
+;; in graph_memory/me_profile.clj
+
+(defn- convert-relation
+  "Normalize focus/top-neighbors rows (old or new) into me-profile form."
+  [row]
+  (let [rel-id     (or (:id row) (:relation/id row))
+        rel-type   (or (:type row) (:relation row) (:relation/type row))
+        direction  (:direction row)
+
+        ;; unified neighbor extraction
+        neigh-map  (:neighbor row)
+        neigh-id   (or (:neighbor-id row)
+                       (get-in row [:neighbor :id])
+                       (get-in row [:neighbor :entity/id]))
+        neigh-name (or (:neighbor-name row)
+                       (get-in row [:neighbor :name])
+                       (get-in row [:neighbor :entity/name])
+                       (when (string? (:neighbor row)) (:neighbor row)))
+
+        score      (or (:score row) 0.0)
+        conf       (or (:confidence row) (:relation/confidence row))
+        last-seen  (or (:last-seen row)  (:relation/last-seen row))
+        subject    (or (:subject row) (:relation/subject row))
+        object     (or (:object row)  (:relation/object row))
+        prov       (or (:provenance row) (:relation/provenance row))
+
+        neighbor'  (cond
+                     ;; neighbor already a normalized map
+                     (and (map? neigh-map) (:name neigh-map))
+                     (select-keys neigh-map [:id :name :type])
+
+                     ;; neighbor from XT pull
+                     (and (map? neigh-map) (:entity/name neigh-map))
+                     {:id (:entity/id neigh-map)
+                      :name (:entity/name neigh-map)
+                      :type (:entity/type neigh-map)}
+
+                     ;; neighbor given as string + id
+                     (or neigh-id neigh-name)
+                     {:id neigh-id :name neigh-name}
+
+                     :else nil)]
+    (when (and rel-type (or neighbor' neigh-id neigh-name))
+      (cond-> {:id        rel-id
+               :type      rel-type
+               :direction direction
+               :score     (double score)
+               :subject   subject
+               :object    object}
+        neighbor' (assoc :neighbor neighbor')
+        conf      (assoc :confidence (double conf))
+        last-seen (assoc :last-seen (when last-seen (long last-seen)))
+        (seq prov) (assoc :provenance prov)))))
 
 ;; before:
 ;; (defn- hot-relations [db entity {:keys [...] }]
@@ -291,6 +346,16 @@
          ;; xt-db must come from your node/fixture (thread it into opts the same way as :db)
          xt-db         (:xt-db opts)
          relations (vec (or (hot-relations ds-conn-or-db xt-db me hot-opts) []))
+         relations (mapv #(hydrate-neighbor-name xt-db %) relations)
+      ;; (optionally do the same for me-relations)
+         me-relations (when (not= :me (:id me))
+                        (->> (hot-relations ds-conn-or-db xt-db {:id :me} hot-opts)
+                             (map #(hydrate-neighbor-name xt-db %))
+                             vec))
+         all-relations (->> (concat relations me-relations)
+                            (sort-by :score >)
+                            (take (or neighbor-limit 8))
+                            vec)
          salience-score (entity-salience me now cutoff)]
      (let [me-relations  (when (not= :me (:id me))
                            (vec (or (hot-relations ds-conn-or-db xt-db {:id :me} hot-opts) [])))

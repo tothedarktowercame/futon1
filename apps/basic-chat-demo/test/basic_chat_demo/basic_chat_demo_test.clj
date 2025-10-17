@@ -76,7 +76,7 @@
     (is (= exp got))))
 
 (deftest v3-script
-  (let [got (run-script "basic-chat/v3" "test/scripts/basic-chat/v3/entities.edn")
+  (let [got (run-script "basic-chat/v3" "test/scripts/basic-chat/v3/entities.edn" ["--no-context"])
         got' (mapv (fn [m]
                      (-> m
                          (dissoc :context :focus-header :focus-header-json :focus-header-lines)

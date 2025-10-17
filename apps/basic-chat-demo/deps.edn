@@ -6,6 +6,7 @@
         nlp-interface/nlp-interface {:local/root "../nlp-interface"}
         graph-memory/graph-memory {:local/root "../graph-memory"}
         open-world-ingest/open-world-ingest {:local/root "../open-world-ingest"}
+        api/api {:local/root "../api"}
         protocols/protocols {:local/root "../../protocols"}}
 
  :mvn/repos {"central" {:url "https://repo1.maven.org/maven2/"}
@@ -14,6 +15,9 @@
  :aliases
  {:run-m {:extra-deps {edu.stanford.nlp/stanford-corenlp$models {:mvn/version "4.5.4"}}
           :main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
+  :dev {:extra-paths ["dev"]
+        :extra-deps  {org.clojure/tools.namespace {:mvn/version "1.5.0"}}
+        :main-opts   ["-e" "(require,'user)" "-r"]}
   :run-x {:ns-default basic-chat-demo.basic-chat-demo
           :exec-fn greet
           :exec-args {:name "Clojure"}}

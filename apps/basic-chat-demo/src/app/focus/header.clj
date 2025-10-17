@@ -25,7 +25,7 @@
 
 (defn- dedupe-by [f coll]
   (loop [items coll
-         seen #{ }
+         seen #{}
          acc []]
     (if-let [item (first items)]
       (let [k (f item)]
@@ -37,7 +37,7 @@
 (defn- take-unique-recent-eids [db limit]
   (when db
     (loop [datoms (sort-by :tx > (seq (d/datoms db :avet :relation/type)))
-           seen #{ }
+           seen #{}
            acc []]
       (if (or (empty? datoms) (>= (count acc) limit))
         acc
@@ -47,33 +47,32 @@
             (recur (rest datoms) seen acc)
             (recur (rest datoms) (conj seen eid) (conj acc eid))))))))
 
-(defn- recent-relations [conn {:keys [limit exclude]}]
-  (let [db (conn->db conn)
-        eids (take-unique-recent-eids db (or limit default-recent-limit))]
-    (->> eids
-         (map (fn [eid]
-                (d/pull db '[:relation/type
-                             {:relation/src [:entity/id :entity/name :entity/type]}
-                             {:relation/dst [:entity/id :entity/name :entity/type]}]
-                        eid)))
-         (keep (fn [rel]
-                 (let [type (:relation/type rel)
-                       src (get-in rel [:relation/src :entity/name])
-                       dst (get-in rel [:relation/dst :entity/name])
-                       rel-map {:type type
-                                :src {:name src
-                                      :type (get-in rel [:relation/src :entity/type])}
-                                :dst {:name dst
-                                      :type (get-in rel [:relation/dst :entity/type])}}]
-                   (when (and type src dst)
-                     rel-map))))
-         (remove (fn [rel]
-                   (let [fingerprint [(:type rel)
-                                      (get-in rel [:src :name])
-                                      (get-in rel [:dst :name])]]
-                     (contains? exclude fingerprint))))
-         (take (or limit default-recent-limit))
-         vec)))
+(defn recent-relations
+  "Return the most recent relation edges recorded in Datascript."
+  ([conn]
+   (recent-relations conn 5))
+  ([conn limit]
+   (let [db    @conn
+         limit (max 1 (long (or limit 5)))
+         eids (take-unique-recent-eids db (or limit default-recent-limit))]
+     (->> eids
+          (keep (fn [eid]
+                  (when-let [rel (d/pull db
+                                         '[:relation/id :relation/type :relation/last-seen :relation/confidence
+                                           {:relation/src [:entity/id :entity/name :entity/type]}
+                                           {:relation/dst [:entity/id :entity/name :entity/type]}]
+                                         eid)]
+                    {:id         (:relation/id rel)
+                     :type       (:relation/type rel)
+                     :last-seen  (:relation/last-seen rel)
+                     :confidence (:relation/confidence rel)
+                     :src {:id   (get-in rel [:relation/src :entity/id])
+                           :name (get-in rel [:relation/src :entity/name])
+                           :type (get-in rel [:relation/src :entity/type])}
+                     :dst {:id   (get-in rel [:relation/dst :entity/id])
+                           :name (get-in rel [:relation/dst :entity/name])
+                           :type (get-in rel [:relation/dst :entity/type])}})))
+          (into []))))) ; materialise a vector only if you really need one
 
 (defn- entities-from-relations [rels]
   (->> rels
@@ -163,26 +162,26 @@
                                                                        :type type})
                                                                     (:relations recent))))
                         (when current (render-section "Current:" (map (fn [{:keys [src dst type]}]
-                                                                         {:src (get-in src [:name])
-                                                                          :dst (get-in dst [:name])
-                                                                          :type type})
-                                                                       (:relations current))))
+                                                                        {:src (get-in src [:name])
+                                                                         :dst (get-in dst [:name])
+                                                                         :type type})
+                                                                      (:relations current))))
                         (when enriched (render-section "Enriched:" (map (fn [{:keys [src dst type direction]}]
-                                                                           {:src (get-in src [:name])
-                                                                            :dst (get-in dst [:name])
-                                                                            :type type
-                                                                            :direction direction})
-                                                                         (:relations enriched))))]
-                    (remove nil?))
+                                                                          {:src (get-in src [:name])
+                                                                           :dst (get-in dst [:name])
+                                                                           :type type
+                                                                           :direction direction})
+                                                                        (:relations enriched))))]
+                       (remove nil?))
          text (when (seq sections)
                 (truncate (str "context:\n" (str/join "\n" sections)) max-length))
          json (not-empty
-                (into {}
-                      (keep (fn [[k v]]
-                              (when-let [section (presence v)]
-                                [k section])))
-                      [[:recent recent]
-                       [:current current]
-                       [:enriched enriched]]))]
+               (into {}
+                     (keep (fn [[k v]]
+                             (when-let [section (presence v)]
+                               [k section])))
+                     [[:recent recent]
+                      [:current current]
+                      [:enriched enriched]]))]
      {:text text
       :json json})))

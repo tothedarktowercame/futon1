@@ -81,36 +81,6 @@
   (let [node (ensure-node)]
     (.sync node nil)))
 
-(defn sync-node!
-  "Force the node to index all pending transactions."
-  []
-  (let [node (ensure-node)]
-    (.sync node nil)))
-
-(defn sync-node!
-  "Force the node to index all pending transactions."
-  []
-  (let [node (ensure-node)]
-    (.sync node nil)))
-
-(defn sync-node!
-  "Force the node to index all pending transactions."
-  []
-  (let [node (ensure-node)]
-    (.sync node nil)))
-
-(defn sync-node!
-  "Force the node to index all pending transactions."
-  []
-  (let [node (ensure-node)]
-    (.sync node nil)))
-
-(defn sync-node!
-  "Force the node to index all pending transactions."
-  []
-  (let [node (ensure-node)]
-    (.sync node nil)))
-
 (defn- coerce-id [doc]
   (cond
     (:xt/id doc) doc
@@ -128,8 +98,8 @@
   [doc valid-from-ms valid-to-ms]
   (let [doc' (-> doc coerce-id)
         tx [[::xt/put doc'
-              (when valid-from-ms (java.util.Date. valid-from-ms))
-              (when valid-to-ms (java.util.Date. valid-to-ms))]]]
+             (when valid-from-ms (java.util.Date. valid-from-ms))
+             (when valid-to-ms (java.util.Date. valid-to-ms))]]]
     (submit! tx)))
 
 (defn delete-doc!

@@ -1,9 +1,13 @@
 (ns app.slash
   (:require [app.command-service :as svc]
+            [app.xt :as xt]
+            [app.bang :as bang]
             [clojure.edn :as edn]
             [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import (java.time Instant)))
+
+(defn command-handler [cmd state ctx] (bang/bang-handler cmd state ctx))
 
 (def ^:private help-lines
   ["Slash commands:"
@@ -126,7 +130,7 @@
       ["Usage: /entity <name> [type]"]
       (safe-exec
        #(let [spec (cond-> {:name name}
-                      maybe-type (assoc :type (parse-type-token maybe-type)))
+                     maybe-type (assoc :type (parse-type-token maybe-type)))
               {:keys [entity]} (svc/ensure-entity! {:conn conn :env opts} spec)]
           (entity-lines entity))))))
 
@@ -145,23 +149,22 @@
           (relation-lines relation))))))
 
 (defn- me-section [conn opts arg]
-  (let [[sub & rest] (->> (str/split arg #"\s+")
-                          (remove str/blank?))
+  (let [[sub & rest] (->> (str/split arg #"\s+") (remove str/blank?))
         sub (some-> sub str/lower-case)
-        svc-ctx {:conn conn :env opts :profile :me :now (System/currentTimeMillis)}]
+        svc-ctx {:conn conn
+                 :env  opts
+                 :profile :me
+                 :now (System/currentTimeMillis)
+                 :xt-node (or (:xt-node opts) (xt/node))}]  ;; <— prefer provided
     (case sub
       "set" (let [payload-str (str/join " " rest)
                   payload (parse-edn-safe payload-str)]
               (if (map? payload)
                 (safe-exec #(profile-lines (svc/upsert-profile! svc-ctx payload)))
                 ["Usage: /me set {<edn map>}"]))
-      "doc" (safe-exec
-             #(pprint-lines (svc/fetch-profile svc-ctx)))
-      ;; default -> show summary
+      "doc" (safe-exec #(pprint-lines (svc/fetch-profile svc-ctx)))
       (let [limit (if (= "summary" sub) (some-> (first rest) parse-int) nil)]
-        (safe-exec
-         #(profile-summary-lines
-           (svc/profile-summary svc-ctx limit)))))))
+        (safe-exec #(profile-summary-lines (svc/profile-summary svc-ctx limit)))))))
 
 (defn- types-section [conn opts arg]
   (let [[sub & rest] (->> (str/split arg #"\s+")
@@ -182,11 +185,11 @@
                                        vals
                                        (apply concat)
                                        (sort-by :id))]
-                    (types-lines {:types all-types}))))))(defn- format-timestamp [ts]
-  (when (number? ts)
-    (try
-      (.toString (Instant/ofEpochMilli (long ts)))
-      (catch Exception _ nil))))
+                    (types-lines {:types all-types})))))) (defn- format-timestamp [ts]
+                                                            (when (number? ts)
+                                                              (try
+                                                                (.toString (Instant/ofEpochMilli (long ts)))
+                                                                (catch Exception _ nil))))
 
 (defn- relation-label [t]
   (or (type-label t) "?"))
@@ -291,25 +294,26 @@
   [opts !state]
   (fn [raw _]
     (let [trimmed (str/trim raw)
-          conn (:conn @!state)]
+          conn    (:conn @!state)]
       (if (str/blank? trimmed)
         {:message help-lines}
-        (let [[cmd & _] (str/split trimmed #"\s+" 2)
-              cmd (str/lower-case cmd)
-              space-idx (.indexOf trimmed " ")
-              arg (if (neg? space-idx) "" (subs trimmed (inc space-idx)))
-              arg (str/trim arg)]
+        (let [space-idx (.indexOf trimmed " ")
+              head      (if (neg? space-idx) trimmed (subs trimmed 0 space-idx))
+              arg       (-> (if (neg? space-idx) "" (subs trimmed (inc space-idx))) str/trim)
+              ;; NEW: normalize command by removing leading slash and lowercasing
+              cmd       (-> head (str/replace #"^/" "") str/lower-case)]
           (case cmd
-            "tail" (let [limit (parse-int (first (str/split arg #"\s+")))
-                         relations (svc/tail conn (or limit 5))]
-                     {:message (tail-section relations)})
-            "ego" {:message (ego-section conn arg)}
-            "cooccur" {:message (cooccur-section conn arg)}
-            "forget" {:message (forget-section conn opts arg)}
-            "expire" {:message (expire-section conn opts arg)}
-            "entity" {:message (entity-section conn opts arg)}
+            "tail"     (let [limit (parse-int (first (str/split arg #"\s+")))
+                             relations (svc/tail conn (or limit 5))]
+                         {:message (tail-section relations)})
+
+            "ego"      {:message (ego-section conn arg)}
+            "cooccur"  {:message (cooccur-section conn arg)}
+            "forget"   {:message (forget-section conn opts arg)}
+            "expire"   {:message (expire-section conn opts arg)}
+            "entity"   {:message (entity-section conn opts arg)}
             "relation" {:message (relation-section conn opts arg)}
-            "me" {:message (me-section conn opts arg)}
-            "types" {:message (types-section conn opts arg)}
-            "help" {:message help-lines}
-            {:message (str "unknown command: /" cmd)}))))))
+            "me"       {:message (me-section conn opts arg)}
+            "types"    {:message (types-section conn opts arg)}
+            "help"     {:message help-lines}
+            {:message (str "unknown command: /" cmd)}))))))  ;; keep the slash in error text

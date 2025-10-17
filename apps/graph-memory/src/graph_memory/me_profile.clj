@@ -222,22 +222,29 @@
       last-seen (assoc :last-seen (coerce-long last-seen))
       (seq provenance) (assoc :provenance provenance))))
 
-(defn- hot-relations [db entity {:keys [neighbor-limit per-type-caps window-days now allow-works? allowed-types]}]
-  (let [now (or now (now-ms))
-        days (long (or window-days default-window-days))
-        day-ms (* 24 60 60 1000)
-        cutoff (- now (* days day-ms))
-        limit (max 1 (or neighbor-limit default-neighbor-limit))
-        neighbors (focus/top-neighbors db [(:id entity)]
-                                       {:k-per-anchor limit
-                                        :per-edge-caps per-type-caps
-                                        :allowed-types allowed-types
-                                        :allow-works? allow-works?
-                                        :time-hint cutoff})]
+;; before:
+;; (defn- hot-relations [db entity {:keys [...] }]
+
+(defn- hot-relations
+  [ds-conn-or-db xt-db entity
+   {:keys [neighbor-limit per-type-caps window-days now allow-works? allowed-types]}]
+  (let [now         (or now (now-ms))
+        days        (long (or window-days default-window-days))
+        day-ms      (* 24 60 60 1000)
+        cutoff      (- now (* days day-ms))
+        limit       (max 1 (or neighbor-limit default-neighbor-limit))
+        neighbors   (or (focus/top-neighbors
+                         ds-conn-or-db xt-db (:id entity)
+                         {:k-per-anchor  limit
+                          :per-edge-caps per-type-caps
+                          :allowed-types allowed-types
+                          :allow-works?  allow-works?
+                          :time-hint     cutoff})
+                        [])]
     (->> neighbors
-         (map convert-relation)
-         (remove nil?)
-         (sort-by (comp - :score))
+         (keep convert-relation)                    ; drop nil rows outright
+         (map #(update % :score (fnil double 0.0))) ; nil score -> 0.0
+         (sort-by :score >)                         ; descending by score
          (take limit)
          vec)))
 
@@ -264,39 +271,47 @@
   ([]
    (profile {}))
   ([{:keys [db preferred-ids preferred-names neighbor-limit per-type-caps window-days allow-works? allowed-types now entity] :as opts}]
-   (let [now (or now (now-ms))
-         days (long (or window-days default-window-days))
+   (let [now    (or now (now-ms))
+         days   (long (or window-days default-window-days))
          day-ms (* 24 60 60 1000)
          cutoff (- now (* days day-ms))
-         me (or entity
-                (select-me {:preferred-ids preferred-ids
-                            :preferred-names preferred-names})
-                (throw (ex-info "No candidate entity found for :me" {:status 404})))
+         me     (or entity
+                    (select-me {:preferred-ids preferred-ids
+                                :preferred-names preferred-names})
+                    (throw (ex-info "No candidate entity found for :me" {:status 404})))
          hot-opts {:neighbor-limit neighbor-limit
-                   :per-type-caps per-type-caps
-                   :window-days days
-                   :now now
-                   :allow-works? allow-works?
-                   :allowed-types allowed-types}
-         relations (hot-relations db me hot-opts)
+                   :per-type-caps  per-type-caps
+                   :window-days    days
+                   :now            now
+                   :allow-works?   allow-works?
+                   :allowed-types  allowed-types}
+         ;; 1) Never let relations be nil
+         ;; ds-conn-or-db might be provided in opts as :db; if it's a conn, @-it here or in top-neighbors
+         ds-conn-or-db db
+         ;; xt-db must come from your node/fixture (thread it into opts the same way as :db)
+         xt-db         (:xt-db opts)
+         relations (vec (or (hot-relations ds-conn-or-db xt-db me hot-opts) []))
          salience-score (entity-salience me now cutoff)]
-     (let [me-relations (when (not= :me (:id me))
-                          (hot-relations db {:id :me} hot-opts))
+     (let [me-relations  (when (not= :me (:id me))
+                           (vec (or (hot-relations ds-conn-or-db xt-db {:id :me} hot-opts) [])))
            all-relations (->> (concat relations me-relations)
                               (sort-by :score >)
                               (take (or neighbor-limit 8))
                               vec)
-           topics (build-topics all-relations default-topic-limit)]
-       {:entity me
-        :salience {:score salience-score
-                   :seen-count (:seen-count me)
-                   :last-seen (:last-seen me)
-                   :pinned? (:pinned? me)
-                   :window {:days days
-                            :cutoff cutoff
-                            :now now}}
+           ;; 2) Only build topics if there’s something to build from
+           topics        (if (seq all-relations)
+                           (vec (or (build-topics all-relations default-topic-limit) []))
+                           [])]
+       {:entity    me
+        :salience  {:score      salience-score
+                    :seen-count (:seen-count me)
+                    :last-seen  (:last-seen me)
+                    :pinned?    (:pinned? me)
+                    :window     {:days days
+                                 :cutoff cutoff
+                                 :now now}}
         :relations all-relations
-        :topics topics
+        :topics    topics
         :generated-at now}))))
 
 (defn- relation-line
@@ -309,8 +324,8 @@
                                     (or neighbor-name "?")
                                     focus))
          object-text (or object (if (= direction :in)
-                                   focus
-                                   (or neighbor-name "?")))
+                                  focus
+                                  (or neighbor-name "?")))
          relation-label (or (humanize-keyword type) "relation")
          arrow (if (= direction :in) "←" "→")
          indent-prefix (if (zero? indent)
@@ -327,8 +342,8 @@
                                          (take 4)
                                          (map (fn [[k v]]
                                                 (str (name k) "=" (if (string? v)
-                                                                     v
-                                                                     (pr-str v)))))
+                                                                    v
+                                                                    (pr-str v)))))
                                          (str/join ", "))]
                           (when (seq pairs)
                             (str "prov " pairs))))]
@@ -341,11 +356,11 @@
 (defn- chain-key
   [text]
   (when-let [clean (some-> text
-                            str
-                            (str/replace #"[’]" "'")
-                            (str/replace #"\s+-\s+" "-")
-                            (str/replace #"\s+" " ")
-                            str/trim)]
+                           str
+                           (str/replace #"[’]" "'")
+                           (str/replace #"\s+-\s+" "-")
+                           (str/replace #"\s+" " ")
+                           str/trim)]
     (when (seq clean)
       (str/lower-case clean))))
 
@@ -449,9 +464,9 @@
   ([profile-data {:keys [limit manual] :or {limit 2000}}]
    (let [{:keys [entity salience relations topics generated-at]} profile-data
          entity-name (:name entity)
-         type (:type entity)
-         header (cond-> (or entity-name "Unknown entity")
-                  type (str " (" (humanize-keyword type) ")"))
+         type        (:type entity)
+         header      (cond-> (or entity-name "Unknown entity")
+                       type (str " (" (humanize-keyword type) ")"))
          {:keys [score seen-count last-seen pinned? window]} salience
          status-components (->> [(when (number? score) (format "score %.2f" (double score)))
                                  (when seen-count (str "seen " seen-count))
@@ -466,25 +481,28 @@
          topic-block (if (seq topics)
                        (into ["Focus priorities:"] (map topic-line topics))
                        ["Focus priorities:" "- (no dominant themes in window)"])
-         relation-lines (relation-lines-with-chains entity-name relations)
+         ;; 3) Only compute relation lines when we have relations
+         relation-lines (if (seq relations)
+                          (vec (or (relation-lines-with-chains entity-name relations) []))
+                          [])
          relation-block (if (seq relation-lines)
                           (into ["Hot relations:"] relation-lines)
                           ["Hot relations:" "- (none in window)"])
-         manual-block (manual-lines manual)
+         manual-block   (manual-lines manual)
          generated-line (when generated-at
                           (str "Generated: " (format-ts generated-at)))
-         lines (->> (concat [header]
-                            (when status-line [status-line])
-                            topic-block
-                            relation-block
-                            (or manual-block [])
-                            (when generated-line [generated-line]))
-                    (remove str/blank?))
-         text (str/join "\n" lines)
+         lines  (->> (concat [header]
+                             (when status-line [status-line])
+                             topic-block
+                             relation-block
+                             (or manual-block [])
+                             (when generated-line [generated-line]))
+                     (remove str/blank?))
+         text   (str/join "\n" lines)
          trimmed (if (> (count text) limit)
                    (-> text (subs 0 limit) str/trim)
                    text)
-         final (str/trim trimmed)]
+         final  (str/trim trimmed)]
      (if (str/blank? final)
        "No salient profile available."
        final))))

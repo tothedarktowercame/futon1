@@ -1,6 +1,7 @@
 (ns basic-chat-demo.basic-chat-demo-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
-            [basic-chat-demo.basic-chat-demo :as sut]
+            [basic-chat-demo.basic-chat-demo :as app]
+            [basic-chat-demo.cli :as sut]
             [app.store-manager :as store-manager]
             [clojure.edn :as edn]
             [clojure.string :as str]
@@ -28,7 +29,7 @@
                                    :xtdb {:enabled? false}})
         (try
           (f)
-          (finally
+         (finally
             (store-manager/shutdown!)
             (delete-recursively tmp)))))))
 
@@ -48,10 +49,17 @@
    (let [args (concat ["--protocol" protocol
                        "--script" script-path]
                       extra-cli)
-         out (with-out-str (apply sut/-main args))
-         trimmed (str/trim out)]
-     (is (seq trimmed) "expected EDN output from script run")
-     (edn/read-string trimmed))))
+         out (with-out-str (apply app/-main args))
+         lines (->> (str/split-lines out)
+                    (map str/trim)
+                    (remove str/blank?))
+         edn-line (or (some #(when (or (str/starts-with? % "[")
+                                       (str/starts-with? % "{"))
+                               %)
+                              (reverse lines))
+                             (last lines))]
+     (is (seq edn-line) "expected EDN output from script run")
+     (edn/read-string edn-line))))
 
 (defn round2 [n]
   (when (number? n)

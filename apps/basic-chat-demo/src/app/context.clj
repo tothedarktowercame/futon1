@@ -2,8 +2,7 @@
   "Context utilities for printing nearby graph neighbors."
   (:require [app.focus :as focus]
             [clojure.string :as str]
-            [graph-memory.main :as gm]
-            [xtdb.api :as xt]))
+            [graph-memory.main :as gm]))
 
 (defn- distinct-by [f coll]
   (let [seen (volatile! #{})]
@@ -55,17 +54,16 @@
 (defn enrich-with-neighbors
   "Return a flattened vector of top neighbors for the provided entities.
 
-   NOTE: The first argument is an XTDB DB **snapshot** (xt-db), not a node.
-   If you still have call sites that pass a node, update them to pass (xtdb.api/db node)."
+   The first argument expects an XTDB DB snapshot (xt-db)."
   [xt-db conn entities
    {:keys [neighbors context-cap context? anchors timestamp focus-days per-type-caps allow-works? focus-limit]
     :or   {neighbors 3, context-cap 10, context? true, focus-days 30}}]
-  (when context?
+  (when (and context? xt-db)
     (let [day-ms      (* 24 60 60 1000)
           now         (or timestamp (System/currentTimeMillis))
           cutoff      (- now (* focus-days day-ms))
           focus-count (or focus-limit context-cap)
-          ;; Build candidate list directly from the provided anchors (no need for focus-candidates)
+          ;; Build candidate list directly from the provided anchors
           anchor-cands (->> (or anchors [])
                             (map (fn [a]
                                    (when-let [id (:id a)]
@@ -93,15 +91,15 @@
                                     (sort-by :score >)
                                     (take focus-count))]
           (vec
-           (keep (fn [{:keys [focus-id neighbor direction relation/type] :as entry}]
+           (keep (fn [{:keys [focus-id neighbor direction relation] :as entry}]
                    (when-let [focus-entity (get focus-map focus-id)]
-                     {:entity       (:entity/name focus-entity)
-                      :entity-id    (:entity/id focus-entity)
-                      :neighbor     (:entity/name neighbor)
-                      :neighbor-id  (:entity/id neighbor)
+                     {:entity        (:entity/name focus-entity)
+                      :entity-id     (:entity/id focus-entity)
+                      :neighbor      (:entity/name neighbor)
+                      :neighbor-id   (:entity/id neighbor)
                       :neighbor-type (:entity/type neighbor)
-                      :relation     (:relation/type entry)  ; keep the original key if present
-                      :direction    direction}))
+                      :relation      (or relation (:relation/type entry))
+                      :direction     direction}))
                  trimmed)))
 
         ;; No anchors: fall back to distinct seeds from `entities`
@@ -134,14 +132,14 @@
                            (sort-by :score >)
                            (take context-cap))]
           (vec
-           (keep (fn [{:keys [focus-id neighbor direction] :as entry}]
+           (keep (fn [{:keys [focus-id neighbor direction relation]}]
                    (when-let [focus-entity (get focus-map focus-id)]
                      {:entity        (:entity/name focus-entity)
                       :entity-id     (:entity/id focus-entity)
                       :neighbor      (:entity/name neighbor)
                       :neighbor-id   (:entity/id neighbor)
                       :neighbor-type (:entity/type neighbor)
-                      :relation      (:relation/type entry)
+                      :relation      relation
                       :direction     direction}))
                  trimmed)))))))
 

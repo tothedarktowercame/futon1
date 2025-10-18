@@ -10,4 +10,4 @@
 (defn load! [f]
   (g/reset-conn!)
   (let [datoms (edn/read-string (slurp f))]
-    (d/transact! (g/conn!) (map #(zipmap [:e :a :v :tx] %) datoms)))) (ns gms.io)
+    (d/transact! (g/conn!) (map #(zipmap [:e :a :v :tx] %) datoms))))

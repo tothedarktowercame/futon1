@@ -1,5 +1,6 @@
 (ns app.focus
   (:require [app.xt :as xt]
+            [app.store :as store]
             [clojure.math :as math]
             [clojure.set :as set]
             [datascript.core :as d]
@@ -31,16 +32,11 @@
   ([] (done-future nil))
   ([v] (let [p (promise)] (deliver p v) p)))
 
+;; apps/api/src/app/focus.clj (essentials)
 (defn ds-activated-ids
-  "Return a set of entity-ids considered 'activated' in the in-memory DS db."
-  [dsdb]
-  (into #{}
-        (map first)
-        (d/q '[:find ?id
-               :where
-               [?e :entity/id ?id]
-               [?e :entity/pinned? true]]
-             dsdb)))
+  "Return hot anchor IDs from Datascript for this profile/entity."
+  ([db] (->> (store/latest-by-attr db :relation/last-seen 20) set))
+  ([db entity-id] (if entity-id #{entity-id} (ds-activated-ids db))))
 
 (defn xt-neighbor-rows-for-ids
   "Query XT for neighbors touching any eid in `seed-ids`.
@@ -205,75 +201,113 @@
                   0.0)]
     (+ conf (* 1.2 recency))))
 
+;; app/focus.clj
+
 (defn top-neighbors
   "Pick the top-k neighbors for an entity-id using DS activation -> XT neighbors.
-   - ds-conn-or-db: Datascript conn or db
-   - xt-db: XTDB db snapshot (from xta/db or your wrapper)
-   - entity-id: UUID of the focal entity
-   - opts: {:k <int> | :k-per-anchor <int> :time-hint <ms>}"
-  [ds-conn-or-db xt-db entity-id {:keys [k k-per-anchor time-hint] :as _opts}]
-  (let [k (or k k-per-anchor 3)]
+
+   Args:
+     - ds-conn-or-db : Datascript conn OR db (or nil)
+     - xt-db         : XTDB db snapshot (required)
+     - entity-id     : UUID of the focal entity (required)
+     - opts          : {:k <int>                  ;; total results cap
+                        :k-per-anchor <int>      ;; per-activated-anchor cap
+                        :time-hint <ms>          ;; lower bound on window start
+                        :activated-ids #{...}    ;; override DS activation
+                        :boost-activated 0.15}   ;; score bump for activated anchors
+
+   Waterfall:
+     1) If we can, compute activated IDs from DS (or use :activated-ids override).
+     2) Query XT neighbors for (activated-ids OR #{entity-id} as fallback).
+     3) Score, hydrate, and cap (per-anchor then global)."
+  [ds-conn-or-db xt-db entity-id {:keys [k k-per-anchor time-hint activated-ids boost-activated]
+                                  :or   {boost-activated 0.15}
+                                  :as   _opts}]
+  (let [k             (or k k-per-anchor 3)]
     (assert (some? xt-db) "top-neighbors: xt-db is nil")
     (assert (some? entity-id) "top-neighbors: entity-id is nil")
 
-    ;; Local helper: realize x if it's a Future, otherwise pass-through.
-    ;; If a future yields a seq (e.g., a batch of rows), we'll flatten later.
+    ;; ----- helpers ---------------------------------------------------------
     (letfn [(realize-maybe [x]
               (cond
                 (instance? java.util.concurrent.Future x)
                 (try @x (catch Throwable _ nil))
-                :else x))]
+                :else x))
+            (as-db [x] ; accept DS db or conn (or nil)
+              (try
+                (cond
+                  (and x (datascript.core/db? x)) x
+                  x @x
+                  :else nil)
+                (catch Throwable _ nil)))]
 
-      (let [;; Accept either a DS db or a conn
-            ds-db         (try
-                            (if (datascript.core/db? ds-conn-or-db)
-                              ds-conn-or-db
-                              @ds-conn-or-db)
-                            (catch Throwable _
-                              ;; Fallback: if it's neither, just use it as-is and
-                              ;; let downstream fail loudly in tests.
-                              ds-conn-or-db))
+      ;; ----- activation anchors (DS-first waterfall) -----------------------
+      (let [ds-db           (as-db ds-conn-or-db)
+            ;; If caller provided :activated-ids, trust it. Otherwise try DS.
+            anchors        (or activated-ids
+                               (when ds-db
+                                 ;; try both common arities: (db) and (db entity-id)
+                                 (or (try (set (ds-activated-ids ds-db))
+                                          (catch Throwable _ nil))
+                                     (try (set (ds-activated-ids ds-db entity-id))
+                                          (catch Throwable _ nil))))
+                               #{entity-id}) ; hard fallback: focal entity only
+            ;; Query XT for all anchors in one go
+            raw-rows       (or (xt-neighbor-rows-for-ids xt-db (set anchors)) [])
+            realized-rows  (->> raw-rows
+                                (map realize-maybe)
+                                (remove nil?)
+                                (mapcat (fn [v] (if (sequential? v) v [v]))))
+            ;; window + scoring
+            now            (now-ms)
+            cutoff         (or time-hint (- now (* 30 24 60 60 1000))) ;; default 30d
+            window-ms      (max 1 (- now cutoff))
+            anchor?        (set anchors)
+            kpa            (some-> k-per-anchor (max 1))
+            ;; enrich and compute score (preserving any precomputed :score)
+            enriched       (map
+                            (fn [row]
+                              (let [conf     (double (or (:confidence row) 1.0))
+                                    ls       (safe-long (:last-seen row))
+                                    base     (neighbor-score now window-ms {:confidence conf
+                                                                            :last-seen  ls})
+                                    ;; ensure neighbor is {:id :name :type}
+                                    row'     (if (and (string? (:neighbor row))
+                                                      (:neighbor-id row))
+                                               (let [nid (:neighbor-id row)
+                                                     n   (or (fetch-entity xt-db nid)
+                                                             {:entity/id   nid
+                                                              :entity/name (:neighbor row)
+                                                              :entity/type nil})]
+                                                 (-> row
+                                                     (assoc :neighbor {:id   (:entity/id n)
+                                                                       :name (:entity/name n)
+                                                                       :type (:entity/type n)})))
+                                               row)
+                                    ;; anchor-based bonus if the originating anchor is activated
+                                    anchor-id (or (:anchor-id row') entity-id)
+                                    bonus     (if (anchor? anchor-id) (double boost-activated) 0.0)
+                                    final     (double (or (:score row') (+ base bonus)))]
+                                (-> row'
+                                    (update :relation  #(or % :unknown))
+                                    (update :direction #(or % :out))
+                                    (assoc  :score final
+                                            :anchor-id anchor-id))))
+                            realized-rows)
 
-            ;; We keep DS activation for possible future filtering; not strictly used below.
-            _activated-ids (set (or (ds-activated-ids ds-db) []))
+            ;; optional per-anchor capping
+            capped         (if kpa
+                             (->> enriched
+                                  (group-by :anchor-id)
+                                  (mapcat (fn [[_ rows]]
+                                            (->> rows
+                                                 (sort-by (comp - :score))
+                                                 (take kpa))))
+                                  (sort-by (comp - :score)))
+                             (sort-by (comp - :score) enriched))]
 
-            raw-rows      (or (xt-neighbor-rows-for-ids xt-db #{entity-id}) [])
-            realized-rows (->> raw-rows
-                               (map realize-maybe)
-                               (remove nil?)
-                               (mapcat (fn [v] (if (sequential? v) v [v]))))
-
-            ;; hydrate neighbor map from XT if needed, and compute score
-            now           (now-ms)
-            cutoff        (or time-hint (- now (* 30 24 60 60 1000))) ;; default 30d
-            window-ms     (max 1 (- now cutoff))
-            enriched      (map
-                           (fn [row]
-                             (let [conf  (double (or (:confidence row) 1.0))
-                                   ls    (safe-long (:last-seen row))
-                                   score (neighbor-score now window-ms {:confidence conf
-                                                                        :last-seen  ls})
-                                   ;; ensure neighbor is a map {:id :name :type}
-                                   row'  (if (and (string? (:neighbor row))
-                                                  (:neighbor-id row))
-                                           (let [nid (:neighbor-id row)
-                                                 n   (or (fetch-entity xt-db nid)
-                                                         {:entity/id nid
-                                                          :entity/name (:neighbor row)
-                                                          :entity/type nil})]
-                                             (-> row
-                                                 (assoc :neighbor {:id   (:entity/id n)
-                                                                   :name (:entity/name n)
-                                                                   :type (:entity/type n)})))
-                                           row)]
-                               (-> row'
-                                   (update :relation  #(or % :unknown))
-                                   (update :direction #(or % :out))
-                                   (assoc  :score (double (or (:score row') score))))))
-                           realized-rows)]
-
-        (->> enriched
+        (->> capped
              distinct
-             (sort-by (comp - :score))
              (take k)
              vec)))))
+

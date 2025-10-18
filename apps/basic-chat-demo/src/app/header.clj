@@ -2,8 +2,7 @@
   (:require [app.focus :as focus]
             [cheshire.core :as json]
             [clojure.string :as str]
-            [graph-memory.types-registry :as types]
-            [xtdb.api :as xt]))
+            [graph-memory.types-registry :as types]))
 
 (def default-policy
   {:allow-types focus/default-allowed-types
@@ -123,7 +122,7 @@
 
    IMPORTANT: First arg is an XTDB DB snapshot (xt-db), NOT a node.
    If you still have call sites passing a node, wrap with (xtdb.api/db node) there."
-  [xt-db {:keys [anchors intent time policy turn-id dimensions focus-limit debug?]}]
+  [xt-db {:keys [anchors intent time policy turn-id dimensions focus-limit debug? conn]}]
   (let [policy'        (merge default-policy (or policy {}))
         now            (or time (System/currentTimeMillis))
         focus-days     (:focus-days policy')
@@ -149,24 +148,24 @@
 
         ;; Gather neighbor entries for each candidate, using the provided xt-db snapshot
         neighbor-entries
-        (->> candidates
-             (mapcat (fn [{:keys [id]}]
-                       (focus/top-neighbors nil xt-db id {:k-per-anchor  k-per-anchor
-                                                          :per-edge-caps per-edge
-                                                          :allowed-types allowed-config
-                                                          :allow-works?  (:allow-works? policy')
-                                                          :time-hint     cutoff})))
-             ;; filter by allowed types if configured
-             (filter (fn [{:keys [neighbor]}]
-                       (let [etype (:entity/type neighbor)]
-                         (or (nil? allowed-pred)
-                             (nil? etype)
-                             (allowed-pred etype)))))
-             ;; score-safe sort (desc)
-             (map #(update % :score (fnil double 0.0)))
-             (sort-by :score >)
-             (take (min (:context display-limits) focus-count))
-             vec)
+        (if (nil? xt-db)
+          []
+          (->> candidates
+               (mapcat (fn [{:keys [id]}]
+                         (focus/top-neighbors conn xt-db id {:k-per-anchor  k-per-anchor
+                                                             :per-edge-caps per-edge
+                                                             :allowed-types allowed-config
+                                                             :allow-works?  (:allow-works? policy')
+                                                             :time-hint     cutoff})))
+               (filter (fn [{:keys [neighbor]}]
+                         (let [etype (:entity/type neighbor)]
+                           (or (nil? allowed-pred)
+                               (nil? etype)
+                               (allowed-pred etype)))))
+               (map #(update % :score (fnil double 0.0)))
+               (sort-by :score >)
+               (take (min (:context display-limits) focus-count))
+               vec))
 
         current (->> anchors
                      (map current-entry)

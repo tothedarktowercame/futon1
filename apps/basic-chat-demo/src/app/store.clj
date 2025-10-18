@@ -857,15 +857,17 @@
                  tx {:entity/id :me, :entity/name name, :entity/type :person, :entity/pinned? true}]
              (d/transact! conn [tx]))))
        (register-types-from-db! conn)
-       conn)))) (defn compact!
-                  "Force a snapshot and event-log reset for the given data directory."
-                  [conn {:keys [data-dir]}]
-                  (when-not data-dir
-                    (throw (ex-info "Missing data-dir" {})))
-                  (save-snapshot! conn data-dir)
-                  (reset-event-log! data-dir)
-                  (swap! !event-count assoc data-dir 0)
-                  :ok)
+       conn))))
+
+(defn compact!
+  "Force a snapshot and event-log reset for the given data directory."
+  [conn {:keys [data-dir]}]
+  (when-not data-dir
+    (throw (ex-info "Missing data-dir" {})))
+  (save-snapshot! conn data-dir)
+  (reset-event-log! data-dir)
+  (swap! !event-count assoc data-dir 0)
+  :ok)
 
 (defn resolve-name->eid
   "Return entity metadata for the exact name match, or nil when absent."
@@ -966,7 +968,7 @@
         (maybe-mirror-relation! opts result conn)
         result))))
 
-(defn- latest-by-attr
+(defn latest-by-attr
   [db attr limit]
   (let [primary (vec (d/datoms db :avet attr))
         fallback (when (empty? primary)

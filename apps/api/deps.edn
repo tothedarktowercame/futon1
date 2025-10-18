@@ -1,15 +1,31 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
         cheshire/cheshire {:mvn/version "5.11.0"}
+        ring/ring-core {:mvn/version "1.12.2"}
+        ring/ring-jetty-adapter {:mvn/version "1.12.2"}
+        ring/ring-json {:mvn/version "0.5.1"}
+        org.slf4j/slf4j-api {:mvn/version "1.7.36"}
+        org.slf4j/slf4j-nop {:mvn/version "1.7.36"}
+        metosin/reitit-ring {:mvn/version "0.7.0"}
         basic-chat-demo/basic-chat-demo {:local/root "../basic-chat-demo"}
         open-world-ingest/open-world-ingest {:local/root "../open-world-ingest"}
-        protocols/protocols {:local/root "../../protocols"}}
+        protocols/protocols {:local/root "../../protocols"}
+        common/common {:local/root "../common"}}
+
+ :override-deps
+ {org.slf4j/slf4j-api {:mvn/version "1.7.36"}}
 
  :aliases
- {:run-m {:main-opts ["-m" "api.server"]}
+ {:server {:main-opts ["-m" "api.server"]}
+  :run {:main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
+  :dev {:extra-deps {ring/ring-devel {:mvn/version "1.12.2"}}
+        :extra-paths ["dev"]}
   :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.10"}}
           :ns-default build}
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1"
                                                             :git/sha "dfb30dd"}
-                      org.clojure/test.check {:mvn/version "1.1.1"}}}}}
+                      org.clojure/test.check {:mvn/version "1.1.1"}
+                      ring/ring-devel {:mvn/version "1.12.2"}
+                      org.slf4j/slf4j-nop {:mvn/version "1.7.36"}}
+         :override-deps {org.slf4j/slf4j-api {:mvn/version "1.7.36"}}}}}

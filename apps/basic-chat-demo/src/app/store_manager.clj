@@ -3,6 +3,7 @@
   (:require [app.focus :as focus]
             [app.store :as store]
             [app.xt :as xt]
+            [app.config :as cfg]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -149,26 +150,54 @@
         (some-> profile-id str str/trim not-empty)
         "Me")))
 
+(defn- ->canonical-state
+  "Ensure required keys are present; attach optional XT handles if available."
+  [st]
+  (let [st (or st {})
+        ;; If your store exposes these, wire them in. Otherwise they'll stay nil.
+        xt-node (when (resolve 'store/xt-node) ((resolve 'store/xt-node)))
+        xt-db   (when (resolve 'store/xt-db)   ((resolve 'store/xt-db)))]
+    (merge
+     {:profile     (:profile st)
+      :profile-dir (:profile-dir st)             ;; java.io.File
+      :env         (:env st)                     ;; {:data-dir <File> :snapshot-every N :xtdb {...}}
+      :conn        (:conn st)                    ;; Datascript conn
+      :me          (:me st)
+      :last-anchors (:last-anchors st)
+      ;; optional runtime handles (safe if missing)
+      :xt-node     (or (:xt-node st) xt-node)
+      :xt/db       (or (:xt/db st)   xt-db)}
+     st)))
+
 (defn- create-profile-state [profile]
   (let [{:keys [snapshot-every xtdb]} (config)
-        dir (ensure-dir! (profile-dir profile))
+        dir   (ensure-dir! (profile-dir profile))        ;; -> java.io.File
         me-doc (read-profile dir)
-        env {:data-dir dir
-             :snapshot-every snapshot-every
-             :xtdb xtdb}
-        conn (store/restore! env me-doc)
-        state {:profile profile
-               :profile-dir dir
-               :env env
-               :conn conn
-               :me (atom (or me-doc {}))
+        env   {:data-dir       dir
+               :snapshot-every snapshot-every
+               :xtdb           xtdb}
+        conn  (store/restore! env me-doc)
+        state {:profile      profile
+               :profile-dir  dir
+               :env          env
+               :conn         conn
+               :me           (atom (or me-doc {}))
                :last-anchors (atom [])}]
     (when-not (-> state :me deref :entity/id)
       (let [entity-spec {:id :me, :name "Me", :type :person, :pinned? true}]
         (store/ensure-entity! conn env entity-spec)
         (swap! (:me state) assoc :entity/id :me)
         (write-profile! dir @(:me state))))
-    state))
+    (->canonical-state state)))
+
+(defn state->ctx [state]
+  {:profile     (:profile state)
+   :profile-dir (:profile-dir state)
+   :env         (:env state)
+   :conn        (:conn state)
+   ;; pass-through if present; harmless if nil
+   :xt-node     (:xt-node state)
+   :xt/db       (:xt/db state)})
 
 (defn ensure-profile!
   "Return the state map for the given profile, creating it when necessary."
@@ -180,6 +209,10 @@
            state))))
   ([]
    (ensure-profile! nil)))
+
+(defn ctx
+  ([] (ctx (default-profile)))
+  ([profile] (state->ctx (ensure-profile! profile))))
 
 (defn conn [profile]
   (:conn (ensure-profile! profile)))
@@ -247,21 +280,60 @@
       "No profile data recorded."
       trimmed)))
 
+(defonce !state (atom nil))
+
+(defn current [] @!state)  ;; small helper, useful everywhere
+
+;; Unchanged (good)
 (defn ctx
   "Return a ctx map you can pass around (per-profile)."
   ([] (ctx (default-profile)))
   ([profile]
    (let [state (ensure-profile! profile)]
-     {:profile (:profile state)
+     {:profile     (:profile state)
       :profile-dir (:profile-dir state)
-      :env (:env state)               ;; has :xtdb config, etc.
-      :conn (:conn state)})))          ;; datascript conn
+      :env         (:env state)   ;; has :xtdb config, etc.
+      :conn        (:conn state)}))) ;; datascript conn
 
+;; Revised
 (defn start!
-  "Configure and ensure the default profile state is created (starts stores as needed)."
+  "Configure and ensure the default profile state is created (starts stores as needed).
+   Precedence: ENV/JVM > config.edn > defaults. `opts` can further override at runtime."
   ([] (start! {}))
   ([opts]
-   (configure! opts)
-   (ensure-profile! (default-profile))
-   (ctx)))
+   (cfg/log-once!)
+   ;; merge config + optional runtime opts (your 'loophole')
+   (configure! (merge (cfg/config) opts))
 
+   (let [st        (ensure-profile! (default-profile))
+         data-file (let [raw (or (some-> st :env :data-dir)
+                                 (cfg/data-dir))]
+                     (if (instance? java.io.File raw)
+                       raw
+                       (io/file (str raw))))]
+     (reset! !state
+             {:data-dir     (.getPath ^java.io.File data-file)          ;; string for JSON/diag
+              :config       (select-keys (cfg/config)
+                                         [:app/data-dir :app/server-port :xtdb/config-path
+                                          :warmup/enable? :warmup/focus-k])
+              :profile      (:profile st)
+              :profile-dir  (str (:profile-dir st))
+              :env          (update (:env st) :data-dir #(str %))
+              ;; quick booleans for health
+              :has-ds       (boolean (:conn st))
+              :has-xt-node  (boolean (:xt-node st))
+              :has-xt-db    (boolean (:xt/db st))
+              ;; (optional) expose live handles for REPL poking; drop if you prefer
+              :xtdb-node    (:xt-node st)
+              :conn         (:conn st)})
+
+     (state->ctx st))))
+
+(defn diag []
+  (let [{:keys [data-dir config profile profile-dir env]} (current)]
+    {:ok true
+     :data-dir data-dir
+     :profile profile
+     :profile-dir (str profile-dir)
+     :config config
+     :xtdb? (boolean (:xtdb (:env (ctx))))})) ;; or richer status if you like

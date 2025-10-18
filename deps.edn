@@ -1,5 +1,12 @@
-{:aliases
+{:paths ["apps/api/src" "apps/basic-chat-demo/src" "apps/common/src"]
+ :aliases
  {:api {:deps {api/api {:local/root "apps/api"}}
         :main-opts ["-m" "api.server"]}
+  :server {:deps {api/api {:local/root "apps/api"}}
+           :main-opts ["-m" "api.server"]}
+  :run-m {:deps {basic-chat-demo/basic-chat-demo {:local/root "apps/basic-chat-demo"}}
+          :main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
+  :dev {:extra-paths ["apps/common/src" "dev"]
+        :extra-deps {ring/ring-devel {:mvn/version "1.12.2"}}}
   :headless-api {:deps {api/api {:local/root "apps/api"}}
                  :main-opts ["-m" "api.server"]}}}

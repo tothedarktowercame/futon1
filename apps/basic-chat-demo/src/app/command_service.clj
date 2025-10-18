@@ -1,13 +1,16 @@
 (ns app.command-service
   "Shared command operations used by both the CLI slash handler and the API runtime."
   (:require [app.store :as store]
+            [app.focus :as focus]
+            [datascript.core :as d]
             [app.store-manager :as store-manager]
             [clojure.string :as str]
             [graph-memory.main :as gm]
             [graph-memory.me-profile :as me-profile]
             [graph-memory.types-registry :as types]
             [xtdb.api :as xta]
-            [app.xt :as xtcompat]))
+            [app.xt :as xtcompat])
+  (:import [java.util UUID]))
 
 ;; -- Relation/Entity helpers -------------------------------------------------
 
@@ -175,15 +178,17 @@
 
   ctx expects :profile and optionally :query-params.
   The Datascript connection is established via store-manager."
-  [{:keys [profile query-params now conn]}]
+  [{:keys [profile query-params now conn xtdb-node]}]
   (let [profile-name (or profile (store-manager/default-profile))
         conn (or conn (store-manager/conn profile-name))
         manual (store-manager/profile-doc profile-name)
         options (request-options {:query-params (or query-params {})
                                   :manual manual
                                   :now now})
+        node (or xtdb-node (xtcompat/node))
+        db (xta/db node)
         graph (try
-                (me-profile/profile (assoc options :db conn))
+                (me-profile/profile (assoc options :db conn :xt-db db))
                 (catch clojure.lang.ExceptionInfo e
                   (let [status (:status (ex-data e))]
                     (when-not (= 404 status)
@@ -235,6 +240,128 @@
     {:profile profile-name
      :text text
      :generated-at (:generated-at profile-map)}))
+
+(defn ^:private limit-from [ctx]
+  (let [lim (or (:limit ctx)
+                (some-> ctx :query-params :limit))]
+    (-> (or (some-> lim str Long/parseLong) 5)
+        (max 1) (min 50))))
+
+(defn ^:private time-hint-from [ctx]
+  (let [now (:now ctx)]
+    (or (:time-hint ctx)
+        (when-let [days (some-> ctx :query-params :window-days)]
+          (- now (* (Long/parseLong (str days)) 24 60 60 1000)))
+        (- now (* 45 24 60 60 1000))))) ; default 45d
+
+;; ---------- helpers ---------------------------------------------------------
+
+(defn- uuid-or-nil [x]
+  (cond
+    (instance? UUID x) x
+    (string? x) (try (UUID/fromString x) (catch Throwable _ nil))
+    :else nil))
+
+;; (defn- latest-by-attr-ds
+;;   "Return the entity id with the max value of attr in DS."
+;;   [db attr]
+;;   (when db
+;;     (let [q '[:find ?e ?v
+;;               :where [?e ?a ?v]
+;;               [(= ?a attr)]]
+;;           rows (for [[e v] (d/q q db :in '$ ?attr :args [attr])]
+;;                  [e v])]
+;;       (->> rows
+;;            (sort-by (fn [[_ v]] (long (or v 0))) >)
+;;            ffirst))))
+
+(defn- first-ds-entity-of-type
+  [db types]
+  (when db
+    (let [q '[:find ?e ?ls
+              :in $ [?t ...]
+              :where
+              [?e :entity/type ?t]
+              [(get-else $ ?e :relation/last-seen 0) ?ls]]
+          rows (d/q q db types)]
+      (some->> rows (sort-by second >) ffirst))))
+
+(defn- latest-relation-src-ds [db]
+  (when db
+    (let [q '[:find ?src ?ls
+              :where
+              [?r :relation/src ?src]
+              [?r :relation/last-seen ?ls]]
+          rows (d/q q db)]
+      (some->> rows (sort-by second >) ffirst))))
+
+(defn- xt-api []
+  (try (requiring-resolve 'xtdb.api/q) (catch Throwable _ nil)))
+
+(defn- xt-q [xtdb q-map]
+  (when-let [qf (xt-api)]
+    (try (qf xtdb q-map) (catch Throwable _ nil))))
+
+(defn- xt-entity [xtdb eid]
+  (when-let [ef (try (requiring-resolve 'xtdb.api/entity) (catch Throwable _ nil))]
+    (try (ef xtdb eid) (catch Throwable _ nil))))
+
+(defn- first-xt-entity-of-type
+  [xtdb types]
+  (when xtdb
+    (let [q {:find  '[e ls]
+             :where '[[e :entity/type t]
+                      [(get-else e :relation/last-seen 0) ls]]
+             :in    '[t ...]}
+          rows (xt-q xtdb q)]
+      (some->> rows
+               (filter (fn [[e _]]
+                         (some #{(:entity/type (xt-entity xtdb e))} types)))
+               (sort-by second >)
+               ffirst))))
+
+(defn- latest-relation-src-xt [xtdb]
+  (when xtdb
+    (let [q {:find  '[src ls]
+             :where '[[r :relation/src src]
+                      [r :relation/last-seen ls]]}
+          rows (xt-q xtdb q)]
+      (some->> rows (sort-by second >) ffirst))))
+
+;; ---------- public ----------------------------------------------------------
+
+(defn resolve-me-id
+  "Resolve the UUID of the 'me' entity for this ctx.
+   Order:
+   1) ctx :me/id
+   2) XT mapping on profile: (:profile/id) -> :profile/me-id
+   3) DS entity of type :i or :me (most recent)
+   4) XT entity of type :i or :me (most recent)
+   5) src of most recent relation (DS, then XT)
+   Returns UUID or nil."
+  [ctx]
+  (let [explicit (uuid-or-nil (:me/id ctx))]
+    (or explicit
+        ;; 2) XT profile mapping
+        (let [xtdb (:xt/db ctx)
+              pid  (or (:profile/id ctx)
+                       (some-> (:profile ctx) str/trim not-empty))]
+          (when (and xtdb pid)
+            (let [q {:find  '[me-id]
+                     :in    '[pid]
+                     :where '[[p :profile/id pid]
+                              [p :profile/me-id me-id]]}
+                  rows (xt-q xtdb q)]
+              (some-> rows ffirst uuid-or-nil))))
+        ;; 3) DS :i / :me (most recent)
+        (some-> (first-ds-entity-of-type (:ds/db ctx) [:i :me]) uuid-or-nil)
+        ;; 4) XT :i / :me (most recent)
+        (some-> (first-xt-entity-of-type (:xt/db ctx) [:i :me]) uuid-or-nil)
+        ;; 5) latest relation src (DS then XT)
+        (some-> (latest-relation-src-ds (:ds/db ctx)) uuid-or-nil)
+        (some-> (latest-relation-src-xt (:xt/db ctx)) uuid-or-nil))))
+
+;; apps/api/src/api/handlers/me.clj
 
 ;; -- Types helpers -----------------------------------------------------------
 

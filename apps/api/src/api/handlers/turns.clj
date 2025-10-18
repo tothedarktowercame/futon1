@@ -1,5 +1,6 @@
 (ns api.handlers.turns
-  (:require [app.context :as context]
+  (:require [api.util.http :as http]
+            [app.context :as context]
             [app.header :as header]
             [app.store :as store]
             [xtdb.api :as xta]
@@ -66,6 +67,14 @@
                    :state (assoc configured :pronouns pronouns)}]
           (swap! !contexts assoc key ctx)
           ctx))))
+
+(defn warm-profile!
+  "Ensure the default protocol context is initialised for profile."
+  [profile]
+  (try
+    (ensure-context profile default-protocol)
+    (catch Throwable _
+      nil)))
 
 (defn- normalize-text [text]
   (some-> text str str/trim not-empty))
@@ -135,35 +144,39 @@
 ;; --- REPLACED: robust process-turn! with open-world fallback ----------------
 
 (defn- safe-db
-  "Return an XTDB db snapshot for node. If node is closing, reacquire node and snapshot."
+  "Return an XTDB db snapshot for node. If node is nil or closing, reacquire."
   [node]
-  (try
-    (xta/db node)
-    (catch IllegalStateException _
-    ;; Fallback: grab a fresh node from your app.xt singleton and take a db from it.
-      (xta/db (xt/node)))))
+  (let [node' (or node (xt/node))]
+    (try
+      (xta/db node')
+      (catch IllegalStateException _
+        (xta/db (xt/node))))))
 
 (defn process-turn!
   [request body]
-  (let [profile (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
-                    (store-manager/default-profile))
+  (let [{:keys [ctx]} request
+        profile (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
+                    (:default-profile ctx))
         protocol-id (or (some-> (:protocol body) str/trim not-empty)
                         default-protocol)
-        ctx (ensure-context profile protocol-id)
+        turn-ctx (ensure-context profile protocol-id)
         text (normalize-text (:text body))]
     (when-not text
       (throw (ex-info "Missing text" {:status 400})))
     (let [ts        (or (parse-ts (:ts body)) (System/currentTimeMillis))
-          {:keys [state entry]} ctx
+          {:keys [state entry]} turn-ctx
           handler   (:handle entry)
           conn      (store-manager/conn profile)
-          env-now   (assoc (store-manager/env profile) :now ts)
+          env-now   (assoc (:env ctx) :now ts)
           options   (context-options request)
-          xt-node   (:xtdb-node request)
+          xt-node   (:xtdb-node ctx)
           ;; --- TAKE ONE SNAPSHOT SAFELY AND REUSE IT ---
           xt-db     (safe-db xt-node)
 
           result    (handler state text ts)
+          _         (println (format "--- TURNS: Extracted %d entities, %d relations"
+                                     (count (:entities result))
+                                     (count (:relations result))))
           ensured   (ensure-entities! conn env-now (:entities result))
           rels      (persist-relations! conn env-now ensured (:relations result))
           anchors   (->> ensured vals (remove nil?) vec)
@@ -171,7 +184,7 @@
 
           ;; context: pass xt-db (snapshot)
           context-lines (context/enrich-with-neighbors
-                         xt-db @conn (:entities result)
+                         xt-db conn (:entities result)
                          (assoc options
                                 :anchors anchors
                                 :timestamp ts))
@@ -185,28 +198,37 @@
                :turn-id ts
                :policy {:focus-days  (:focus-days options)
                         :allow-works? (:allow-works? options)}
-               :focus-limit 10})]
+               :focus-limit 10
+               :conn conn})]
       {:turn_id ts
        :entities  (->> ensured vals (map #(select-keys % [:id :name :type :seen-count :last-seen :pinned?])) vec)
        :relations (mapv #(select-keys % [:id :type :src :dst :confidence :last-seen]) rels)
        :intent    (:intent result)
-       :focus_header fh
+      :focus_header fh
        :context   context-lines})))
 
 ;; ----------------------------------------------------------------------------
 
 (defn current-focus-header
   [request]
-  (let [profile (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
-                    (store-manager/default-profile))
+  (let [{:keys [ctx]} request
+        profile (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
+                    (:default-profile ctx))
         options (context-options request)
         anchors (store-manager/current-anchors profile)
         now (System/currentTimeMillis)
-        fh (header/focus-header (:xtdb-node request) {:anchors anchors
-                                                      :time now
-                                                      :turn-id now
-                                                      :policy {:focus-days (:focus-days options)
-                                                               :allow-works? (:allow-works? options)}
-                                                      :focus-limit 10})]
+        fh (header/focus-header (:xtdb-node ctx) {:anchors anchors
+                                                  :time now
+                                                  :turn-id now
+                                                  :policy {:focus-days (:focus-days options)
+                                                           :allow-works? (:allow-works? options)}
+                                                  :focus-limit 10
+                                                  :conn (store-manager/conn profile)})]
     {:profile profile
      :focus_header fh}))
+
+(defn process-turn-handler [request]
+  (http/ok-json (process-turn! request (:body request))))
+
+(defn current-focus-header-handler [request]
+  (http/ok-json (current-focus-header request)))

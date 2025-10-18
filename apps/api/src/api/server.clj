@@ -1,33 +1,40 @@
 (ns api.server
   (:require [cheshire.core :as json]
             [clojure.string :as str]
+            [clojure.stacktrace :as st]
             [api.handlers.graph :as graph]
             [api.handlers.me :as me]
             [api.handlers.turns :as turns]
             [api.handlers.types :as types]
-            [app.store-manager :as store-manager])
-  (:import (com.sun.net.httpserver HttpExchange HttpHandler HttpServer)
-           (java.net InetSocketAddress URLDecoder)
-           (java.nio.charset StandardCharsets)
-           (java.util.concurrent Executors)))
+            [app.store-manager :as store-manager]
+            [datascript.core :as d]
+            [app.xt :as xt]
+            [ring.adapter.jetty :as jetty]
+            [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
+            [ring.middleware.reload :refer [wrap-reload]]
+            [ring.middleware.params :refer [wrap-params]]
+            [api.middleware.context :refer [wrap-context]]
+            [api.middleware.qparams :refer [wrap-query-ctx]]
+            [app.config :as cfg]
+            ;[api.middleware.errors :refer [wrap-exceptions]]
+            ;[api.middleware.logging :refer [logging-wrapper]]
+            ;[api.middleware.version :refer [wrap-api-version]]
+            [api.routes :refer [dispatch]]))
 
 (def api-version "α")
 
 (defonce ^:private !server (atom nil))
 
-(defn- read-body [request]
-  (if-let [body (:body request)]
-    (slurp body)
-    ""))
-
-(defn- parse-json-body [request]
-  (let [raw (read-body request)]
-    (if (str/blank? raw)
-      {}
-      (try
-        (json/parse-string raw true)
-        (catch Exception _
-          (throw (ex-info "Invalid JSON" {:status 400})))))))
+(defn- logging-wrapper [handler]
+  (fn [request]
+    (try
+      (handler request)
+      (catch Throwable t
+        (println "--- CATASTROPHIC ERROR ---")
+        (.printStackTrace t)
+        {:status 500
+         :headers {"Content-Type" "application/json"}
+         :body "{\"error\": \"internal server error - see server logs\"}"}))))
 
 (defn- json-response
   ([data]
@@ -35,7 +42,7 @@
   ([data status]
    {:status status
     :headers {"Content-Type" "application/json"}
-    :body (json/generate-string data)}))
+    :body data}))
 
 (defn- text-response
   ([text]
@@ -64,70 +71,23 @@
     (try
       (handler request)
       (catch clojure.lang.ExceptionInfo e
+        (println "--- ERROR ---")
+        (println (ex-message e))
+        (st/print-stack-trace e)
         (let [status (or (:status (ex-data e)) 400)]
           (add-api-version (json-response {:error (ex-message e)} status))))
       (catch Exception e
+        (println "--- ERROR ---")
+        (println (.getMessage e))
+        (st/print-stack-trace e)
         (add-api-version (json-response {:error "internal error"} 500))))))
 
 (defn- not-found [_]
   (-> (json-response {:error "not found"} 404)
       add-api-version))
 
-(defn- parse-query-params [qs]
-  (if (str/blank? qs)
-    {}
-    (into {}
-          (for [part (str/split qs #"&") :when (seq part)]
-            (let [[k v] (str/split part #"=" 2)]
-              [(URLDecoder/decode k "UTF-8")
-               (when v (URLDecoder/decode v "UTF-8"))])))))
-
-(defn- exchange->request [^HttpExchange exchange]
-  (let [uri (.getRequestURI exchange)
-        headers (.getRequestHeaders exchange)]
-    {:server-port (.getPort (.getLocalAddress exchange))
-     :server-name (.getHostString (.getLocalAddress exchange))
-     :remote-addr (.getHostString (.getRemoteAddress exchange))
-     :uri (.getPath uri)
-     :query-string (.getRawQuery uri)
-     :query-params (parse-query-params (.getRawQuery uri))
-     :scheme :http
-     :request-method (keyword (str/lower-case (.getRequestMethod exchange)))
-     :protocol (.getProtocol exchange)
-     :headers (into {}
-                    (for [entry (.entrySet headers)]
-                      [(str/lower-case (str (key entry))) (first (val entry))]))
-     :body (.getRequestBody exchange)}))
-
-(defn- write-response! [^HttpExchange exchange {:keys [status headers body]}]
-  (let [status-code (or status 200)
-        response-headers (.getResponseHeaders exchange)
-        body-bytes (cond
-                     (nil? body) (.getBytes "" StandardCharsets/UTF_8)
-                     (string? body) (.getBytes ^String body StandardCharsets/UTF_8)
-                     (instance? (class (byte-array 0)) body) body
-                     :else (.getBytes (str body) StandardCharsets/UTF_8))]
-    (doseq [[k v] (or headers {})]
-      (.set response-headers k v))
-    (.sendResponseHeaders exchange status-code (count body-bytes))
-    (with-open [out (.getResponseBody exchange)]
-      (.write out body-bytes))))
-
-(defn- start-http-server [handler port]
-  (let [server (HttpServer/create (InetSocketAddress. port) 0)
-        executor (Executors/newCachedThreadPool)]
-    (.createContext server "/" (reify HttpHandler
-                                  (handle [_ exchange]
-                                    (let [request (exchange->request exchange)
-                                          response (handler request)]
-                                      (write-response! exchange response)))))
-    (.setExecutor server executor)
-    (.start server)
-    {:server server
-     :executor executor}))
-
 (defn- turn-handler [request]
-  (let [body (parse-json-body request)
+  (let [body (:body request)
         result (turns/process-turn! request body)]
     (json-response result)))
 
@@ -135,26 +95,25 @@
   (json-response (turns/current-focus-header request)))
 
 (defn- me-get-handler [request]
-  (json-response (me/fetch! request)))
+  (json-response (me/fetch request)))
 
 (defn- me-post-handler [request]
-  (let [body (parse-json-body request)
+  (let [body (:body request)
         result (me/upsert! request body)]
     (json-response result)))
 
 (defn- me-summary-handler [request]
-  (let [limit (safe-int (get-in request [:query-params "limit_chars"]))
-        {:keys [profile text]} (me/summary request (or limit 2000))]
+  (let [{:keys [profile text]} (me/summary request)]
     (text-response text 200 (cond-> {}
                               profile (assoc "X-Profile" profile)))))
 
 (defn- entity-handler [request]
-  (let [body (parse-json-body request)
+  (let [body (:body request)
         result (graph/ensure-entity! request body)]
     (json-response result)))
 
 (defn- relation-handler [request]
-  (let [body (parse-json-body request)
+  (let [body (:body request)
         result (graph/upsert-relation! request body)]
     (json-response result)))
 
@@ -162,64 +121,74 @@
   (json-response (types/list-types request)))
 
 (defn- types-parent-handler [request]
-  (let [body (parse-json-body request)
+  (let [body (:body request)
         result (types/set-parent! request body)]
     (json-response result)))
 
 (defn- types-merge-handler [request]
-  (let [body (parse-json-body request)
+  (let [body (:body request)
         result (types/merge-aliases! request body)]
     (json-response result)))
+
+(def ^:private help-doc
+  {:commands ["/me         - Render the profile summary"
+              "/me doc     - Show the raw profile document"
+              "/help       - Show this help message"]})
+
+(defn- help-handler [_]
+  (json-response help-doc))
 
 (defn- canonical-path [path]
   (if (str/starts-with? path "/api/alpha")
     (str "/api/α" (subs path (count "/api/alpha")))
     path))
 
-(defn- dispatch [request]
-  (let [path (canonical-path (:uri request))
-        method (:request-method request)]
-    (case [method path]
-      [:post "/api/α/turns"] (turn-handler request)
-      [:get "/api/α/focus-header"] (focus-header-handler request)
-      [:get "/api/α/me"] (me-get-handler request)
-      [:post "/api/α/me"] (me-post-handler request)
-      [:get "/api/α/me/summary"] (me-summary-handler request)
-      [:post "/api/α/entity"] (entity-handler request)
-      [:post "/api/α/relation"] (relation-handler request)
-      [:get "/api/α/types"] (types-handler request)
-      [:post "/api/α/types/parent"] (types-parent-handler request)
-      [:post "/api/α/types/merge"] (types-merge-handler request)
-      (not-found request))))
+(defn app [ctx]
+  (-> #'dispatch
+      wrap-api-version
+      wrap-json-response
+      (wrap-json-body {:keywords? true})
+      wrap-params                 ;; <-- add this
+      (wrap-context ctx)          ;; <-- runs after params so handlers see :query-params
+      wrap-query-ctx
+      wrap-exceptions))
 
-(defn- handler []
-  (-> dispatch
-      wrap-exceptions
-      wrap-api-version))
+(defn app-dev [ctx]
+  (-> (app ctx)
+      wrap-reload
+      logging-wrapper))
+
+(defn- build-context [opts]
+  (let [sm-ctx (store-manager/start! opts)
+        xtdb-node (xt/node)
+        profile (:profile sm-ctx)]
+    (turns/warm-profile! profile)
+    (assoc sm-ctx :xtdb-node xtdb-node)))
+
+(defn init! []
+  (when (true? (:warmup/enable? (cfg/config)))
+    (try
+      (turns/warm-profile! {:k (:warmup/focus-k (cfg/config))})
+      (catch Throwable t
+        (println "[warmup] non-fatal:" (.getMessage t))))))
 
 (defn start!
-  ([] (start! {}))
   ([opts]
    (let [port (or (:port opts)
                   (some-> (System/getenv "ALPHA_PORT") safe-int)
                   8080)
-         config (select-keys opts [:data-root :snapshot-every :xtdb :default-profile])]
-     (if (seq config)
-       (store-manager/configure! config)
-       (store-manager/config))
-     (let [{:keys [server executor]} (start-http-server (handler) port)
-           actual-port (.getPort (.getAddress ^HttpServer server))]
-       (reset! !server {:server server
-                        :executor executor
-                        :port actual-port})
-       {:port actual-port
-        :server server}))))
+         ctx (build-context (select-keys opts [:data-root :snapshot-every :xtdb :default-profile]))
+         server (jetty/run-jetty (app-dev ctx) {:port port :join? false})
+         actual-port (-> server .getURI .getPort)]
+     (init!)
+     (reset! !server {:server server
+                      :port actual-port})
+     {:port actual-port
+      :server server})))
 
 (defn stop! []
-  (when-let [{:keys [server executor]} @!server]
-    (.stop ^HttpServer server 0)
-    (when executor
-      (.shutdownNow ^java.util.concurrent.ExecutorService executor))
+  (when-let [{:keys [server]} @!server]
+    (.stop server)
     (reset! !server nil))
   (store-manager/shutdown!)
   :stopped)
@@ -227,7 +196,6 @@
 (defn -main [& _]
   (let [port-env (or (some-> (System/getenv "ALPHA_PORT") safe-int) 8080)
         profile (or (System/getenv "ALPHA_PROFILE") "default")]
-    (store-manager/configure! {:default-profile profile})
-    (let [{:keys [port server]} (start! {:port port-env})]
+    (let [{:keys [port server]} (start! {:port port-env :default-profile profile})]
       (println (format "headless API listening on %d" port))
       @(promise))))

@@ -116,11 +116,36 @@
   [id]
   (delete-doc! id))
 
+(def ^:private datasource-classes
+  (delay
+   (keep (fn [class-name]
+           (try (Class/forName class-name)
+                (catch Throwable _ nil)))
+         ["xtdb.api.XtdbDatasource"
+          "xtdb.api.IXtdbDatasource"
+          "xtdb.api.query.XtdbDatasource"
+          "xtdb.query.QueryDatasource"])))
+
+(defn- xtdb-datasource? [x]
+  (boolean
+   (some #(instance? % x)
+         @datasource-classes)))
+
 (defn q
+  "Convenience wrapper around `xt/q`.
+   - With a single query argument, runs it against the shared node.
+   - When the first argument is an XT datasource (e.g. `(xt/db node)`),
+     delegates directly to `xt/q` using that datasource."
   ([query]
    (xt/q (xt/db (ensure-node)) query))
-  ([query & inputs]
-   (apply xt/q (xt/db (ensure-node)) query inputs)))
+  ([x y]
+   (if (xtdb-datasource? x)
+     (xt/q x y)
+     (xt/q (xt/db (ensure-node)) x y)))
+  ([x y & more]
+   (if (xtdb-datasource? x)
+     (apply xt/q x y more)
+     (apply xt/q (xt/db (ensure-node)) x y more))))
 
 (defn entity
   ([eid]

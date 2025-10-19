@@ -33,7 +33,7 @@
 (def ^:dynamic *wordnet
   "Return a seq of sense maps or []: (*wordnet \"dog\" :noun) => [{:gloss \"...\"} ...].
    Default: no-op empty result; swap in clj-wordnet in v3."
-  (fn [word pos] []))
+  (fn [_word _pos] []))
 
 ;; -----------------------------------------------------------------------------
 ;; Emergent type derivation (evidence thresholding lives in gm/bump-type!)
@@ -113,10 +113,7 @@
 ;; -----------------------------------------------------------------------------
 ;; Example REPL session (commented)
 (comment
-  (require '[v2.graph-memory :as gm] :reload)
-  (require '[v2.nlp-interface :as nlp] :reload)
-
-  (nlp/answer "Met Serena at PatCon 30 and talked about Graph Memory.")
+  (answer "Met Serena at PatCon 30 and talked about Graph Memory.")
   ;; => "noted. you mentioned: Met{Word?,Capitalized?}, Serena{Person?,Word?,Capitalized?}, PatCon{Person?,Word?,Capitalized?}."
 
   (gm/save! "graph.edn")

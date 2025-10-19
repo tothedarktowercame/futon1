@@ -3,44 +3,11 @@
             [app.context :as context]
             [app.header :as header]
             [app.store :as store]
-            [xtdb.api :as xta]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.string :as str]
-            [app.store-manager :as store-manager]
-            [protocols.registry :as registry]))
-
-;; --- NEW: dynamic extractor resolution + wrapper -----------------------------
-
-(def ^:private extractor-candidates
-  ;; Try these in order; the first one found will be used.
-  ;; Adjust/add your real extractor symbol if you know it.
-  ['nlp.interface/extract
-   'app.nlp/extract
-   'nlp_interface.core/extract
-   'nlp_interface.extract/extract])
-
-(defn- resolve-extractor []
-  (some (fn [sym]
-          (try
-            (requiring-resolve sym)
-            (catch Throwable _ nil)))
-        extractor-candidates))
-
-(defn- run-open-world-extract
-  "Attempt open-world extraction; returns {:entities [] :relations []} even on failure."
-  [text]
-  (let [xf (resolve-extractor)]
-    (if-not xf
-      {:entities [] :relations []}
-      (try
-        (let [raw (xf text {:min-conf 0.0
-                            :return-ner? true
-                            :return-openie? true})
-              ents (vec (or (:entities raw) (:ner raw) []))
-              rels (vec (or (:relations raw) (:triples raw) []))]
-          {:entities ents :relations rels})
-        (catch Throwable _
-          {:entities [] :relations []})))))
+            [protocols.registry :as registry]
+            [xtdb.api :as xta]))
 
 ;; ----------------------------------------------------------------------------
 
@@ -53,8 +20,8 @@
       (throw (ex-info (str "Unknown protocol " protocol-id) {:protocol protocol-id}))))
 
 (defn- ensure-context [profile protocol-id]
-  (let [key [profile protocol-id]]
-    (or (get @!contexts key)
+  (let [cache-key [profile protocol-id]]
+    (or (get @!contexts cache-key)
         (let [entry (fetch-entry protocol-id)
               base ((:init entry))
               configured (if-let [configure (:configure entry)]
@@ -65,7 +32,7 @@
                         :we (store-manager/profile-collective-name profile)}
               ctx {:entry entry
                    :state (assoc configured :pronouns pronouns)}]
-          (swap! !contexts assoc key ctx)
+          (swap! !contexts assoc cache-key ctx)
           ctx))))
 
 (defn warm-profile!
@@ -88,11 +55,11 @@
     :else nil))
 
 (defn- entity-spec [entity]
-  (let [name (normalize-text (:name entity))
-        type (:type entity)]
-    (when name
-      {:name name
-       :type type})))
+  (let [entity-name (normalize-text (:name entity))
+        entity-type (:type entity)]
+    (when entity-name
+      {:name entity-name
+       :type entity-type})))
 
 (defn- ensure-entities! [conn env-now entities]
   (reduce (fn [acc entity]
@@ -104,17 +71,17 @@
           entities))
 
 (defn- relation-spec [ensured rel]
-  (let [{:keys [type src dst]} rel
-        src-name (normalize-text src)
-        dst-name (normalize-text dst)]
-    (when (and type src-name dst-name)
+  (let [relation-type (:type rel)
+        src-name (normalize-text (:src rel))
+        dst-name (normalize-text (:dst rel))]
+    (when (and relation-type src-name dst-name)
       (let [src-ref (or (some-> (get ensured src-name)
                                 (select-keys [:id :name :type]))
                         {:name src-name})
             dst-ref (or (some-> (get ensured dst-name)
                                 (select-keys [:id :name :type]))
                         {:name dst-name})]
-        {:type type
+        {:type relation-type
          :src src-ref
          :dst dst-ref}))))
 

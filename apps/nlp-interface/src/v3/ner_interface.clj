@@ -1,9 +1,13 @@
+(ns v3.ner-interface
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]))
+
 (defn load-gazetteer []
   {:person (set (edn/read-string (slurp "resources/gazetteer/people.edn")))
    :place  (set (edn/read-string (slurp "resources/gazetteer/places.edn")))})
 
 (defn ner [{:keys [tokens pos]} gaz]
-  (letfn [(is-proper? [[tok p]] (#{:NNP :NNPS} p))
+  (letfn [(is-proper? [[_token p]] (#{:NNP :NNPS} p))
           (merge-nnps [toks] ;; group contiguous proper nouns
             (->> toks
                  (partition-by (comp is-proper? vector))

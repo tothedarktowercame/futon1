@@ -28,11 +28,18 @@
    ["/types/parent" {:post types/set-parent-handler}]
    ["/types/merge" {:post types/merge-aliases-handler}]])
 
+(def ^:private versioned-prefixes
+  ["/api/α"
+   "/api/%CE%B1"
+   "/api/%ce%b1"
+   "/api/alpha"])
+
 (def router
   (ring/router
-   [["/api" shared-routes]
-    ["/api/α" shared-routes]
-    ["/api/alpha" shared-routes]]))
+   (into [["/api" shared-routes]]
+         (map (fn [prefix]
+                [prefix shared-routes])
+              versioned-prefixes))))
 
 (def dispatch
   (ring/ring-handler

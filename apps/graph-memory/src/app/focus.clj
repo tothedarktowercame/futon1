@@ -1,11 +1,11 @@
 (ns app.focus
-  (:require [app.xt :as xt]
-            [app.store :as store]
+  (:require [app.store :as store]
+            [app.xt :as xt]
             [clojure.math :as math]
             [clojure.set :as set]
             [datascript.core :as d]
             [graph-memory.types-registry :as types]
-            [xtdb.api :as xtdb]))
+            [xtdb.api :as xta]))
 
 (def default-allowed-types
   "Default set of entity types that the focus heuristics consider eligible."
@@ -38,61 +38,59 @@
   ([db] (->> (store/latest-by-attr db :relation/last-seen 20) set))
   ([db entity-id] (if entity-id #{entity-id} (ds-activated-ids db))))
 
+(defn ^:private ->db [node-or-db]
+  (cond
+    (nil? node-or-db) nil
+    (satisfies? xta/DBProvider node-or-db) (xta/db node-or-db)
+    :else node-or-db))
+
 (defn xt-neighbor-rows-for-ids
-  "Query XT for neighbors touching any eid in `seed-ids`.
-   Returns rows shaped for scoring + printing:
-   {:relation kw
-    :direction :out|:in
-    :neighbor {:id uuid :name str :type kw}
-    :confidence double?
-    :last-seen long?
-    :subject str? :object str? :provenance map?}"
-  [xt-db seed-ids]
-  (let [out-q
-        '[:find (pull ?r [:relation/type :relation/confidence :relation/last-seen
-                          :relation/subject :relation/object :relation/provenance])
-          (pull ?n [:entity/id :entity/name :entity/type])
-          :in $ [?eid ...]
-          :where
-          [?r :relation/src ?eid]
-          [?r :relation/dst ?n]]
-
-        in-q
-        '[:find (pull ?r [:relation/type :relation/confidence :relation/last-seen
-                          :relation/subject :relation/object :relation/provenance])
-          (pull ?n [:entity/id :entity/name :entity/type])
-          :in $ [?eid ...]
-          :where
-          [?r :relation/dst ?eid]
-          [?r :relation/src ?n]]
-
-        outs (if (seq seed-ids) (xt/q out-q seed-ids) [])
-        ins  (if (seq seed-ids) (xt/q in-q  seed-ids) [])]
-    (concat
-     (map (fn [[r n]]
-            {:relation   (:relation/type r)
-             :direction  :out
-             :neighbor   {:id (:entity/id n)
-                          :name (:entity/name n)
-                          :type (:entity/type n)}
-             :confidence (:relation/confidence r)
-             :last-seen  (:relation/last-seen r)
-             :subject    (:relation/subject r)
-             :object     (:relation/object r)
-             :provenance (:relation/provenance r)})
-          outs)
-     (map (fn [[r n]]
-            {:relation   (:relation/type r)
-             :direction  :in
-             :neighbor   {:id (:entity/id n)
-                          :name (:entity/name n)
-                          :type (:entity/type n)}
-             :confidence (:relation/confidence r)
-             :last-seen  (:relation/last-seen r)
-             :subject    (:relation/subject r)
-             :object     (:relation/object r)
-             :provenance (:relation/provenance r)})
-          ins))))
+  [node-or-db seed-ids]
+  (let [db (->db node-or-db)
+        out-q '[:find (pull ?r [:relation/type :relation/confidence :relation/last-seen
+                                :relation/subject :relation/object :relation/provenance])
+                (pull ?n [:entity/id :entity/name :entity/type])
+                :in $ [?eid ...]
+                :where
+                [?r :relation/src ?eid]
+                [?r :relation/dst ?n]]
+        in-q  '[:find (pull ?r [:relation/type :relation/confidence :relation/last-seen
+                                :relation/subject :relation/object :relation/provenance])
+                (pull ?n [:entity/id :entity/name :entity/type])
+                :in $ [?eid ...]
+                :where
+                [?r :relation/dst ?eid]
+                [?r :relation/src ?n]]
+        ;; REALIZE the results coming from XTDB:
+        outs (if (and db (seq seed-ids)) (vec (xta/q db out-q seed-ids)) [])
+        ins  (if (and db (seq seed-ids)) (vec (xta/q db in-q  seed-ids)) [])]
+    ;; Build eager results too (mapv, not map)
+    (into []
+          (concat
+           (mapv (fn [[r n]]
+                   {:relation   (:relation/type r)
+                    :direction  :out
+                    :neighbor   {:id (:entity/id n)
+                                 :name (:entity/name n)
+                                 :type (:entity/type n)}
+                    :confidence (:relation/confidence r)
+                    :last-seen  (:relation/last-seen r)
+                    :subject    (:relation/subject r)
+                    :object     (:relation/object r)
+                    :provenance (:relation/provenance r)})
+                 outs)
+           (mapv (fn [[r n]]
+                   {:relation   (:relation/type r)
+                    :direction  :in
+                    :neighbor   {:id (:entity/id n)
+                                 :name (:entity/name n)
+                                 :type (:entity/type n)}
+                    :confidence (:relation/confidence r)
+                    :last-seen  (:relation/last-seen r)
+                    :subject    (:relation/subject r)
+                    :object     (:relation/object r)
+                    :provenance (:relation/provenance r)})
+                 ins)))))
 
 (defn- now-ms [] (System/currentTimeMillis))
 
@@ -118,7 +116,7 @@
 
 (defn- fetch-entity
   [db eid]
-  (some-> (xtdb/entity db eid)
+  (some-> (xta/entity db eid)
           (select-keys [:entity/id :entity/name :entity/type :entity/last-seen :entity/seen-count :entity/pinned?])
           coalesce-entity))
 
@@ -191,6 +189,8 @@
                          (sort-by (comp - :score)))
          result (if k-e (take k-e candidates) candidates)]
      (vec result))))
+
+(def ^:dynamic *focus-candidates* focus-candidates)
 
 (defn- neighbor-score
   [now focus-window-ms {:keys [confidence last-seen]}]
@@ -311,3 +311,4 @@
              (take k)
              vec)))))
 
+(def ^:dynamic *top-neighbors* top-neighbors)

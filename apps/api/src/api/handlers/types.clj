@@ -25,7 +25,8 @@
   (when-not (map? body)
     (throw (ex-info "Payload must be an object" {:status 400})))
   (let [doc (commands/set-type-parent! body)]
-    (assoc doc :lines (fmt/types-lines {:types [doc]}))))
+    {:type doc
+     :lines (fmt/types-lines {:types [doc]})}))
 
 (defn set-parent-handler [request]
   (http/ok-json (set-parent! request (:body request))))
@@ -34,7 +35,8 @@
   (when-not (map? body)
     (throw (ex-info "Payload must be an object" {:status 400})))
   (let [doc (commands/merge-aliases! body)]
-    (assoc doc :lines (fmt/types-lines {:types [doc]}))))
+    {:type doc
+     :lines (fmt/types-lines {:types [doc]})}))
 
 (defn merge-aliases-handler [request]
   (http/ok-json (merge-aliases! request (:body request))))

@@ -1,8 +1,8 @@
 (ns app.slash
-  (:require [app.command-service :as svc]
+  (:require [app.bang :as bang]
+            [app.command-service :as svc]
             [app.slash.format :as fmt]
             [app.xt :as xt]
-            [app.bang :as bang]
             [clojure.edn :as edn]
             [clojure.string :as str]))
 
@@ -90,7 +90,7 @@
       (let [limit (if (= "summary" sub) (some-> (first rest) parse-int) nil)]
         (safe-exec #(fmt/profile-summary-lines (svc/profile-summary svc-ctx limit)))))))
 
-(defn- types-section [conn opts arg]
+(defn- types-section [conn arg]
   (let [[sub & rest] (->> (str/split arg #"\s+")
                           (remove str/blank?))
         sub (some-> sub str/lower-case)]
@@ -110,9 +110,6 @@
                                        (apply concat)
                                        (sort-by :id))]
                     (fmt/types-lines {:types all-types}))))))
-
-(defn- tail-section [relations]
-  (fmt/tail-lines relations))
 
 (defn- ego-section [conn name]
   (if (str/blank? name)
@@ -162,6 +159,6 @@
             "entity"   {:message (entity-section conn opts arg)}
             "relation" {:message (relation-section conn opts arg)}
             "me"       {:message (me-section conn opts arg)}
-            "types"    {:message (types-section conn opts arg)}
+            "types"    {:message (types-section conn arg)}
             "help"     {:message help-lines}
             {:message (str "unknown command: /" cmd)}))))))  ;; keep the slash in error text

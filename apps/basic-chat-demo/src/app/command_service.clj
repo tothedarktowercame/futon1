@@ -1,15 +1,14 @@
 (ns app.command-service
   "Shared command operations used by both the CLI slash handler and the API runtime."
   (:require [app.store :as store]
-            [app.focus :as focus]
-            [datascript.core :as d]
             [app.store-manager :as store-manager]
+            [app.xt :as xtcompat]
             [clojure.string :as str]
+            [datascript.core :as d]
             [graph-memory.main :as gm]
             [graph-memory.me-profile :as me-profile]
             [graph-memory.types-registry :as types]
-            [xtdb.api :as xta]
-            [app.xt :as xtcompat])
+            [xtdb.api :as xta])
   (:import [java.util UUID]))
 
 ;; -- Relation/Entity helpers -------------------------------------------------
@@ -392,7 +391,7 @@
 
 (defn list-types
   "Return the registered entity/relation types grouped by kind."
-  [conn]
+  [_conn]
   (let [docs (:docs (types/load-cache!))]
     {:types {:entity (sort-docs docs :entity)
              :relation (sort-docs docs :relation)

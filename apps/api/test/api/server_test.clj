@@ -1,5 +1,6 @@
 (ns api.server-test
   (:require [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [api.server :as server]
@@ -84,8 +85,22 @@
             (let [resp (get-request client (format "http://localhost:%d/api/α/me/summary" port))]
                 (is (= 200 (:status resp)))
                 (is (= "α" (get-in resp [:headers "x-api-version"])))
+              (is (contains? #{"text/plain; charset=utf-8" "text/plain;charset=utf-8"}
+                             (get-in resp [:headers "content-type"])))
+              (is (= profile (get-in resp [:headers "x-profile"])))
               (is (pos? (count (:body resp))))
               (is (<= (count (:body resp)) 2000))))
+
+          (testing "profile summary exposes structured EDN when requested"
+            (let [resp (get-request client (format "http://localhost:%d/api/α/me/summary?format=edn" port))
+                  parsed (edn/read-string (:body resp))]
+              (is (= 200 (:status resp)))
+              (is (= "α" (get-in resp [:headers "x-api-version"])))
+              (is (= "application/edn; charset=utf-8" (get-in resp [:headers "content-type"])))
+              (is (= profile (get-in resp [:headers "x-profile"])))
+              (is (map? parsed))
+              (is (= profile (:profile parsed)))
+              (is (seq (:text parsed)))))
 
           (testing "type registry endpoints"
             (let [types-resp (get-request client (format "http://localhost:%d/api/α/types" port))

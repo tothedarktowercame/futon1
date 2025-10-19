@@ -1,15 +1,13 @@
 (ns app.store-manager
   "Manage Datascript/XTDB resources and per-profile metadata for the headless API."
-  (:require [app.focus :as focus]
+  (:require [app.config :as cfg]
+            [app.focus :as focus]
             [app.store :as store]
             [app.xt :as xt]
-            [app.config :as cfg]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]
-            [graph-memory.me-profile :as me-profile])
-  (:import (java.io PushbackReader)
-           (java.util UUID)))
+            [clojure.string :as str])
+  (:import (java.io PushbackReader)))
 
 (declare profile-doc)
 
@@ -143,13 +141,6 @@
           (some identity aliases))
         (str me " & " you))))
 
-(defn- raw-profile-name [doc profile-id]
-  (let [prefs (me-profile/preferences-from-manual doc)
-        names (:preferred-names prefs)]
-    (or (first names)
-        (some-> profile-id str str/trim not-empty)
-        "Me")))
-
 (defn- ->canonical-state
   "Ensure required keys are present; attach optional XT handles if available."
   [st]
@@ -210,10 +201,6 @@
   ([]
    (ensure-profile! nil)))
 
-(defn ctx
-  ([] (ctx (default-profile)))
-  ([profile] (state->ctx (ensure-profile! profile))))
-
 (defn conn [profile]
   (:conn (ensure-profile! profile)))
 
@@ -239,7 +226,7 @@
         cached @(:last-anchors state)]
     (if (seq cached)
       cached
-      (let [candidates (focus/focus-candidates nil #{} nil 3)
+      (let [candidates (focus/*focus-candidates* nil #{} nil 3)
             top (first candidates)]
         (if top
           (let [entity (:entity top)
@@ -330,7 +317,7 @@
      (state->ctx st))))
 
 (defn diag []
-  (let [{:keys [data-dir config profile profile-dir env]} (current)]
+  (let [{:keys [data-dir config profile profile-dir]} (current)]
     {:ok true
      :data-dir data-dir
      :profile profile

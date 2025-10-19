@@ -2,8 +2,8 @@
   "Classical gazetteer-backed NER with simple relation heuristics."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]
-            [clojure.set :as set]))
+            [clojure.set :as set]
+            [clojure.string :as str]))
 
 (defn- read-resource [path]
   (some-> path io/resource slurp edn/read-string))
@@ -83,9 +83,7 @@
 (defn relations
   "Simple SVO/preposition heuristic returning {:type kw :src name :dst name :prov {...}} maps."
   [{:keys [entities tokens]}]
-  (let [entity-pairs (partition 2 1 entities)
-        base (or (first entity-pairs)
-                  (when (seq entities) [(first entities)]))]
+  (let [entity-pairs (partition 2 1 entities)]
     (cond
       (>= (count entities) 2)
       (let [[src dst] (first entity-pairs)

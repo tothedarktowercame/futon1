@@ -1,6 +1,6 @@
 (ns api.middleware.context
-  (:require [datascript.core :as d]
-            [app.xt :as x]))   ;; your wrapper; has db with 0 or 1 arg
+  (:require [app.xt :as x]     ;; your wrapper; has db with 0 or 1 arg
+            [datascript.core :as d]))
 
 (defn- deref-if [x]
   (cond

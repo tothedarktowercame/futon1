@@ -61,7 +61,7 @@
     :else
     (let [clean-args (remove #{"--http" "--legacy"} args)
           opts (legacy/parse-args clean-args)]
-      (if-let [script (:script opts)]
+      (if-let [_script (:script opts)]
         (do
           (println "futon1 (v6) Legacy Client — script mode")
           (run-protocol-script opts))

@@ -13,11 +13,11 @@
 (defn register-type!
   "Ensure `t` exists in the lattice (optionally with metadata)."
   ([t] (register-type! t nil))
-  ([t meta]
+  ([t metadata]
    (swap! !types
-          (fn [{:keys [subtype-of meta] :as reg}]
+          (fn [{:keys [subtype-of meta]}]
             {:subtype-of (if (contains? subtype-of t) subtype-of (assoc subtype-of t #{}))
-             :meta       (if meta (assoc meta t meta) meta)}))
+             :meta       (if metadata (assoc meta t metadata) meta)}))
    t))
 
 (defn add-subtype!
@@ -48,8 +48,7 @@
   [{:keys [nodes-with-type threshold]} a b]
   (let [as (set (map :id (nodes-with-type a)))
         bs (set (map :id (nodes-with-type b)))
-        overlap (count (set/intersection as bs))
-        cov     (double (/ (max 1 (count as))))]
+        overlap (count (set/intersection as bs))]
     (when (and (pos? (count as))
                (>= overlap (or threshold 3)))
       (add-subtype! a b))))

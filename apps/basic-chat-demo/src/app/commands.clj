@@ -155,7 +155,7 @@
                         :neighbors neighbors}})))))))
 
 (defn runner
-  [line ts state {:keys [conn env profile] :as ctx}]
+  [line _ts state {:keys [conn env profile]}]
   (let [opts   {:profile profile :env env :state state :interactive? true}
         try*   (fn [s] (try (handle conn opts s) (catch Throwable _ nil)))
         out    (or (try* line)                   ;; let handle parse naturally

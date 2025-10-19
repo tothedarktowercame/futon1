@@ -1,27 +1,29 @@
 (ns api.server
-  (:require [cheshire.core :as json]
-            [clojure.string :as str]
-            [clojure.stacktrace :as st]
-            [api.handlers.graph :as graph]
-            [api.handlers.me :as me]
-            [api.handlers.turns :as turns]
-            [api.handlers.types :as types]
-            [app.store-manager :as store-manager]
-            [datascript.core :as d]
-            [app.xt :as xt]
-            [ring.adapter.jetty :as jetty]
-            [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
-            [ring.middleware.reload :refer [wrap-reload]]
-            [ring.middleware.params :refer [wrap-params]]
+  (:require [api.handlers.turns :as turns]
             [api.middleware.context :refer [wrap-context]]
             [api.middleware.qparams :refer [wrap-query-ctx]]
+            [api.routes :refer [dispatch]]
             [app.config :as cfg]
-            ;[api.middleware.errors :refer [wrap-exceptions]]
-            ;[api.middleware.logging :refer [logging-wrapper]]
-            ;[api.middleware.version :refer [wrap-api-version]]
-            [api.routes :refer [dispatch]]))
+            [app.store-manager :as store-manager]
+            [app.xt :as xt]
+            [clojure.stacktrace :as st]
+            [ring.adapter.jetty :as jetty]
+            [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
+            [ring.middleware.params :refer [wrap-params]]
+            ;;[ring.middleware.reload :refer [wrap-reload]]
+            ))
+
+;; remove ring.middleware.reload from ns requires
+
+(defn maybe-wrap-reload [handler]
+  (if-let [wrap-reload (try
+                         (requiring-resolve 'ring.middleware.reload/wrap-reload)
+                         (catch Throwable _ nil))]
+    (wrap-reload handler)
+    handler))
 
 (def api-version "α")
+(def ^:private api-version-header-value "±")
 
 (defonce ^:private !server (atom nil))
 
@@ -44,17 +46,8 @@
     :headers {"Content-Type" "application/json"}
     :body data}))
 
-(defn- text-response
-  ([text]
-   (text-response text 200 {}))
-  ([text status headers]
-   {:status status
-    :headers (merge {"Content-Type" "text/plain; charset=utf-8"}
-                    headers)
-    :body text}))
-
 (defn- add-api-version [resp]
-  (update resp :headers #(assoc (or % {}) "X-API-Version" api-version)))
+  (update resp :headers #(assoc (or % {}) "X-API-Version" api-version-header-value)))
 
 (defn- safe-int [s]
   (when s
@@ -82,80 +75,19 @@
         (st/print-stack-trace e)
         (add-api-version (json-response {:error "internal error"} 500))))))
 
-(defn- not-found [_]
-  (-> (json-response {:error "not found"} 404)
-      add-api-version))
-
-(defn- turn-handler [request]
-  (let [body (:body request)
-        result (turns/process-turn! request body)]
-    (json-response result)))
-
-(defn- focus-header-handler [request]
-  (json-response (turns/current-focus-header request)))
-
-(defn- me-get-handler [request]
-  (json-response (me/fetch request)))
-
-(defn- me-post-handler [request]
-  (let [body (:body request)
-        result (me/upsert! request body)]
-    (json-response result)))
-
-(defn- me-summary-handler [request]
-  (let [{:keys [profile text]} (me/summary request)]
-    (text-response text 200 (cond-> {}
-                              profile (assoc "X-Profile" profile)))))
-
-(defn- entity-handler [request]
-  (let [body (:body request)
-        result (graph/ensure-entity! request body)]
-    (json-response result)))
-
-(defn- relation-handler [request]
-  (let [body (:body request)
-        result (graph/upsert-relation! request body)]
-    (json-response result)))
-
-(defn- types-handler [request]
-  (json-response (types/list-types request)))
-
-(defn- types-parent-handler [request]
-  (let [body (:body request)
-        result (types/set-parent! request body)]
-    (json-response result)))
-
-(defn- types-merge-handler [request]
-  (let [body (:body request)
-        result (types/merge-aliases! request body)]
-    (json-response result)))
-
-(def ^:private help-doc
-  {:commands ["/me         - Render the profile summary"
-              "/me doc     - Show the raw profile document"
-              "/help       - Show this help message"]})
-
-(defn- help-handler [_]
-  (json-response help-doc))
-
-(defn- canonical-path [path]
-  (if (str/starts-with? path "/api/alpha")
-    (str "/api/α" (subs path (count "/api/alpha")))
-    path))
-
 (defn app [ctx]
   (-> #'dispatch
-      wrap-api-version
       wrap-json-response
       (wrap-json-body {:keywords? true})
       wrap-params                 ;; <-- add this
       (wrap-context ctx)          ;; <-- runs after params so handlers see :query-params
       wrap-query-ctx
-      wrap-exceptions))
+      wrap-exceptions
+      wrap-api-version))
 
 (defn app-dev [ctx]
   (-> (app ctx)
-      wrap-reload
+      maybe-wrap-reload
       logging-wrapper))
 
 (defn- build-context [opts]
@@ -188,14 +120,14 @@
 
 (defn stop! []
   (when-let [{:keys [server]} @!server]
-    (.stop server)
+    (.stop ^org.eclipse.jetty.server.Server server)
     (reset! !server nil))
   (store-manager/shutdown!)
   :stopped)
 
 (defn -main [& _]
   (let [port-env (or (some-> (System/getenv "ALPHA_PORT") safe-int) 8080)
-        profile (or (System/getenv "ALPHA_PROFILE") "default")]
-    (let [{:keys [port server]} (start! {:port port-env :default-profile profile})]
-      (println (format "headless API listening on %d" port))
-      @(promise))))
+        profile (or (System/getenv "ALPHA_PROFILE") "default")
+        {:keys [port]} (start! {:port port-env :default-profile profile})]
+    (println (format "headless API listening on %d" port))
+    @(promise)))

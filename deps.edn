@@ -1,12 +1,28 @@
-{:paths ["apps/api/src" "apps/basic-chat-demo/src" "apps/common/src"]
+;; deps.edn (top-level)
+{:paths ["apps/api/src" "apps/basic-chat-demo/src" "apps/common/src" "apps/graph-memory/src" "apps/nlp-interface/src" "apps/open-world-ingest/src"]
  :aliases
  {:api {:deps {api/api {:local/root "apps/api"}}
         :main-opts ["-m" "api.server"]}
+
   :server {:deps {api/api {:local/root "apps/api"}}
            :main-opts ["-m" "api.server"]}
+
   :run-m {:deps {basic-chat-demo/basic-chat-demo {:local/root "apps/basic-chat-demo"}}
           :main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
+
   :dev {:extra-paths ["apps/common/src" "dev"]
         :extra-deps {ring/ring-devel {:mvn/version "1.12.2"}}}
-  :headless-api {:deps {api/api {:local/root "apps/api"}}
-                 :main-opts ["-m" "api.server"]}}}
+
+;; renamed from :lint:eastwood → :eastwood
+  :eastwood
+  {:extra-deps  {jonase/eastwood                 {:mvn/version "1.4.2"}
+                 api/api                         {:local/root "apps/api"}
+                 basic-chat-demo/basic-chat-demo {:local/root "apps/basic-chat-demo"}
+                 graph-memory/graph-memory       {:local/root "apps/graph-memory"}
+                 nlp-interface/nlp-interface     {:local/root "apps/nlp-interface"}
+                 open-world-ingest/open-world-ingest {:local/root "apps/open-world-ingest"}}
+   :main-opts    ["-m" "eastwood.lint"
+                  "{:namespaces [:source-paths]
+                    :linters [:all]
+                    :add-linters [:unused-fn-args :implicit-dependencies :reflection]
+                    :continue-on-exception false}"]}}}

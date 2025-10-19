@@ -1,20 +1,15 @@
 (ns basic-chat-demo.cli
   (:require
-   [app.commands :as commands]
+   [app.cli-runner :as cli-run]
    [app.context :as context]
    [app.header :as header]
    [app.slash :as slash]
-   [app.bang :as bang]
-   [app.store :as store]
    [app.store-manager :as store-manager]
-   [app.cli-runner :as cli-run]
    [app.xt :as xt]
-   [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.stacktrace :as st]
-   [graph-memory.main :as gm]
-   [protocols.registry :as registry]))
+   [graph-memory.main :as gm]))
 
 (def default-protocol "basic-chat/v6")
 (def exit-commands #{":quit" ":exit" "quit" "exit"})
@@ -64,7 +59,7 @@
 
 (defn parse-args [args]
   (loop [opts {:protocol default-protocol}
-         [opt & more :as remaining] args]
+         [opt & more] args]
     (if opt
       (case opt
         "--protocol"
@@ -222,8 +217,8 @@
 
 (defn interactive-loop!
   [{:keys [runner command-handler bang-handler intro-lines after-turn
-           focus-header? focus-header-only? ctx on-exit] :as _opts}]
-  (let [runner          (or runner (fn [line ts & _] {:message (str "echo: " line)}))
+           focus-header? ctx on-exit] :as _opts}]
+  (let [runner          (or runner (fn [line _ts & _] {:message (str "echo: " line)}))
         command-handler (or command-handler (fn [& _] {:message "Unknown command"}))
         bang-handler    (or bang-handler (fn [& _] {:message "Unknown bang"}))]
     (println "basic-chat-demo interactive mode")
@@ -391,6 +386,6 @@
             :xtdb-node node}                       ;; make it available to runner
       :on-exit store-manager/shutdown!
       :runner cli-run/runner
-      :command-handler (fn [cmd state ctx]
+      :command-handler (fn [cmd state _ctx]
                          (slash-fn cmd state))              ;; reuse same slash router
       :focus-header? true})))

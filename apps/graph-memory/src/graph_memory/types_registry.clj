@@ -44,7 +44,7 @@
 (defn- wildcard? [kw]
   (= "*" (name kw)))
 
-(defn- infer-parent [kind type]
+(defn- infer-parent [_kind type]
   (let [t (->keyword type)]
     (cond
       (nil? t) nil

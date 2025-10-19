@@ -647,7 +647,7 @@
     (:type event)))
 
 (defmethod apply-event! :default
-  [conn event]
+  [_conn event]
   (throw (ex-info "Unknown event type" {:event event})))
 
 (defmethod apply-event! :entity/upsert
@@ -848,10 +848,10 @@
            (swap! !event-count assoc data-dir 0)
            (register-types-from-db! conn))
          (let [legacy (hydrate-from-legacy! conn data-dir)]
-           (swap! !event-count assoc data-dir (:event-count legacy 0))
+      (swap! !event-count assoc data-dir (:event-count legacy 0))
            (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
              (sync-to-xtdb! conn))))
-       (when-let [id (:entity/id me-doc)]
+       (when (:entity/id me-doc)
          (when-not (entity-by-id conn :me)
            (let [name (:name me-doc "Me")
                  tx {:entity/id :me, :entity/name name, :entity/type :person, :entity/pinned? true}]

@@ -37,11 +37,11 @@
                                                       :confidence 0.85})
             db (xt/db)
             entity-doc (-> (xta/q db '{:find [(pull ?e [:entity/id :entity/name :entity/type :entity/seen-count :entity/last-seen :entity/pinned?])]
-                                        :where [[?e :entity/name "Pat"]]})
+                                       :where [[?e :entity/name "Pat"]]})
                            first first)
             rel-doc (-> (xta/q db '{:find [(pull ?r [:relation/id :relation/type :relation/src :relation/dst :relation/confidence :relation/last-seen])]
-                                      :where [[?r :relation/id _]]})
-                       first first)]
+                                    :where [[?r :relation/id _]]})
+                        first first)]
         (is (xt/started?) "XTDB node should be active")
         (testing "entity mirrors include salience fields"
           (is entity-doc)
@@ -70,8 +70,8 @@
           (xt/sync-node!)
           (let [pat-id (:entity/id entity-doc)
                 cutoff (- now (* 7 24 60 60 1000))
-                candidates (focus/focus-candidates (xt/node) [pat-id] cutoff 5)
-                neighbors (focus/top-neighbors conn (xt/db) pat-id {:k-per-anchor 3})]
+                candidates (focus/*focus-candidates* (xt/node) [pat-id] cutoff 5)
+                neighbors (focus/*top-neighbors* conn (xt/db) pat-id {:k-per-anchor 3})]
             (is (seq candidates))
             (let [top (first candidates)]
               (is (= pat-id (:id top)))
@@ -79,7 +79,7 @@
               (is (> (:score top) 0.0)))
             (is (seq neighbors))
             (let [entry (first neighbors)]
-              (is (= "Boston" (-> entry :neighbor :entity/name)))
+              (is (= "Boston" (-> entry :neighbor :name)))
               (is (> (:score entry) 0.0))))))
       (finally
         (xt/stop!)
@@ -111,7 +111,7 @@
           (is (nil? (store/resolve-name->eid conn "How"))))
         (testing "entity and relations removed from XTDB"
           (is (empty? (xt/q '{:find [?e]
-                               :where [[?e :entity/name "How"]]})))
+                              :where [[?e :entity/name "How"]]})))
           (is (nil? (xt/entity (:id relation)))))
         (testing "remaining entities stay intact"
           (is (= (:id cambridge)
@@ -151,8 +151,7 @@
         (testing "expire without target returns nil"
           (is (nil? (store/expire-entity! conn env {:name "Nonexistent"}))))
         (testing "forget without target returns nil"
-          (is (nil? (store/forget-entity! conn env {:name "Missing"}))))
-        )
+          (is (nil? (store/forget-entity! conn env {:name "Missing"})))))
       (finally
         (xt/stop!)
         (delete-recursive dir)))))

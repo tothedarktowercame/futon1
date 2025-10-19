@@ -102,6 +102,16 @@ All persisted data lives in `apps/basic-chat-demo/data` (configurable via
 On boot the CLI hydrates from XT first; if no XT data exists it replays the
 snapshot + events.
 
+## Configuration
+
+A repository-level `config.edn` file controls the default data directory,
+snapshot cadence, and XTDB settings that the demos use on startup. The values
+are loaded by `apps/common/src/app/config.clj` and feed into
+`app.store-manager/start!`. Override them by editing `config.edn` directly or by
+setting the documented environment variables (see below). When you run multiple
+instances side-by-side it’s usually easiest to point `config.edn` at a different
+`data-root` before launching the CLI.
+
 ### Environment overrides
 
 Set these when running multiple instances in parallel (tests, tooling, CLI):

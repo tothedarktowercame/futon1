@@ -26,9 +26,6 @@
   []
   (alter-var-root #'conn (constantly (d/create-conn schema))))
 
-(defn reset-conn! []
-  (alter-var-root #'conn (constantly (d/create-conn schema))))
-
 (defn upsert! [e] (d/transact! (conn!) [e]))
 
 (defn node [id]

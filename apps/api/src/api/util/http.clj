@@ -15,3 +15,11 @@
    {:status status
     :headers (merge {"Content-Type" "text/plain; charset=utf-8"} headers)
     :body text}))
+
+(defn ok-edn
+  ([value]
+   (ok-edn value 200 {}))
+  ([value status headers]
+   {:status status
+    :headers (merge {"Content-Type" "application/edn; charset=utf-8"} headers)
+    :body (pr-str value)}))

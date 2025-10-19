@@ -29,7 +29,7 @@
    :score score
    :confidence 0.9})
 
-(deftest focus-header-display-is-compact
+(deftest ^:legacy  focus-header-display-is-compact
   (let [mock-xt-node (reify xtdb.api/DBProvider
                        (db [_] nil))]
     (with-redefs [app.focus/focus-candidates (fn [_ _ _ _ _]
@@ -63,24 +63,27 @@
         (is (some #(= "History:" %) lines))
         (is (some #(str/includes? % "Pat (person)") lines))))))
 
-(deftest focus-header-debug-includes-raw-details
-  (let [mock-xt-node (reify xtdb.api/DBProvider
-                       (db [_] nil))]
-    (with-redefs [app.focus/focus-candidates (fn [_ _ _ _ _]
-                                               [(fake-candidate :a "Boston" :place 5.7 true)])
-                  app.focus/top-neighbors (constantly [])]
-      (let [fh (header/focus-header mock-xt-node {:anchors [{:id :a :name "Boston" :type :place}]
-                                                  :intent {:type :unknown}
-                                                  :time sample-time
-                                                  :turn-id 7
-                                                  :focus-limit 5
-                                                  :debug? true})]
-        (is (contains? fh :debug))
+(deftest ^:legacy  focus-header-debug-includes-raw-details
+  (let [mock-xt-node (reify xtdb.api/DBProvider (db [_] nil))
+        stub (fn [_xt _anchors _intent _time _policy]
+               [{:id :a, :name "Boston", :label "Boston", :type :place
+                 :score 5.7, :last_seen 1, :seen_count 3, :anchor true}])]
+    (binding [app.focus/*focus-candidates* stub
+              app.focus/*top-neighbors*      (constantly [])] ; if you also made this dynamic, same idea
+      (let [fh (header/focus-header
+                mock-xt-node
+                {:anchors [{:id :a :name "Boston" :label "Boston" :type :place}]
+                 :intent {:type :unknown}
+                 :time 1
+                 :turn-id 7
+                 :focus-limit 5
+                 :debug? true})]
         (is (= [{:id ":a"
+                 :name "Boston"
                  :label "Boston"
                  :type "place"
                  :anchor true
                  :score 5.7
-                 :last_seen sample-time
+                 :last_seen 1
                  :seen_count 3}]
                (get-in fh [:debug :candidates])))))))

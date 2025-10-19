@@ -44,6 +44,8 @@
                  :relation relation
                  :direction direction})))))
 
+(def ^:dynamic *top-neighbors* top-neighbors)
+
 (def ^:private default-per-type-caps
   {:member-of 2
    :advisor-of 2
@@ -74,7 +76,7 @@
           ;; Helper: run top-neighbors for one candidate id with safe opts
           neighbors-for (fn [{:keys [id]}]
                           (when id
-                            (focus/top-neighbors
+                            (focus/*top-neighbors*
                              conn xt-db id
                              {:k-per-anchor  (max 1 neighbors)
                               :per-type-caps per-type
@@ -120,7 +122,7 @@
                                        [eid {:entity/id eid :entity/name nm}])))
                               seed-ents)
               neighbor-results (mapcat (fn [eid]
-                                         (focus/top-neighbors
+                                         (focus/*top-neighbors*
                                           conn xt-db eid
                                           {:k-per-anchor  (max 1 neighbors)
                                            :per-type-caps per-type

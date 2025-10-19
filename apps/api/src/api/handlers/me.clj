@@ -38,6 +38,11 @@
       (normalize-profile (get-in request [:ctx :profile]))
       :me))
 
+(defn- request-format [request]
+  (some-> (qparam request :format)
+          str/lower-case
+          keyword))
+
 (defn- request-limit [request]
   (let [raw (or (get-in request [:query-params :limit])
                 (get-in request [:route-params :limit]))]
@@ -95,6 +100,7 @@
 
 (defn summary [request]
   (let [debug?  (= "1" (qparam request :debug))
+        format  (request-format request)
         profile (request-profile request)
         limit   (request-limit request)
         ctx     (enrich-ctx request)]
@@ -131,15 +137,17 @@
                                   (catch clojure.lang.ArityException _
                                     (commands/profile-summary ctx limit)))
             resolved-profile (or profile (:profile raw-summary))
-            profile-header   (some-> resolved-profile str)]
+            profile-header   (some-> resolved-profile str)
+            headers          (cond-> {}
+                               profile-header (assoc "X-Profile" profile-header))]
         (if (and raw-summary (:text raw-summary))
-          (let [summary (assoc raw-summary :profile resolved-profile)
-                lines   (fmt/profile-summary-lines summary)
-                text    (str/join "\n" lines)]
-            (http/ok-text text 200 (cond-> {}
-                                     profile-header (assoc "X-Profile" profile-header))))
-          (http/ok-text "No profile data recorded." 200 (cond-> {}
-                                                          profile-header (assoc "X-Profile" profile-header))))))))
+          (let [summary-data (assoc raw-summary :profile resolved-profile)
+                lines        (fmt/profile-summary-lines summary-data)
+                text         (str/join "\n" lines)]
+            (case format
+              :edn (http/ok-edn summary-data 200 headers)
+              (http/ok-text text 200 headers)))
+          (http/ok-text "No profile data recorded." 200 headers))))))
 
 (defn summary-handler [request]
-  (http/ok-json (summary request)))
+  (summary request))

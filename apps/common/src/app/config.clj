@@ -14,7 +14,8 @@
    :warmup/focus-k     5})
 
 (defn- read-edn-file [f]
-  (when-let [file (some-> f io/file (.exists) (when true (io/file f)))]
+  (when-let [file (let [candidate (io/file f)]
+                    (when (.exists candidate) candidate))]
     (with-open [r (io/reader file)]
       (edn/read (java.io.PushbackReader. r)))))
 

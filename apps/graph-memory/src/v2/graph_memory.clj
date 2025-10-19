@@ -2,8 +2,7 @@
   "v2 — ultra-light in-memory graph store for chat/NLP demos.
    Nodes have :id, :label, :types (a set), and :evidence (type -> count).
    Edges are {:src id :rel keyword :dst id :w number}."
-  (:require [clojure.edn :as edn]
-            [clojure.set :as set])
+  (:require [clojure.edn :as edn])
   (:import (java.util UUID)))
 
 ;; -----------------------------------------------------------------------------

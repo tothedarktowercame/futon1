@@ -70,14 +70,14 @@
          _ (when intent-type (types/ensure! :intent intent-type))
          id (UUID/randomUUID)
          tmp (d/tempid :db.part/user)
-         {:keys [resolve]} (transact! conn [(cond-> {:db/id tmp
-                                                     :utterance/id id
-                                                     :utterance/text text
-                                                     :utterance/ts ts}
-                                              intent-type (assoc :utterance/intent intent-type)
-                                              intent-conf (assoc :utterance/intent-conf intent-conf)
-                                              intent-source (assoc :utterance/intent-source intent-source))])
-         eid (resolve tmp)
+         tx-result (transact! conn [(cond-> {:db/id tmp
+                                             :utterance/id id
+                                             :utterance/text text
+                                             :utterance/ts ts}
+                                      intent-type (assoc :utterance/intent intent-type)
+                                      intent-conf (assoc :utterance/intent-conf intent-conf)
+                                      intent-source (assoc :utterance/intent-source intent-source))])
+         eid ((:resolve tx-result) tmp)
          base {:id id
                :db/eid eid
                :text text
@@ -108,14 +108,14 @@
         _ (when intent-type (types/ensure! :intent intent-type))
         id (UUID/randomUUID)
         tmp (d/tempid :db.part/user)
-        {:keys [resolve]} (transact! conn [(cond-> {:db/id tmp
-                                                    :intent/id id
-                                                    :intent/data intent}
-                                             intent-type (assoc :intent/type intent-type)
-                                             intent-conf (assoc :intent/confidence intent-conf)
-                                             intent-source (assoc :intent/source intent-source)
-                                             (seq pruned-candidates) (assoc :intent/candidates pruned-candidates))])
-        eid (resolve tmp)]
+        tx-result (transact! conn [(cond-> {:db/id tmp
+                                            :intent/id id
+                                            :intent/data intent}
+                                     intent-type (assoc :intent/type intent-type)
+                                     intent-conf (assoc :intent/confidence intent-conf)
+                                     intent-source (assoc :intent/source intent-source)
+                                     (seq pruned-candidates) (assoc :intent/candidates pruned-candidates))])
+        eid ((:resolve tx-result) tmp)]
     {:id id
      :db/eid eid
      :data intent
@@ -147,11 +147,11 @@
          :db/eid eid})
       (let [entity-id (UUID/randomUUID)
             tmp (d/tempid :db.part/user)
-            {:keys [resolve]} (transact! conn [{:db/id tmp
-                                                :entity/id entity-id
-                                                :entity/name name
-                                                :entity/type type}])
-            eid (resolve tmp)]
+            tx-result (transact! conn [{:db/id tmp
+                                        :entity/id entity-id
+                                        :entity/name name
+                                        :entity/type type}])
+            eid ((:resolve tx-result) tmp)]
         {:id entity-id
          :name name
          :type type
@@ -162,12 +162,12 @@
   [conn utterance-id entity-id span]
   (let [mention-id (UUID/randomUUID)
         tmp (d/tempid :db.part/user)
-        {:keys [resolve]} (transact! conn [{:db/id tmp
-                                            :mention/id mention-id
-                                            :mention/utterance [:utterance/id utterance-id]
-                                            :mention/entity   [:entity/id entity-id]
-                                            :mention/span     span}])
-        eid (resolve tmp)]
+        tx-result (transact! conn [{:db/id tmp
+                                    :mention/id mention-id
+                                    :mention/utterance [:utterance/id utterance-id]
+                                    :mention/entity   [:entity/id entity-id]
+                                    :mention/span     span}])
+        eid ((:resolve tx-result) tmp)]
     {:id mention-id
      :span span
      :db/eid eid}))
@@ -177,13 +177,13 @@
   [conn {:keys [type src-id dst-id prov]}]
   (let [rel-id (UUID/randomUUID)
         tmp (d/tempid :db.part/user)
-        {:keys [resolve]} (transact! conn [{:db/id tmp
-                                            :relation/id rel-id
-                                            :relation/type type
-                                            :relation/src [:entity/id src-id]
-                                            :relation/dst [:entity/id dst-id]
-                                            :relation/provenance prov}])
-        eid (resolve tmp)]
+        tx-result (transact! conn [{:db/id tmp
+                                    :relation/id rel-id
+                                    :relation/type type
+                                    :relation/src [:entity/id src-id]
+                                    :relation/dst [:entity/id dst-id]
+                                    :relation/provenance prov}])
+        eid ((:resolve tx-result) tmp)]
     {:id rel-id
      :type type
      :db/eid eid}))
@@ -191,12 +191,12 @@
 (defn link! [conn from-id to-id edge-type]
   (let [id (UUID/randomUUID)
         tmp (d/tempid :db.part/user)
-        {:keys [resolve]} (transact! conn [{:db/id tmp
-                                            :link/id id
-                                            :link/type edge-type
-                                            :link/from from-id
-                                            :link/to to-id}])
-        eid (resolve tmp)]
+        tx-result (transact! conn [{:db/id tmp
+                                    :link/id id
+                                    :link/type edge-type
+                                    :link/from from-id
+                                    :link/to to-id}])
+        eid ((:resolve tx-result) tmp)]
     {:id id
      :db/eid eid
      :type edge-type}))

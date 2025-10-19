@@ -1,6 +1,5 @@
 (ns graph-memory.io
   (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
             [datascript.core :as d]
             [graph-memory.graph-memory :as g]))
 

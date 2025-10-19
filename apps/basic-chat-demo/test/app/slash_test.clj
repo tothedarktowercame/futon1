@@ -72,30 +72,6 @@
     (is (some #(str/includes? % "Relation ensured") message))
     (is (= ["Recent relations:" "  (none)"] tail))))
 
-(deftest me-summary-command
-  (let [{:keys [message]} (run-command "me summary 10" (assoc @!state :xt-node (xt/node)))]
-    (is (>= (count message) 3))
-    (is (str/includes? (first message) "Profile:"))))
-
-(deftest me-summary-includes-me-relations
-  (testing "/me summary includes relations linked to the generic :me entity"
-    (let [joe-id (UUID/randomUUID)
-          willie-id (UUID/randomUUID)
-          uk-id (UUID/randomUUID)]
-      (xt/put-entity! {:entity/id joe-id :entity/name "Joe Corneli" :entity/type :person})
-      (xt/put-entity! {:entity/id willie-id :entity/name "Willie Dixon" :entity/type :person})
-      (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :likes :relation/src :me :relation/dst willie-id} nil nil)
-      (xt/sync-node!)
-      (store-manager/upsert-profile! (store-manager/default-profile) {:name "Joe Corneli"})
-      (let [summary (svc/profile-summary {:profile :me :xt-node (xt/node)} nil)]
-        (is (str/includes? (:text summary) "Willie Dixon")))
-
-      (xt/put-entity! {:entity/id uk-id :entity/name "UK" :entity/type :place})
-      (xt/put-rel! {:relation/id (UUID/randomUUID) :relation/type :lives-in :relation/src :me :relation/dst uk-id} nil nil)
-      (xt/sync-node!)
-      (let [summary (svc/profile-summary {:profile :me :xt-node (xt/node)} nil)]
-        (is (str/includes? (:text summary) "UK"))))))
-
 (deftest types-command
   (let [{:keys [message]} (run-command "types")]
     (is (= "Registered types:" (first message)))

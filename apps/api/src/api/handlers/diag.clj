@@ -1,11 +1,9 @@
 (ns api.handlers.diag
   (:require [api.util.http :as http]
-            [app.config :as cfg]
             [app.store-manager :as store-manager]))
 
-(defn ctx-snapshot [req]
-  (let [ctx (:ctx req)]
-    (http/ok-json (store-manager/diag))))
+(defn ctx-snapshot [_request]
+  (http/ok-json (store-manager/diag)))
 
 ;; {:ctx-keys        (-> ctx keys sort vec)
      ;;  :have-ds         (boolean (:ds/db ctx))

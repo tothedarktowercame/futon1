@@ -7,7 +7,14 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str])
-  (:import (java.io PushbackReader)))
+  (:import (java.io File PushbackReader)))
+
+(defn- delete-recursive! [^File f]
+  (when f
+    (when (.isDirectory f)
+      (doseq [child (.listFiles f)]
+        (delete-recursive! child)))
+    (io/delete-file f true)))
 
 (declare profile-doc)
 
@@ -15,6 +22,7 @@
 
 (defonce ^:private !config (atom nil))
 (defonce ^:private !profiles (atom {}))
+(defonce ^:private !temp-data-roots (atom #{}))
 
 (defn- repo-root []
   (loop [dir (io/file (System/getProperty "user.dir"))]
@@ -22,6 +30,18 @@
       (if (.exists (io/file dir "AGENTS.md"))
         dir
         (recur (.getParentFile dir))))))
+
+(defn- apps-dir []
+  (some-> (repo-root) (io/file "apps") .getAbsolutePath))
+
+(defn- temp-data-root? [path]
+  (when-let [p (some-> path str str/trim not-empty)]
+    (let [abs-path (.getAbsolutePath (io/file p))
+          name (.getName (io/file abs-path))
+          apps-root (apps-dir)]
+      (and (str/starts-with? name "tmp-client-data")
+           (or (nil? apps-root)
+               (str/starts-with? abs-path apps-root))))))
 
 (defn- getenv-trim [k]
   (when-let [raw (System/getenv k)]
@@ -61,19 +81,30 @@
   ([]
    (configure! {}))
   ([opts]
-   (let [cfg (merge (default-config) opts)]
-     (reset! !config cfg)
+   (let [cfg (merge (default-config) opts)
+         abs-root (some-> (:data-root cfg) io/file .getAbsolutePath)
+         cfg' (cond-> cfg abs-root (assoc :data-root abs-root))]
+     (reset! !config cfg')
      (reset! !profiles {})
-     (when-let [root (:data-root cfg)]
-       (System/setProperty "basic-chat.data-root" root))
-     cfg)))
+     (when abs-root
+       (System/setProperty "basic-chat.data-root" abs-root)
+       (when (temp-data-root? abs-root)
+         (swap! !temp-data-roots conj abs-root)))
+     cfg')))
 
 (defn shutdown!
   "Stop XTDB and clear cached profile state."
   []
   (reset! !profiles {})
   (System/clearProperty "basic-chat.data-root")
-  (xt/stop!))
+  (xt/stop!)
+  (let [paths @!temp-data-roots]
+    (reset! !temp-data-roots #{})
+    (doseq [path paths]
+      (when (temp-data-root? path)
+        (try
+          (delete-recursive! (io/file path))
+          (catch Exception _))))))
 
 (defn config []
   (or @!config (configure! {})))

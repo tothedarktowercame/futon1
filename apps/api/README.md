@@ -7,9 +7,17 @@ UX from the CLI.
 
 ## Running the server
 
+The app-local alias is `:server`:
+
 ```bash
 cd apps/api
-clojure -M:run-m
+clojure -M:server
+```
+
+From the repository root you can use the `:api` alias:
+
+```bash
+clojure -M:api
 ```
 
 Environment variables:
@@ -18,12 +26,6 @@ Environment variables:
 - `ALPHA_PROFILE` – default profile name when `X-Profile` header is absent.
 - `BASIC_CHAT_DATA_DIR` – root data directory (set this explicitly; see below).
 - `BASIC_CHAT_XTDB_RESOURCE` / `BASIC_CHAT_XTDB_ENABLED` – override XTDB config.
-
-A root alias is also available:
-
-```bash
-clojure -M:api
-```
 
 ## Example workflow
 

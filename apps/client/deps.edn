@@ -1,0 +1,18 @@
+{:paths ["src" "resources" "test"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.1"}
+        datascript/datascript {:mvn/version "1.6.5"}
+        cheshire/cheshire {:mvn/version "5.11.0"}
+        org.slf4j/slf4j-api {:mvn/version "2.0.12"}
+        org.slf4j/slf4j-nop {:mvn/version "2.0.12"}
+        basic-chat-demo/basic-chat-demo {:local/root "../basic-chat-demo"}
+        open-world-ingest/open-world-ingest {:local/root "../open-world-ingest"}
+        graph-memory/graph-memory {:local/root "../graph-memory"}
+        nlp-interface/nlp-interface {:local/root "../nlp-interface"}
+        api/api {:local/root "../api"}
+        common/common {:local/root "../common"}
+        protocols/protocols {:local/root "../../protocols"}}
+ :aliases
+ {:repl {:extra-deps {nrepl/nrepl {:mvn/version "1.1.0"}}
+         :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
+  :test {:extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts ["-m" "cognitect.test-runner" "-d" "test" "-r" ".*-test$"]}}}

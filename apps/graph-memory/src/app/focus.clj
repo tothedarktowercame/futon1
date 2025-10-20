@@ -62,8 +62,26 @@
                 [?r :relation/dst ?eid]
                 [?r :relation/src ?n]]
         ;; REALIZE the results coming from XTDB:
-        outs (if (and db (seq seed-ids)) (vec (xta/q db out-q seed-ids)) [])
-        ins  (if (and db (seq seed-ids)) (vec (xta/q db in-q  seed-ids)) [])]
+        outs (try
+               (if (and db (seq seed-ids))
+                 (vec (xta/q db out-q seed-ids))
+                 [])
+               (catch Throwable t
+                 (throw (ex-info "xt-neighbor-rows-for-ids out query failed"
+                                 {:seed-ids (vec seed-ids)
+                                  :node-or-db node-or-db
+                                  :direction :out}
+                                 t))))
+        ins  (try
+               (if (and db (seq seed-ids))
+                 (vec (xta/q db in-q seed-ids))
+                 [])
+               (catch Throwable t
+                 (throw (ex-info "xt-neighbor-rows-for-ids in query failed"
+                                 {:seed-ids (vec seed-ids)
+                                  :node-or-db node-or-db
+                                  :direction :in}
+                                 t))))]
     ;; Build eager results too (mapv, not map)
     (into []
           (concat

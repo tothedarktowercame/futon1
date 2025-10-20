@@ -374,7 +374,8 @@
         env      (:env sm-ctx)
         node     (xt/node)                                   ;; one shared node
         slash-fn (slash/handler {:env env
-                                 :xt-node node}             ;; pass the node
+                                 :xt-node node              ;; retain for compatibility
+                                 :xt-node-fn #(xt/node)}    ;; fetch fresh node when needed
                                 (atom {:conn conn}))]
     (interactive-loop!
      {:intro-lines ["Protocol basic-chat/v6 — routes utterances through open-world ingest so"

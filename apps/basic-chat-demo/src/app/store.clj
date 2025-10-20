@@ -88,6 +88,15 @@
   [xtdb-opts]
   (get xtdb-opts :enabled? true))
 
+(defn- healthy-node [node]
+  (when node
+    (try
+      ;; touch the DB to ensure the executor is alive
+      (xtdb/db node)
+      node
+      (catch Throwable _
+        nil))))
+
 (defn- ensure-xt-node!
   [xtdb-opts default-data-dir]
   (when (xt-enabled? xtdb-opts)
@@ -97,9 +106,13 @@
       (let [resolved-data-dir (or (:data-dir xtdb-opts)
                                   (when default-data-dir
                                     (.getAbsolutePath (io/file default-data-dir "xtdb"))))
-            start-opts (cond-> {}
-                         resolved-data-dir (assoc :data-dir (->absolute-path resolved-data-dir)))]
-        (xt/restart! cfg start-opts)))))
+            start-opts (cond-> {:xt/created-by "app.store/ensure-xt-node!"}
+                         resolved-data-dir (assoc :data-dir (->absolute-path resolved-data-dir)))
+            existing (healthy-node (when (xt/started?) (xt/node)))]
+        (when-not existing
+          (when (xt/started?)
+            (xt/stop!))
+          (xt/start! cfg start-opts))))))
 
 (defn- xt-entity->tx
   [doc]

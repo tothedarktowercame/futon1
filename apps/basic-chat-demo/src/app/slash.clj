@@ -46,6 +46,13 @@
              (cons (str "ERROR: " (or (.getMessage e) "command failed")))
              vec)))))
 
+(defn- current-xt-node [{:keys [xt-node xt-node-fn]}]
+  (or (when (fn? xt-node-fn)
+        (try (xt-node-fn)
+             (catch Throwable _ nil)))
+      (xt/node)
+      xt-node))
+
 (defn- entity-section [conn opts arg]
   (let [[name maybe-type & _] (->> (str/split arg #"\s+")
                                    (remove str/blank?)
@@ -79,7 +86,7 @@
                  :env  opts
                  :profile :me
                  :now (System/currentTimeMillis)
-                 :xt-node (or (:xt-node opts) (xt/node))}]  ;; <— prefer provided
+                 :xt-node (current-xt-node opts)}]
     (case sub
       "set" (let [payload-str (str/join " " rest)
                   payload (parse-edn-safe payload-str)]

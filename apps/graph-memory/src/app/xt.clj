@@ -1,10 +1,13 @@
 (ns app.xt
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.walk :as walk]
             [xtdb.api :as xt]))
 
 (defonce ^:private !node (atom nil))
+(defonce ^:private !node-meta (atom nil))
+(defonce ^:private !node-counter (atom 0))
 
 (defn node []
   @!node)
@@ -12,11 +15,32 @@
 (defn started? []
   (some? (node)))
 
+(defn node-info []
+  @!node-meta)
+
+(defn- debug-log!
+  [event {:keys [id created-by config-path]} & {:keys [details]}]
+  (let [stamp (System/currentTimeMillis)
+        extra (cond-> []
+                config-path (conj (str "config=" config-path))
+                details (conj details))]
+    (binding [*out* *err*]
+      (println (str "[xt DEBUG] " event
+                    " node#" (or id "?")
+                    " from " (or created-by "unknown")
+                    " at " stamp
+                    (when (seq extra)
+                    (str " (" (str/join ", " extra) ")")))))))
+
 (defn stop!
   []
   (when-let [n (and (started?) (node))]
-    (.close ^java.lang.AutoCloseable n)
-    (reset! !node nil)))
+    (let [info (some-> @!node-meta (assoc :details "stop! called"))]
+      (.close ^java.lang.AutoCloseable n)
+      (reset! !node nil)
+      (reset! !node-meta nil)
+      (debug-log! "stopped" (or info {:id "?" :created-by "unknown"})
+                  :details "stop! invoked"))))
 
 (defn- ensure-dir! [path]
   (when path
@@ -46,12 +70,20 @@
   ([cfg-edn-path]
    (start! cfg-edn-path {}))
   ([cfg-edn-path opts]
-   (let [cfg-file (io/file cfg-edn-path)]
+   (let [cfg-file (io/file cfg-edn-path)
+         created-by (:xt/created-by opts)
+         instrumentation {:id (swap! !node-counter inc)
+                          :created-at (System/currentTimeMillis)
+                          :created-by (or created-by "app.xt/start!")
+                          :config-path (.getAbsolutePath cfg-file)}
+         start-opts (dissoc opts :xt/created-by)]
      (when-not (.exists cfg-file)
        (throw (ex-info "XTDB config file not found" {:path cfg-edn-path})))
-     (let [config (-> cfg-file slurp edn/read-string (prepare-config opts))
+     (let [config (-> cfg-file slurp edn/read-string (prepare-config start-opts))
            node (xt/start-node config)]
        (reset! !node node)
+       (reset! !node-meta instrumentation)
+       (debug-log! "started" instrumentation)
        node))))
 
 (defn restart!

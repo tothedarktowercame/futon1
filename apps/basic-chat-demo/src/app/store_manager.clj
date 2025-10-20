@@ -168,12 +168,15 @@
                :snapshot-every snapshot-every
                :xtdb           xtdb}
         conn  (store/restore! env me-doc)
+        node  (when (xt/started?) (xt/node))
         state {:profile      profile
                :profile-dir  dir
                :env          env
                :conn         conn
                :me           (atom (or me-doc {}))
-               :last-anchors (atom [])}]
+               :last-anchors (atom [])
+               :xt-node      node
+               :xt/db        (when node (xt/db node))}]
     (when-not (-> state :me deref :entity/id)
       (let [entity-spec {:id :me, :name "Me", :type :person, :pinned? true}]
         (store/ensure-entity! conn env entity-spec)
@@ -194,10 +197,18 @@
   "Return the state map for the given profile, creating it when necessary."
   ([profile]
    (let [id (or profile (default-profile))]
-     (or (get @!profiles id)
-         (let [state (create-profile-state id)]
-           (swap! !profiles assoc id state)
-           state))))
+      (let [state (or (get @!profiles id)
+                      (let [state (create-profile-state id)]
+                        (swap! !profiles assoc id state)
+                        state))
+            state' (if (xt/started?)
+                     (let [node (xt/node)
+                           db   (xt/db node)
+                           updated (assoc state :xt-node node :xt/db db)]
+                       (swap! !profiles assoc id updated)
+                       updated)
+                     state)]
+        state')))
   ([]
    (ensure-profile! nil)))
 
@@ -280,7 +291,9 @@
      {:profile     (:profile state)
       :profile-dir (:profile-dir state)
       :env         (:env state)   ;; has :xtdb config, etc.
-      :conn        (:conn state)}))) ;; datascript conn
+      :conn        (:conn state)  ;; datascript conn
+      :xtdb-node   (:xt-node state)
+      :xtdb-db     (:xt/db state)})))
 
 ;; Revised
 (defn start!

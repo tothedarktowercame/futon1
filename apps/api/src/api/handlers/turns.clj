@@ -58,8 +58,17 @@
   (let [entity-name (normalize-text (:name entity))
         entity-type (:type entity)]
     (when entity-name
-      {:name entity-name
-       :type entity-type})))
+      (let [lower (str/lower-case entity-name)]
+        (cond
+          (contains? #{"i" "me"} lower)
+          {:id :me
+           :name "Me"
+           :type :person
+           :pinned? true}
+
+          :else
+          {:name entity-name
+           :type entity-type})))))
 
 (defn- ensure-entities! [conn env-now entities]
   (reduce (fn [acc entity]
@@ -75,13 +84,24 @@
         src-name (normalize-text (:src rel))
         dst-name (normalize-text (:dst rel))]
     (when (and relation-type src-name dst-name)
-      (let [src-ref (or (some-> (get ensured src-name)
+      (let [lower-src (str/lower-case src-name)
+            pronoun? (contains? #{"i" "me"} lower-src)
+            src-ref (or (when pronoun?
+                          {:id :me
+                           :name "Me"
+                           :type :person
+                           :pinned? true})
+                        (some-> (get ensured src-name)
                                 (select-keys [:id :name :type]))
                         {:name src-name})
             dst-ref (or (some-> (get ensured dst-name)
                                 (select-keys [:id :name :type]))
-                        {:name dst-name})]
-        {:type relation-type
+                        {:name dst-name})
+            final-type (cond
+                         (keyword? relation-type) relation-type
+                         (string? relation-type) (keyword relation-type)
+                         :else relation-type)]
+        {:type final-type
          :src src-ref
          :dst dst-ref}))))
 

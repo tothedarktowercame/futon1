@@ -2,7 +2,21 @@
 
 ## Project Structure & Module Organization
 
-Three apps live in `apps/` — `basic-chat-demo`, `graph-memory`, `nlp-interface` — each with `src/`, `resources/`, `test/` (incl. `test/golden`, `test/scripts`) and per-app `doc/`. Shared contracts live in `protocols/`; repo scripts in `scripts/`. Apps don’t import each other—share via `protocols/` (or future `libs/`). Each app must have `deps.edn` and aliases `:run-m`, `:test`, `:build`. Namespaces map hyphen→underscore; config stays in `resources/`. Ephemeral dirs (`target/`, logs, caches) are app-scoped and git-ignored.
+The apps live in `apps/` — Each app must have `deps.edn` and aliases `:run-m`, `:test`, `:build`. Namespaces map hyphen→underscore; config stays in `resources/`. Ephemeral dirs (`target/`, logs, caches) are app-scoped and git-ignored.
+
+## Development status of included apps
+
+`basic-chat-demo` — this is a legacy app and for reference only: don't update it.
+ - NOTE: If any other app depends on basic-chat-demo, we should refactor!
+
+`common` — this is a small service library used by other apps
+
+`graph-memory` `nlp-interface` `open-world-ingest` — all provide core functionality
+
+`client` — this is the current main client
+`demo` — this wraps the client with a user interface layer
+
+`api` — this packages the system for external clients
 
 ## Build and Test 
 Run commands from the target app directory unless noted:
@@ -23,5 +37,5 @@ Commit messages should be concise, present-tense imperatives (history examples: 
 
 - `apps/open-world-ingest` owns the NLP pipeline and exposes ingestion adapters; it should call into the shared storage layer rather than redefine persistence.
 - `apps/graph-memory` provides the storage/graph primitives (entity/relation handling, XT utilities). Reuse these from other apps.
-- `apps/basic-chat-demo` and `apps/api` must remain thin: parse input, call shared adapters/protocols, format responses. Do **not** reimplement ingest logic.
-- When adding capabilities, extend the feature module (e.g. open-world ingest or graph-memory) first, then delegate to it from the frontends.
+- `apps/client` and `apps/api` must remain thin: parse input, call shared adapters/protocols, format responses. Do **not** reimplement ingest or reasoning logic.
+- When adding capabilities, extend the feature module (e.g. `open-world ingest` or `graph-memory`) first, then delegate to it from the frontends.

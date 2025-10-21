@@ -72,3 +72,29 @@
          (is (vector? message))
          (is (seq message))
          (is (re-find #"Profile: " (first message))))))))
+
+(deftest focus-header-tracks-history-and-context
+  (with-session-fixture
+   (fn [session]
+     (let [run (fn [text]
+                 (api/run-line session text))
+           first-turn (run "I play piano")
+           second-turn (run "You know Jane")
+           third-turn (run "Robbie plays piano")
+           fh1 (get-in first-turn [:data :focus-header-lines])
+           fh2 (get-in second-turn [:data :focus-header-lines])
+           fh3 (get-in third-turn [:data :focus-header-lines])]
+       (testing "first turn only reflects current extraction"
+         (is (seq fh1))
+         (is (some #(re-find #"Current:" %) fh1))
+         (is (not-any? #(re-find #"Recent:" %) fh1)))
+
+       (testing "second turn includes recent context from prior relation"
+         (is (seq fh2))
+         (is (some #(re-find #"Recent:" %) fh2))
+         (is (some #(re-find #"You -\[know\]-> Jane" %) fh2)))
+
+       (testing "third turn shows enrichment linking back to piano relation"
+         (is (seq fh3))
+         (is (some #(re-find #"Enriched:" %) fh3))
+         (is (some #(re-find #"Me -\[play\]-> piano" %) fh3)))))))

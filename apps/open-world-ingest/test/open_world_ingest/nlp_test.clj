@@ -134,6 +134,40 @@
     (is (= :links-to (:relation/label rel)))
     (is (nil? (:relation/type-aliases rel)))))
 
+(deftest build-entity-filters-contractions-and-demonstratives
+  (is (nil? (#'open-world-ingest.nlp/build-entity "'s"
+                                                  [(token "'s" "O" "POS")]
+                                                  0
+                                                  [0 1])))
+  (is (nil? (#'open-world-ingest.nlp/build-entity "this"
+                                                  [(token "this" "O" "DT")]
+                                                  0
+                                                  [0 1])))
+  (is (= "Alice"
+         (:entity/label (#'open-world-ingest.nlp/build-entity
+                          "Alice"
+                          [(token "Alice" "O" "NNP")]
+                          0
+                          [0 1])))))
+
+(deftest relation-map-ignores-contraction-subjects
+  (let [record {:sent "Let's see"
+                :sent-idx 0
+                :subj "'s"
+                :subj-lemma "'s"
+                :obj "works"
+                :obj-lemma "work"
+                :pred "see"
+                :lemma "see"
+                :confidence 1.0
+                :negated? false
+                :spans {:subj [0 1]
+                        :pred [1 2]
+                        :obj [2 3]}}
+        normalized (#'open-world-ingest.nlp/record->normalized record)
+        rel (#'open-world-ingest.nlp/relation->map normalized {} (Instant/parse "2025-01-01T00:00:00Z"))]
+    (is (nil? rel))))
+
 (deftest derive-additional-records-produce-complement-chains
   (let [records [{:sentence "Joseph Corneli's long-term aim is to translate good faith into working structure through iterative design."
                    :sentence-idx 0

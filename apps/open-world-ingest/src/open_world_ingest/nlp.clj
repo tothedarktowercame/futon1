@@ -249,18 +249,34 @@
       {:label final-label
        :aliases (vec (distinct aliases'))})))
 
+(def ^:private ignored-entity-labels
+  #{"'s" "’s" "'re" "’re" "'ve" "'ll" "'d" "'m" "n't"
+    "s" "let's" "lets"
+    "this" "that" "these" "those" "here" "there"})
+
+(def ^:private ignored-entity-kinds
+  #{:s :let :lets :this :that :these :those :here :there})
+
+(defn- ignorable-entity?
+  [label kind]
+  (let [lower (some-> label str/lower-case str/trim)]
+    (or (str/blank? lower)
+        (contains? ignored-entity-labels lower)
+        (contains? ignored-entity-kinds kind))))
+
 (defn- build-entity
   [label tokens sentence-idx span]
   (let [kind (entity-kind tokens)
-        lower-label (str/lower-case label)
-        entity-key (str lower-label ":" (name kind))
-        entity-id (util/stable-uuid entity-key)]
-    {:entity/id entity-id
-     :entity/label label
-     :entity/lower-label lower-label
-     :entity/kind kind
-     :entity/sentence sentence-idx
-     :mention/span span}))
+        lower-label (str/lower-case label)]
+    (when-not (ignorable-entity? label kind)
+      (let [entity-key (str lower-label ":" (name kind))
+            entity-id (util/stable-uuid entity-key)]
+        {:entity/id entity-id
+         :entity/label label
+         :entity/lower-label lower-label
+         :entity/kind kind
+         :entity/sentence sentence-idx
+         :mention/span span}))))
 
 (defn ^:private dedupe-entities
   [entities]
@@ -285,9 +301,9 @@
           (let [end (extend-ner-span tokens idx kind)
                 span-tokens (subvec tokens idx end)
                 text (->> span-tokens (map token-text) (str/join " ") str/trim)
-                acc' (if (seq text)
-                       (conj acc (build-entity text span-tokens sentence-idx [idx end]))
-                       acc)]
+                entity (when (seq text)
+                         (build-entity text span-tokens sentence-idx [idx end]))
+                acc' (if entity (conj acc entity) acc)]
             (recur end acc')))))))
 
 (defn- np-entities
@@ -529,6 +545,8 @@
         polarity (if negated? :negated :asserted)
         subj-entity (some-> subject-text str/lower-case entities-by-label)
         obj-entity (some-> object-text str/lower-case entities-by-label)
+        subj-kind (:entity/kind subj-entity)
+        obj-kind (:entity/kind obj-entity)
         subj-id (or (:entity/id subj-entity)
                     (when (seq subject-text)
                       (util/stable-uuid (str "subj:" (str/lower-case subject-text)))))
@@ -545,7 +563,10 @@
                      (normalize-date object-text now))
         loc? (when relation-text
                (re-find #"(?i)\b(at|in|on)\b" relation-text))]
-    (when (and subj-id obj-id (or (seq lemma) (seq relation-text)))
+    (when (and subj-id obj-id
+               (or (seq lemma) (seq relation-text))
+               (not (ignorable-entity? subject-text subj-kind))
+               (not (ignorable-entity? object-text obj-kind)))
       (cond-> {:relation/subject subject-text
                :relation/object object-text
                :relation/src subj-id

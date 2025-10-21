@@ -1,12 +1,12 @@
 (ns client.session
   "Session management for the new Clojure client."
-  (:require [app.cli-runner :as cli-runner]
-            [app.commands :as commands]
+  (:require [app.commands :as commands]
             [app.slash :as slash]
             [app.store-manager :as store-manager]
             [app.xt :as xt]
-            [clojure.java.io :as io]
             [client.engine :as engine]
+            [client.runner :as runner]
+            [clojure.java.io :as io]
             [xtdb.api :as xta]))
 
 (defn- now-ms [] (System/currentTimeMillis))
@@ -128,7 +128,7 @@
       :state state
       :slash slash
       :bang-handler bang-handler
-      :runner cli-runner/runner
+      :runner runner/runner
       :ctx-provider #(ctx->cli-ctx profile ensure-node! env-atom)
       :env-atom env-atom
       :reset-xt-node! reset-node!})))

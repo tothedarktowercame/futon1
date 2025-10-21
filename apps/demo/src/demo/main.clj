@@ -7,7 +7,12 @@
 
 (defn- render-output [{:keys [type data]}]
   (case type
-    :say   (doseq [line (:bot-lines data)] (println "bot>" line))
+    :say   (do
+             (doseq [line (:bot-lines data)]
+               (println "bot>" line))
+             (when-let [fh-lines (:focus-header-lines data)]
+               (doseq [line fh-lines]
+                 (println "fh>" line))))
     :slash (doseq [line (:message data)] (println "bot>" line))
     :bang  (println "bot>" (:message data))
     :blank nil

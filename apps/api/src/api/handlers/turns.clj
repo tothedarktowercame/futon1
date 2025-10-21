@@ -1,6 +1,7 @@
 (ns api.handlers.turns
   (:require [api.util.http :as http]
             [app.context :as context]
+            [app.focus.header :as focus-header]
             [app.header :as header]
             [app.store :as store]
             [app.store-manager :as store-manager]
@@ -176,6 +177,14 @@
                                 :anchors anchors
                                 :timestamp ts))
 
+          focus-debug (try
+                        (focus-header/build conn
+                                            {:entities (-> ensured vals vec)
+                                             :relations rels}
+                                            context-lines
+                                            {:recent-limit (:context-cap options)})
+                        (catch Throwable _ nil))
+
           ;; focus header: also pass xt-db (snapshot)
           fh (header/focus-header
               xt-db
@@ -191,7 +200,8 @@
        :entities  (->> ensured vals (map #(select-keys % [:id :name :type :seen-count :last-seen :pinned?])) vec)
        :relations (mapv #(select-keys % [:id :type :src :dst :confidence :last-seen]) rels)
        :intent    (:intent result)
-      :focus_header fh
+       :focus_header fh
+       :focus_header_debug focus-debug
        :context   context-lines})))
 
 ;; ----------------------------------------------------------------------------

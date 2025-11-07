@@ -123,15 +123,18 @@
          _ (ensure-node!)
          slash (make-slash-handler profile ensure-node! env-atom)
          bang-handler (make-bang-handler profile ensure-node! env-atom)
-         state (atom {})]
+         state (atom {})
+         protocol (:protocol opts)]
      {:profile profile
       :state state
       :slash slash
       :bang-handler bang-handler
       :runner runner/runner
-      :ctx-provider #(ctx->cli-ctx profile ensure-node! env-atom)
+      :ctx-provider #(cond-> (ctx->cli-ctx profile ensure-node! env-atom)
+                       protocol (assoc :protocol protocol))
       :env-atom env-atom
-      :reset-xt-node! reset-node!})))
+      :reset-xt-node! reset-node!
+      :protocol protocol})))
 
 (defn stop
   "Shutdown resources associated with the current store-manager."

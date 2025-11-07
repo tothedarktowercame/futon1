@@ -3,6 +3,9 @@
         datascript/datascript {:mvn/version "1.6.5"}
         com.xtdb/xtdb-core {:mvn/version "1.24.4"}
         com.xtdb/xtdb-lmdb {:mvn/version "1.24.4"}
+        cheshire/cheshire {:mvn/version "5.11.0"}
+        org.clojure/data.json {:mvn/version "2.5.0"}
+        common/common {:local/root "../common"}
         org.slf4j/slf4j-api {:mvn/version "2.0.12"}
         org.slf4j/slf4j-nop {:mvn/version "2.0.12"}}
 

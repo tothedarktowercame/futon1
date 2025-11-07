@@ -24,7 +24,8 @@ echo "  clojure -Sdescribe"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 DEPS_TARGETS=(
   "$ROOT_DIR/protocols"
-  "$ROOT_DIR/apps/basic-chat-demo"
+  "$ROOT_DIR/apps/client"
+  "$ROOT_DIR/apps/demo"
   "$ROOT_DIR/apps/graph-memory"
   "$ROOT_DIR/apps/nlp-interface"
 )

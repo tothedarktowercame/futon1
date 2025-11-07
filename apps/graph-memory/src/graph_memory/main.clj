@@ -24,7 +24,7 @@
    :entity/id       {:db/unique :db.unique/identity}
    :entity/name     {:db/unique :db.unique/identity}
    :entity/type     {}
-   :entity/last-seen {}
+   :entity/last-seen {:db/index true}
    :entity/seen-count {}
    :entity/pinned? {}
    :mention/id      {:db/unique :db.unique/identity}
@@ -37,7 +37,7 @@
    :relation/dst    {:db/valueType :db.type/ref}
    :relation/provenance {}
    :relation/confidence {}
-   :relation/last-seen {}})
+   :relation/last-seen {:db/index true}})
 
 (defn init-db []
   (d/create-conn schema))

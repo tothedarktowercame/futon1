@@ -58,24 +58,24 @@
 
 (deftest xt-neighbor-rows-for-ids-finds-neighbors
   (testing "xt-neighbor-rows-for-ids finds neighbors from XTDB"
-    (let [xt-db    (xt/db)
-          me-id (UUID/randomUUID)
+    (let [me-id (UUID/randomUUID)
           neighbor-id (UUID/randomUUID)]
       (xt/put-entity! {:xt/id me-id :entity/id me-id :entity/name "Me"})
       (xt/put-entity! {:xt/id neighbor-id :entity/id neighbor-id :entity/name "Neighbor"})
       (xt/put-rel! {:xt/id (UUID/randomUUID) :relation/src me-id :relation/dst neighbor-id :relation/type :knows} nil nil)
       (xt/sync-node!)
-      (let [neighbors (focus/xt-neighbor-rows-for-ids xt-db #{me-id})
+      (let [xt-db (xt/db)
+            neighbors (focus/xt-neighbor-rows-for-ids xt-db #{me-id})
             neighbor (first neighbors)]
         (is (= 1 (count neighbors)))
         (is (= :knows (:relation neighbor)))
         (is (= :out (:direction neighbor)))
-        (is (= "Neighbor" (:neighbor neighbor)))
-        (is (= neighbor-id (:neighbor-id neighbor)))))))
+        (is (= "Neighbor" (get-in neighbor [:neighbor :name])))
+        (is (= neighbor-id (get-in neighbor [:neighbor :id])))))))
 
 (deftest top-neighbors_combines_ds_and_xt
-  (let [node     (xta/start-node {})        ;; or your test fixture’s node
-        ds       (gm/init-db)
+  (let [node      (xta/start-node {})
+        ds        (gm/init-db)
         serena-id (UUID/randomUUID)
         pat-id    (UUID/randomUUID)]
     (try
@@ -88,8 +88,8 @@
                      [[::xta/put {:xt/id serena-id :entity/name "Serena"}]
                       [::xta/put {:xt/id pat-id    :entity/name "Pat"}]
                       [::xta/put {:xt/id (UUID/randomUUID)
-                                  :relation/src  serena-id
-                                  :relation/dst  pat-id
+                                  :relation/src serena-id
+                                  :relation/dst pat-id
                                   :relation/type :knows}]])
 
       (xta/sync node)
@@ -99,11 +99,11 @@
                       (fn [_xtdb _seed-ids]
                         ;; deterministic row the rest of the pipeline expects
                         [{:relation :knows
-                          :neighbor "Pat"
+                          :neighbor {:id pat-id :name "Pat" :type :person}
                           :direction :out}])]
           (is (= ["Pat"]
                  (->> (focus/top-neighbors ds xt-db serena-id {:k 3})
-                      (map :neighbor))))))
+                      (map #(get-in % [:neighbor :name])))))))
 
       (finally
         (.close node)))))
@@ -123,8 +123,10 @@
         (fn [_xtdb _ids]
           [{:relation :knows
             :direction :out
-            :neighbor "Pat"
-            :neighbor-id (UUID/randomUUID)}])]
+            :neighbor {:id (UUID/randomUUID)
+                       :name "Pat"
+                       :type :person}}])]
         (let [neighbors (focus/top-neighbors ds-conn xt-db (UUID/randomUUID) {:k 3})]
           (is (= 1 (count neighbors)))
-          (is (= "Pat" (:neighbor (first neighbors)))))))))
+          (is (= "Pat" (get-in (first neighbors) [:neighbor :name])))))))
+)

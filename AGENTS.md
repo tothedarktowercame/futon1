@@ -6,17 +6,16 @@ The apps live in `apps/` — Each app must have `deps.edn` and aliases `:run-m`,
 
 ## Development status of included apps
 
-`basic-chat-demo` — this is a legacy app and for reference only: don't update it.
- - NOTE: If any other app depends on basic-chat-demo, we should refactor!
-
-`common` — this is a small service library used by other apps
+`common` — lightweight configuration/shared utilities
 
 `graph-memory` `nlp-interface` `open-world-ingest` — all provide core functionality
+(graph-memory now owns the store manager, Datascript/XTDB helpers, slash/bang
+logic, and focus header builders.)
 
-`client` — this is the current main client
-`demo` — this wraps the client with a user interface layer
+`client` — the deterministic session runner used by both CLI and automated tests
+`demo` — wraps the client with a user interface layer
 
-`api` — this packages the system for external clients
+`api` — packages the system for external clients
 
 ## Build and Test 
 Run commands from the target app directory unless noted:
@@ -25,7 +24,7 @@ Run commands from the target app directory unless noted:
 - `clojure -T:build test` runs the build namespace test task; `clojure -T:build ci` adds uberjar packaging and cleanup.
 
 ## Coding Style & Naming Conventions
-Stick to idiomatic Clojure with 2-space indentation and align binding forms (`let`, `for`, `cond`). Namespace paths should mirror directories (e.g. `src/basic_chat_demo/basic_chat_demo.clj` -> `basic-chat-demo.basic-chat-demo`). Favor `kebab-case` for functions/vars, `SCREAMING_SNAKE_CASE` for constants, and `UpperCamelCase` only for records/types. Run `clj-kondo` before submitting; organize requires alphabetically and group `:refer` forms sparingly.
+Stick to idiomatic Clojure with 2-space indentation and align binding forms (`let`, `for`, `cond`). Namespace paths should mirror directories (e.g. `apps/demo/src/demo/main.clj` -> `demo.main`). Favor `kebab-case` for functions/vars, `SCREAMING_SNAKE_CASE` for constants, and `UpperCamelCase` only for records/types. Run `clj-kondo` before submitting; organize requires alphabetically and group `:refer` forms sparingly.
 
 ## Testing Guidelines
 Create test namespaces that mirror production namespaces and end in `-test`. Keep deterministic fixtures in `test/golden` or `test/scripts`, and document scenario intent at the top of each test namespace. Always run `clojure -M:test` (and pertinent `bb` tasks) before opening a PR, ensuring new behavior has coverage or an explicit rationale when no test is practical.

@@ -1,4 +1,0 @@
-!entity Pat :person
-!entity Boston :place
-!rel "Pat" advisor-of "Joe" since 2001 until 2005 note "former undergrad advisor"
-you> I am looking forward to meeting Pat in Boston.

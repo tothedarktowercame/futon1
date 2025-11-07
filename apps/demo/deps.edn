@@ -1,7 +1,6 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
-        client/client {:local/root "../client"}
-        basic-chat-demo/basic-chat-demo {:local/root "../basic-chat-demo"}}
+        client/client {:local/root "../client"}}
  :aliases
  {:run-m {:main-opts ["-m" "demo.main"]}
   :repl {:main-opts ["-m" "clojure.main"]}}}

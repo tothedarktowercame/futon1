@@ -9,7 +9,7 @@
    :app/snapshot-every 100
    :app/server-port    4000
    :xtdb/enabled?      true
-   :xtdb/config-path   "apps/basic-chat-demo/resources/xtdb.edn"
+   :xtdb/config-path   "apps/graph-memory/resources/xtdb.edn"
    :warmup/enable?     true
    :warmup/focus-k     5})
 

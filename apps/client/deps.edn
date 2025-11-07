@@ -4,7 +4,6 @@
         cheshire/cheshire {:mvn/version "5.11.0"}
         org.slf4j/slf4j-api {:mvn/version "2.0.12"}
         org.slf4j/slf4j-nop {:mvn/version "2.0.12"}
-        basic-chat-demo/basic-chat-demo {:local/root "../basic-chat-demo"}
         open-world-ingest/open-world-ingest {:local/root "../open-world-ingest"}
         graph-memory/graph-memory {:local/root "../graph-memory"}
         nlp-interface/nlp-interface {:local/root "../nlp-interface"}

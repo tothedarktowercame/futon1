@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [api.server :as server]
+            [api.routes :as routes]
             [app.store-manager :as store-manager])
   (:import (java.net URI)
            (java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
@@ -142,3 +143,9 @@
             (is (contains? labels "Serena"))))
         (finally
           (server/stop!))))))
+
+(deftest healthz-route-returns-ok
+  (let [resp (routes/dispatch {:request-method :get
+                               :uri "/healthz"})]
+    (is (= 200 (:status resp)))
+    (is (= {:status "ok"} (:body resp)))))

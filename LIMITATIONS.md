@@ -76,15 +76,15 @@ ingestion remains robust.
 ## Operational next steps
 
 - Track the new focus/XT helper namespaces before publishing a build:
-  `apps/basic-chat-demo/src/app/header.clj`, `apps/graph-memory/src/app/*.clj`,
-  and `apps/basic-chat-demo/resources/xtdb-test.edn` are required for clean
+  `apps/graph-memory/src/app/header.clj`, `apps/graph-memory/src/app/*.clj`,
+  and `apps/graph-memory/resources/xtdb-test.edn` are required for clean
   bootstrap.
 - Long-running tests still need to run outside the sandbox (or with a larger
   timeout). Use `clojure -M:test -m cognitect.test-runner` from
-  `apps/basic-chat-demo/` once you have full shell access.
-- Interactive smoke test: `clojure -M:run-m -- --protocol basic-chat/v5 --fh`
-  exercises the new focus header; add `--fh-debug` when you need the detailed
-  payload.
+  `apps/graph-memory/` once you have full shell access.
+- Interactive smoke test: `clojure -M:run-m` (from the repo root or
+  `apps/demo/`) exercises the focus header; inspect the emitted `fh>` lines for
+  debugging output.
 
 See the individual README files for usage instructions. This document focuses on
 operational gotchas that have bitten us recently.

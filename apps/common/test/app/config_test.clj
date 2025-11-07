@@ -25,7 +25,7 @@
         (let [result (cfg/load-config)]
           (is (= "data/default" (:app/data-dir result)))
           (is (= 4000 (:app/server-port result)))
-          (is (= "apps/basic-chat-demo/resources/xtdb.edn"
+          (is (= "apps/graph-memory/resources/xtdb.edn"
                  (:xtdb/config-path result))))))))
 
 (deftest load-config-applies-precedence

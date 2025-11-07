@@ -3,6 +3,7 @@
             [app.store-manager :as store-manager]
             [app.xt :as xt]
             [datascript.core :as d]
+            [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [client.api :as api])
   (:import (java.nio.file Files)
@@ -98,3 +99,54 @@
          (is (seq fh3))
          (is (some #(re-find #"Enriched:" %) fh3))
          (is (some #(re-find #"Me -\[play\]-> piano" %) fh3)))))))
+
+(defn- relation-key [rel]
+  [(some-> (:type rel) name)
+   (get-in rel [:src :name])
+   (get-in rel [:dst :name])])
+
+(deftest enriched-section-eventually-diverges-from-recent
+  (with-session-fixture
+   (fn [session]
+     (let [sentences ["I am by birth a Genevese, and my family is one of the most distinguished of that republic."
+                      "My ancestors had been for many years counsellors and syndics, and my father had filled several public situations with honour and reputation."
+                      "He was respected by all who knew him for his integrity and indefatigable attention to public business."
+                      "He passed his younger days perpetually occupied by the affairs of his country; a variety of circumstances had prevented his marrying early, nor was it until the decline of life that he became a husband and the father of a family."
+                      "As the circumstances of his marriage illustrate his character, I cannot refrain from relating them."
+                      "One of his most intimate friends was a merchant who, from a flourishing state, fell, through numerous mischances, into poverty."
+                      "This man, whose name was Beaufort, was of a proud and unbending disposition and could not bear to live in poverty and oblivion in the same country where he had formerly been distinguished for his rank and magnificence."
+                      "Having paid his debts, therefore, in the most honourable manner, he retreated with his daughter to the town of Lucerne, where he lived unknown and in wretchedness."
+                      "My father loved Beaufort with the truest friendship and was deeply grieved by his retreat in these unfortunate circumstances."
+                      "He bitterly deplored the false pride which led his friend to a conduct so little worthy of the affection that united them."
+                      "He lost no time in endeavouring to seek him out, with the hope of persuading him to begin the world again through his credit and assistance."
+                      "Beaufort had taken effectual measures to conceal himself, and it was ten months before my father discovered his abode."
+                      "Overjoyed at this discovery, he hastened to the house, which was situated in a mean street near the Reuss."
+                      "But when he entered, misery and despair alone welcomed him."
+                      "Beaufort had saved but a very small sum of money from the wreck of his fortunes, but it was sufficient to provide him with sustenance for some months, and in the meantime he hoped to procure some respectable employment in a merchant's house."
+                      "The interval was, consequently, spent in inaction; his grief only became more deep and rankling when he had leisure for reflection, and at length it took so fast hold of his mind that at the end of three months he lay on a bed of sickness, incapable of any exertion."]
+           state (:state session)
+           divergence
+           (loop [idx 1
+                  remaining sentences]
+             (if-let [sentence (first remaining)]
+               (do
+                 (api/run-line session sentence)
+                 (let [last-turn (:last-turn @state)
+                       debug (:focus_header_debug last-turn)
+                       json (:json debug)
+                       recent (get-in json [:recent :relations])
+                       enriched (get-in json [:enriched :relations])
+                       extras (when (seq enriched)
+                                (let [recent-keys (set (map relation-key recent))
+                                      enriched-keys (set (map relation-key enriched))
+                                      diff (set/difference enriched-keys recent-keys)]
+                                  (not-empty diff)))]
+                   (if extras
+                     {:turn idx :extras extras}
+                     (recur (inc idx) (rest remaining)))))
+               nil))]
+       (testing "Enriched section never diverges from recent within the excerpt"
+         (is (nil? divergence)))
+       (when divergence
+         (is (pos? (:turn divergence)))
+         (is (seq (:extras divergence))))))))

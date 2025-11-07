@@ -84,11 +84,13 @@
                               :conn conn
                               :env env}
                              ctx)}
-        body    {:text line :ts ts :protocol turns/default-protocol}
+        protocol-id (or (:protocol ctx) turns/default-protocol)
+        body    {:text line :ts ts :protocol protocol-id}
         out     (turns/process-turn! req body)]
     {:message            (format "ok — %d entities, %d relations"
                                  (count (:entities out)) (count (:relations out)))
      :bot-lines          (extract-lines out)
      :context            (:context out)
      :focus-header-lines (focus-lines out conn)
+     :turn               out
      :new-state          (assoc state :last-turn out)}))

@@ -1,7 +1,7 @@
 ;; bb.edn
 {:tasks
  {test:all
-  (let [apps ["basic-chat-demo"
+  (let [apps ["client"
               "nlp-interface"
               "api"
               "open-world-ingest"
@@ -14,4 +14,4 @@
              "clojure -M:test -m cognitect.test-runner -d test")))
 
   lint (shell "clj-kondo --lint apps libs")
-  demo (shell "cd apps/basic-chat-demo && clojure -M:run-m -- --protocol basic-chat/v5 --fh")}}
+  demo (shell "cd apps/demo && clojure -M:run-m")}}

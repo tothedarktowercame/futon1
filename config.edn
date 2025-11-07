@@ -4,7 +4,7 @@
  :app/server-port        8080
 
  :xtdb/enabled?          true
- :xtdb/config-path       "apps/basic-chat-demo/resources/xtdb.edn"
+ :xtdb/config-path       "apps/graph-memory/resources/xtdb.edn"
 
 ;; optional run-time behaviours
  :warmup/enable?         true

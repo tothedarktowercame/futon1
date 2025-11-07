@@ -1,2 +1,0 @@
-[{:in "hello there" :intent {:type :greet :conf 0.99} :links [{}]}
- {:in "ok bye"       :intent {:type :farewell :conf 0.99} :links [{}]}]

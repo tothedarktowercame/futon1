@@ -1,5 +1,5 @@
 ;; deps.edn (top-level)
-{:paths ["apps/api/src" "apps/basic-chat-demo/src" "apps/common/src" "apps/graph-memory/src" "apps/nlp-interface/src" "apps/open-world-ingest/src"]
+{:paths ["apps/api/src" "apps/common/src" "apps/demo/src" "apps/client/src" "apps/graph-memory/src" "apps/nlp-interface/src" "apps/open-world-ingest/src"]
  :aliases
  {:api {:deps {api/api {:local/root "apps/api"}}
         :main-opts ["-m" "api.server"]}
@@ -7,8 +7,8 @@
   :server {:deps {api/api {:local/root "apps/api"}}
            :main-opts ["-m" "api.server"]}
 
-  :run-m {:deps {basic-chat-demo/basic-chat-demo {:local/root "apps/basic-chat-demo"}}
-          :main-opts ["-m" "basic-chat-demo.basic-chat-demo"]}
+  :run-m {:deps {demo/demo {:local/root "apps/demo"}}
+          :main-opts ["-m" "demo.main"]}
 
   :dev {:extra-paths ["apps/common/src" "dev"]
         :extra-deps {ring/ring-devel {:mvn/version "1.12.2"}}}
@@ -17,7 +17,6 @@
   :eastwood
   {:extra-deps  {jonase/eastwood                 {:mvn/version "1.4.2"}
                  api/api                         {:local/root "apps/api"}
-                 basic-chat-demo/basic-chat-demo {:local/root "apps/basic-chat-demo"}
                  graph-memory/graph-memory       {:local/root "apps/graph-memory"}
                  nlp-interface/nlp-interface     {:local/root "apps/nlp-interface"}
                  open-world-ingest/open-world-ingest {:local/root "apps/open-world-ingest"}}

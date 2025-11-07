@@ -1,41 +1,40 @@
 # futon1
 
 futon1 is a collection of deterministic chat demos that showcase a tiered NLP
-stack, an in-memory knowledge graph, and an append-only persistence layer. Each
-demo is surfaced through the `apps/basic-chat-demo` CLI and can be driven via
-interactive input, scripted conversations, or golden tests.
+stack, an in-memory knowledge graph, and an append-only persistence layer. The
+current interactive entry point is the `apps/demo` wrapper around the
+`apps/client` session runner.
 
 ## Repository structure
 
-- `apps/basic-chat-demo` – user-facing CLI with protocol selection, inline
-  commands, persistence bootstrapping, and context rendering.
+- `apps/demo` – user-facing CLI that wraps the Clojure client session with a
+  minimal REPL-like interface.
+- `apps/client` – deterministic session runner that drives the ingest pipeline,
+  slash/bang commands, and focus-header rendering.
 - `apps/nlp-interface` – deterministic NER/POS pipeline implementations shared
   across protocols (including the v4 gazetteer + pattern recogniser).
-- `apps/graph-memory` – Datascript schema/helpers for the entity/relationship
-  store.
+- `apps/graph-memory` – Datascript/XTDB schema, store manager, focus-header
+  helpers, and persistence utilities reused by every frontend.
 - `apps/open-world-ingest` – standalone CLI for streaming arbitrary utterances
   into XTDB using the open-domain CoreNLP pipeline.
 
 ## Core features
 
-- **Protocol variants**: choose between `basic-chat/v1` .. `basic-chat/v5` using
-  `--protocol basic-chat/vN`. `basic-chat/v5` is the default focus-header flow,
-  layering XT persistence on top of the v4 NER, relation extraction, and
-  context-aware output.
+- **Protocol variants**: the deterministic pipelines (`basic-chat/v1` …
+  `basic-chat/v6`) live under `protocols/` and can be selected by the HTTP API
+  or client session. `basic-chat/v6` is the default focus-header flow, layering
+  XTDB persistence on top of the v4 NER, relation extraction, and context-aware
+  output.
 - **Persistence**: the Datascript cache mirrors every mutation into XTDB. On
-  boot the CLI first hydrates from XT so salience metadata (seen-counts,
+  boot the session hydrates from XT so salience metadata (seen-counts,
   last-seen timestamps, pinned flags) is ready before focus headers are
   generated; if XT is disabled it falls back to the legacy event log + snapshot.
 - **Inline graph editing**: use bang commands in interactive mode (e.g.
   `!entity Pat :person`, `!rel "Pat" advisor-of "Joe" since 2001 ...`) to record
   curated facts; these are persisted through the same append-only log.
-- **Graph context**: v4 and later protocols can emit top-k neighbours and the
-  JSON **focus header** consumed by the v5 agent flows. Tweak with `--context`,
-  `--neighbors`, `--context-cap`, `--fh`, `--fh-only`, `--focus-days`, and
-  `--allow-works`.
-- **Operational knobs**: `--reset` wipes the data dir, `--compact` forces a
-  fresh snapshot, and `--export edn` emits a serialisable view of the current
-  database.
+- **Graph context**: sessions emit top-k neighbours plus the JSON **focus
+  header** consumed by the API and demo client. Neighbor/focus heuristics live
+  in `app.focus*` and are shared across transports.
 - **Open-world ingest**: the `apps/open-world-ingest` CLI bootstraps a
   CoreNLP-backed pipeline that stores entities, mentions, and relations in XTDB
   from arbitrary text (see module README for command reference and XT
@@ -54,14 +53,14 @@ interactive input, scripted conversations, or golden tests.
 ## Getting started
 
 ```bash
-cd apps/basic-chat-demo
-clojure -M:run-m -- --protocol basic-chat/v5 --fh
+cd apps/demo
+clojure -M:run-m
 ```
 
-`--fh` prints the JSON focus header alongside the standard EDN payload. To
-exercise the legacy v4 pipeline instead, add `--protocol basic-chat/v4` and keep
-`--ner-fallback` when you want the conservative NER stage that recognises
-single title-case tokens (e.g. “Tom”).
+You can also start the demo from the repository root via `clojure -M:run-m` or
+`bb demo`. Slash (`/tail`, `/me`, …) and bang (`!entity`, `!rel`, …) commands
+work exactly as they did in the legacy CLI, and focus-header summaries stream to
+stdout alongside chat replies.
 
 ### Installing Clojure and Java dependencies
 
@@ -82,17 +81,22 @@ from the CLI. Add `--fh` when you need a machine-readable focus header (or
 
 ### Scripts
 
-Scripted runs use EDN files containing utterance vectors:
+Automated regressions use the `client.api/run-script` helper. From a REPL:
 
-```bash
-clojure -M:run-m -- --protocol basic-chat/v5 \
-        --script test/scripts/basic-chat/v5/focus-header.edn --fh-only
+```clojure
+(require '[client.api :as api]
+         '[clojure.edn :as edn])
+
+(with-open [session (api/start {})]
+  (let [lines (:turns (edn/read-string (slurp "test/scripts/basic-chat/v5/focus-header.edn")))]
+    (api/run-script session lines)))
 ```
 
 ## Persistence layout
 
-All persisted data lives in `apps/basic-chat-demo/data` (configurable via
-`app.store/!env`):
+All persisted data lives under the repo-level `data/` directory by default.
+Override the root via `config.edn` or `BASIC_CHAT_DATA_DIR` to keep per-profile
+state outside the workspace:
 
 - `events.ndjson` / `snapshot.edn` – legacy append-only log + snapshot used when
   XTDB is disabled.
@@ -124,11 +128,12 @@ Set these when running multiple instances in parallel (tests, tooling, CLI):
 
 ## Testing
 
-Each app provides a Test Runner. The main regressions live under
-`apps/basic-chat-demo/test` and `apps/nlp-interface/test`.
+Each app provides a Test Runner. The graph/persistence regressions now live
+under `apps/graph-memory/test`, alongside the NLP fixtures in
+`apps/nlp-interface/test`.
 
 ```bash
-cd apps/basic-chat-demo
+cd apps/graph-memory
 clojure -M:test -m cognitect.test-runner
 
 cd ../nlp-interface
@@ -139,10 +144,8 @@ Golden fixtures (EDN) capture expected protocol output. Update them by rerunning
 the matching scripts and copying the printed vector when intentional changes are
 made.
 
-> **Note:** The `basic-chat-demo` test runner shells out to `clojure -M:run-m`
-> for each golden fixture. In sandboxed environments the spawned CLI can outlive
-> the default timeout and the test command reports `command timed out` even
-> though the behaviour is correct. Retry outside the sandbox (or with a larger
+> **Note:** End-to-end demos spawn in-process sessions that can take longer than
+> the default sandbox timeout. Retry outside the sandbox (or with a larger
 > timeout) if you encounter this warning.
 
 For additional operational caveats see [LIMITATIONS.md](LIMITATIONS.md).
@@ -156,22 +159,10 @@ For additional operational caveats see [LIMITATIONS.md](LIMITATIONS.md).
 
 ## CLI reference
 
-- `!entity <name> [:type]` (interactive) – ensure an entity exists and record it
-  in the event log.
-- `!rel <src> <type> <dst> [since <val> until <val> note <text>]` (interactive)
-  – create/update a relation between entities.
-- `!links <name>` (interactive) – print the neighbours recorded for the named
-  entity.
-- `--reset` – delete and reinitialise the persistence directory.
-- `--compact` – snapshot the current Datascript DB and truncate
-  `events.ndjson`.
-- `--export edn` – print the serialisable EDN snapshot of the current database.
-- `--context`, `--neighbors`, `--context-cap` – control neighbour context output.
-- `--ner-fallback` – enable the conservative fallback NER stage in protocol v4.
-- `--fh` / `--fh-only` – emit the focus header JSON alongside (or instead of)
-  the normal CLI reply.
-- `--fh-debug` – expand the focus header JSON with scoring and policy metadata.
-- `--focus-days <n>` – adjust the salience lookback window used when building
-  focus headers and neighbour slices.
-- `--allow-works <on|off>` – include `:work/*` entity types in focus header
-  output (off by default).
+- `!entity <name> [:type]` – ensure an entity exists and record it in the event
+  log.
+- `!rel <src> <type> <dst> [since <val> until <val> note <text>]` –
+  create/update a relation between entities.
+- `!links <name>` – print the neighbours recorded for the named entity.
+- `/tail [n]`, `/ego <entity>`, `/me [summary] [limit]`, `/types`, etc. – see
+  `app.slash` for the full reference shared by the CLI and HTTP API.

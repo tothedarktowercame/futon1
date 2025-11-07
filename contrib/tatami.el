@@ -69,7 +69,7 @@ When nil, use the current `default-directory` at invocation time."
   :type '(choice (const :tag "Default profile" nil) string)
   :group 'tatami)
 
-(defcustom tatami-startup-wait 10
+(defcustom tatami-startup-wait 15
   "Seconds to wait for the server to become reachable after launch."
   :type 'integer
   :group 'tatami)
@@ -150,23 +150,26 @@ Errors are signalled with a short message; the detailed payload is preserved via
          (coding-system-for-read 'utf-8)
          (coding-system-for-write 'utf-8)
          (buffer (url-retrieve-synchronously (tatami--make-url path) t t tatami-startup-wait)))
+    ;; If we time out or can't connect, bail out cleanly *before* touching the buffer.
     (unless buffer
+      (tatami--note-error "No response from headless API: %s %s (timeout=%ss)"
+                          method path tatami-startup-wait)
       (error "No response from headless API"))
     (unwind-protect
         (with-current-buffer buffer
           (let ((status (or url-http-response-status 0)))
             (goto-char (or (and (boundp 'url-http-end-of-headers)
-                                 url-http-end-of-headers)
+                                url-http-end-of-headers)
                            (search-forward "\n\n" nil t)
                            (point-min)))
             (let* ((body (buffer-substring-no-properties (point) (point-max)))
                    (decoded-body (decode-coding-string body 'utf-8)))
               (when tatami-verbose
                 (tatami--write-log "%s %s\nrequest: %s\nresponse: %s"
-                                    method
-                                    path
-                                    (if data (json-encode data) "<empty>")
-                                    (string-trim decoded-body)))
+                                   method
+                                   path
+                                   (if data (json-encode data) "<empty>")
+                                   (string-trim decoded-body)))
               (unless (= status 200)
                 (tatami--note-error "API request failed (%s) %s" status decoded-body)
                 (error "API request failed (%s)" status))
@@ -211,16 +214,7 @@ string.  If no sentence remains, return nil."
             (push sentence sentences))))
       (nreverse sentences))))
 
-(defun tatami--server-running-p ()
-  "Return non-nil when the server responds to /api/α/focus-header."
-  (setq tatami--last-error nil)
-  (condition-case err
-      (progn
-        (tatami--request "GET" "/api/%CE%B1/focus-header" nil t)
-        t)
-    (error
-     (tatami--note-error "%s" (error-message-string err))
-     nil)))
+
 
 (defun tatami-stop-server ()
   "Stop a headless server started by Emacs."
@@ -283,38 +277,64 @@ EVENT is the raw event string from `set-process-sentinel'."
   (setq tatami--last-command tatami-start-command)
   (tatami--launch-server t))
 
+(defvar tatami-health-path "/healthz")
+
+(defun tatami--probe (url)
+  "Return non-nil if URL is reachable (any HTTP status)."
+  (condition-case e
+      (with-current-buffer (url-retrieve-synchronously url t t 2)
+        (prog1 t (kill-buffer (current-buffer))))
+    (error (setq tatami--last-error (error-message-string e)) nil)))
+
+(defun tatami--server-running-p ()
+  "Return non-nil if the headless server responds."
+  (let ((base (replace-regexp-in-string "/\\'" "" tatami-base-url)))
+    (or (tatami--probe (concat base tatami-health-path))
+        (tatami--probe (concat base "/")))))
+
 (defun tatami--launch-server (&optional interactive)
   "Ensure a server is running, launching it when necessary.
 INTERACTIVE controls messaging."
   (if (tatami--server-running-p)
-      (progn
-        (when interactive (message "Headless server already running"))
-        t)
+      (progn (when interactive (message "Headless server already running")) t)
     (let* ((base-dir (or tatami-start-directory default-directory))
            (default-directory (file-name-as-directory (expand-file-name base-dir)))
-           (command tatami--last-command)
-           (process-name "headless-api-server"))
+           (command tatami-start-command)
+           (process-name "headless-api-server")
+           (buf (get-buffer-create "*headless-api-server*")))
       (unless (and (listp command) (car command))
         (error "`tatami-start-command' must be a non-empty list"))
       (when interactive
         (message "Starting headless server using %s" (string-join command " ")))
+      ;; Optional: some users prefer this for faster I/O, less PTY weirdness:
+      ;; (let ((process-connection-type nil) ...)
       (setq tatami--server-process
-            (apply #'start-process process-name (get-buffer-create "*headless-api-server*") command))
+            (apply #'start-process process-name buf command))
       (set-process-query-on-exit-flag tatami--server-process nil)
-      (set-process-sentinel tatami--server-process #'tatami--process-sentinel)
-      (let ((elapsed 0)
-            (interval 0.5)
-            (max-wait tatami-startup-wait)
+      (set-process-sentinel tatami--server-process
+                            (lambda (_proc _event) ;; keep simple; we poll below
+                              nil))
+      ;; Robust wait: up to ~15s with exponential backoff.
+      (let ((attempts 0)
+            (max-attempts 8)   ;; ~1.5 + 3 + 4.5 + ... ≈ 15s
+            (sleep 1.5)
             (ready nil))
-        (while (and (< elapsed max-wait)
+        (while (and (< attempts max-attempts)
                     (not (setq ready (tatami--server-running-p))))
-          (sleep-for interval)
-          (setq elapsed (+ elapsed interval)))
-        (when (and (not ready) interactive)
-          (message "Failed to contact headless server%s"
-                   (if tatami--last-error
-                       (format ": %s" tatami--last-error)
-                     "")))
+          (sleep-for sleep)
+          (setq attempts (1+ attempts)
+                sleep (min 4.5 (* sleep 1.5))))
+        (unless ready
+          (when interactive
+            (let ((tail (with-current-buffer buf
+                          (save-excursion
+                            (goto-char (point-max))
+                            (buffer-substring
+                             (max (point-min) (- (point-max) 4000))
+                             (point-max))))))
+              (message "Failed to contact headless server%s\n--- server log tail ---\n%s"
+                       (if tatami--last-error (format ": %s" tatami--last-error) "")
+                       (or tail "<no output>")))))
         ready))))
 
 (defun tatami--ensure-server (&optional interactive)

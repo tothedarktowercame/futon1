@@ -36,7 +36,8 @@
 
 (def router
   (ring/router
-   (into [["/api" shared-routes]]
+   (into [["/healthz" {:get diag/healthz}]
+          ["/api" shared-routes]]
          (map (fn [prefix]
                 [prefix shared-routes])
               versioned-prefixes))))

@@ -50,10 +50,13 @@ We retain Datascript because:
   lookups (`entities-by-name`, `neighbors`).
 - **Ease of augmentation** – bang commands and REPL tooling can mutate the
   in-memory store without round-tripping through XT.
+- **Guaranteed anchors** – entities marked with `:entity/pinned? true` are
+  always included in the activation set that feeds focus headers, so even brand
+  new profiles (which may have zero relations yet) still emit stable salience
+  summaries.
 
-XT mirroring lives in `apps/basic-chat-demo/src/app/store.clj`, but this module
-exposes the helpers (`graph-memory/src/app/xt.clj`) that start nodes and submit
-documents.
+XT mirroring lives in `apps/graph-memory/src/app/store.clj`, alongside the
+helpers (`src/app/xt.clj`) that start nodes and submit documents.
 
 ## XT integration helpers
 
@@ -69,13 +72,13 @@ Two classpath configs are provided:
 - [`resources/xtdb.edn`](resources/xtdb.edn) – default RocksDB-backed config for
   long-lived runs.
 - Tests typically point to a temp copy so each run gets fresh storage (see
-  `apps/basic-chat-demo/resources/xtdb-test.edn`).
+  [`resources/xtdb-test.edn`](resources/xtdb-test.edn)).
 
 ### Demo: salience survives restarts
 
 ```bash
 # First run – mention Serena twice to boost salience
-clojure -M:run-m -- --protocol basic-chat/v5 --fh-only <<'EOS'
+clojure -M:run-m <<'EOS'
 Serena joined PatCon today.
 Serena is presenting tomorrow.
 EOS
@@ -83,7 +86,7 @@ EOS
 # Observe the second focus header; Serena's seen-count increments
 
 # Restart using the same BASIC_CHAT_DATA_DIR
-BASIC_CHAT_DATA_DIR=data clojure -M:run-m -- --protocol basic-chat/v5 --fh-only <<'EOS'
+BASIC_CHAT_DATA_DIR=data clojure -M:run-m <<'EOS'
 Show me the most relevant entities.
 EOS
 
@@ -98,7 +101,7 @@ EOS
 ### Demo: fast local edits
 
 ```bash
-clojure -M:run-m -- --protocol basic-chat/v5 --fh --fh-only <<'EOS'
+clojure -M:run-m <<'EOS'
 !entity Futon v5 :project
 Futon v5 shipped focus headers.
 EOS
@@ -116,15 +119,15 @@ cd apps/graph-memory
 clojure -M:test -m clojure.test
 ```
 
-The tests only cover the seed graph today; higher-level integration checks live
-under `apps/basic-chat-demo/test`.
+The tests here cover the seed graph, slash commands, store helpers, and
+focus-header builders.
 
 When editing the schema:
 
 1. Update `graph_memory/main.clj` and keep the schema, helper fns, and tests in
    sync.
 2. Run `bb lint` (only defined in this app) to enforce `clj-kondo` rules.
-3. Re-run the `basic-chat-demo` tests (`clojure -M:test -m cognitect.test-runner`)
+3. Re-run the `apps/graph-memory` tests (`clojure -M:test -m cognitect.test-runner`)
    to ensure the front-end CLI still hydrates correctly.
 
 ## Known gaps
@@ -132,8 +135,8 @@ When editing the schema:
 - XT hydration currently tolerates relations whose endpoints are missing by
   creating stub entities. The focus-header logic still prefers fully-populated
   docs; populate the missing entities to avoid warning logs.
-- Golden tests in `basic-chat-demo` spawn separate JVMs and can time out in
-  heavily sandboxed environments when XT startup is slow.
+- Demo/client sessions spawn in-process loops and can time out in heavily
+  sandboxed environments when XT startup is slow.
 
 ## License
 

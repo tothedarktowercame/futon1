@@ -1,9 +1,9 @@
 # api
 
 `api` exposes the deterministic Futon pipeline over HTTP without
-LLM calls. It mirrors the `basic-chat-demo` persistence stack (Datascript with
-XTDB salience) and provides JSON/text endpoints that align with the focus-header
-UX from the CLI.
+LLM calls. It depends on the shared `app.*` namespaces housed in
+`apps/graph-memory` (Datascript with XTDB salience) and provides JSON/text
+endpoints that align with the focus-header UX from the demo client.
 
 ## Running the server
 

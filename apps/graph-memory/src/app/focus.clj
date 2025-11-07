@@ -33,10 +33,39 @@
   ([v] (let [p (promise)] (deliver p v) p)))
 
 ;; apps/api/src/app/focus.clj (essentials)
+(defn- relation-anchor-ids
+  [db relation-eid]
+  (let [doc (d/pull db '[{:relation/src [:entity/id]}
+                         {:relation/dst [:entity/id]}]
+                    relation-eid)
+        src (get-in doc [:relation/src :entity/id])
+        dst (get-in doc [:relation/dst :entity/id])]
+    (remove nil? [src dst])))
+
+(defn- pinned-entity-ids
+  [db]
+  (when db
+    (->> (d/q '[:find ?id
+                :where
+                [?e :entity/pinned? true]
+                [?e :entity/id ?id]]
+              db)
+         (map first)
+         set)))
+
 (defn ds-activated-ids
   "Return hot anchor IDs from Datascript for this profile/entity."
-  ([db] (->> (store/latest-by-attr db :relation/last-seen 20) set))
-  ([db entity-id] (if entity-id #{entity-id} (ds-activated-ids db))))
+  ([db]
+   (let [recent-relations (if db (store/latest-by-attr db :relation/last-seen 20) [])
+         rel-anchors      (->> recent-relations
+                               (mapcat #(relation-anchor-ids db %))
+                               (remove nil?)
+                               set)
+         pinned           (or (pinned-entity-ids db) #{})]
+     (into rel-anchors pinned)))
+  ([db entity-id]
+   (let [anchors (or (ds-activated-ids db) #{})]
+     (cond-> anchors entity-id (conj entity-id)))))
 
 (defn ^:private ->db [node-or-db]
   (cond

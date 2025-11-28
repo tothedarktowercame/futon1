@@ -5,6 +5,8 @@
 (defn ctx-snapshot [_request]
   (http/ok-json (store-manager/diag)))
 
-(defn healthz [_request]
-  (http/ok-json {:status "ok"}))
-
+(defn healthz [request]
+  (let [caps (or (get-in request [:ctx :capabilities])
+                 (store-manager/default-capabilities))]
+    (http/ok-json {:status "ok"
+                   :capabilities caps})))

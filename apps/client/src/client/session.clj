@@ -7,6 +7,7 @@
             [client.engine :as engine]
             [client.runner :as runner]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [xtdb.api :as xta]))
 
 (defn- now-ms [] (System/currentTimeMillis))
@@ -60,19 +61,26 @@
     (reset! env-atom env)
     {:db (:conn ctx)
      :conn (:conn ctx)
+     :arxana-store (:arxana-store ctx)
+     :capabilities (:capabilities ctx)
      :env env
      :default-profile profile
      :xtdb-node (ensure-node!)}))
 
 (defn- make-slash-handler [profile ensure-node! env-atom]
-  (let [slash-state (atom {:conn (:conn (store-manager/ctx profile))})
+  (let [base-ctx (store-manager/ctx profile)
+        slash-state (atom {:conn (:conn base-ctx)
+                           :arxana-store (:arxana-store base-ctx)
+                           :capabilities (:capabilities base-ctx)})
         opts-fn (fn []
                   (let [ctx (store-manager/ctx profile)
                         env (:env ctx)]
                     (reset! env-atom env)
                     {:env env
-                     :xt-node (ensure-node!)
-                     :xt-node-fn ensure-node!}))
+                      :arxana-store (:arxana-store ctx)
+                      :capabilities (:capabilities ctx)
+                      :xt-node (ensure-node!)
+                      :xt-node-fn ensure-node!}))
         handler-fn (fn []
                      (slash/handler (opts-fn) slash-state))]
     {:state slash-state
@@ -136,6 +144,17 @@
       :reset-xt-node! reset-node!
       :protocol protocol})))
 
+(def ^:private slash-command-capabilities
+  {"tail" [:links :list?]
+   "ego" [:links :list?]
+   "cooccur" [:events :query?]})
+
+(defn- capability-supported? [ctx path]
+  (get-in (:capabilities ctx) path true))
+
+(def ^:private unavailable-command-msg
+  #(str "Command /" % " is not available on this profile."))
+
 (defn stop
   "Shutdown resources associated with the current store-manager."
   ([] (store-manager/shutdown!))
@@ -160,13 +179,21 @@
       :slash (let [{:keys [handler-fn state]} slash
                    slash-state state
                    handler (handler-fn)
-                   ctx (ctx-provider)]
-               (swap! slash-state assoc :conn (:conn ctx))
-               (let [snapshot @state-atom
-                     {:keys [message new-state] :or {new-state snapshot}}
-                     (call-command handler (:raw classification) snapshot ctx)]
-                 (reset! state-atom new-state)
-                 {:type :slash :data {:message message}}))
+                   ctx (ctx-provider)
+                   command-name (some-> classification :raw (str/split #"\s+") first str/lower-case)]
+               (if (slash-supported? ctx command-name)
+                 (do
+                   (swap! slash-state assoc
+                          :conn (:conn ctx)
+                          :arxana-store (:arxana-store ctx)
+                          :capabilities (:capabilities ctx))
+                   (let [snapshot @state-atom
+                         {:keys [message new-state] :or {new-state snapshot}}
+                         (call-command handler (:raw classification) snapshot ctx)]
+                     (reset! state-atom new-state)
+                     {:type :slash :data {:message message}}))
+                 {:type :slash
+                  :data {:message (unavailable-command-msg command-name)}}))
 
       :bang  (let [ctx (assoc (ctx-provider) :profile profile)
                    snapshot @state-atom

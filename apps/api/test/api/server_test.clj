@@ -146,6 +146,9 @@
 
 (deftest healthz-route-returns-ok
   (let [resp (routes/dispatch {:request-method :get
-                               :uri "/healthz"})]
+                               :uri "/healthz"})
+        default-caps (store-manager/default-capabilities)]
     (is (= 200 (:status resp)))
-    (is (= {:status "ok"} (:body resp)))))
+    (is (= {:status "ok"
+            :capabilities default-caps}
+           (:body resp)))))

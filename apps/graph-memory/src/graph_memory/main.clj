@@ -27,6 +27,9 @@
    :entity/last-seen {:db/index true}
    :entity/seen-count {}
    :entity/pinned? {}
+   :entity/external-id {}
+   :entity/source   {}
+   :entity/current-version {:db/valueType :db.type/ref}
    :mention/id      {:db/unique :db.unique/identity}
    :mention/utterance {:db/valueType :db.type/ref}
    :mention/entity  {:db/valueType :db.type/ref}
@@ -37,7 +40,13 @@
    :relation/dst    {:db/valueType :db.type/ref}
    :relation/provenance {}
    :relation/confidence {}
-   :relation/last-seen {:db/index true}})
+   :relation/last-seen {:db/index true}
+   :entity.version/id {:db/unique :db.unique/identity}
+   :entity.version/identity {:db/valueType :db.type/ref}
+   :entity.version/prev {:db/valueType :db.type/ref}
+   :entity.version/created-at {:db/index true}
+   :entity.version/updated-at {}
+   :entity.version/data {}})
 
 (defn init-db []
   (d/create-conn schema))

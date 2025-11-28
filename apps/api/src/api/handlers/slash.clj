@@ -2,6 +2,7 @@
   (:require [api.util.http :as http]
             [app.command-service :as commands]
             [app.slash.format :as fmt]
+            [app.store-manager :as store-manager]
             [clojure.string :as str]))
 
 (def ^:private default-tail-limit 5)
@@ -10,6 +11,13 @@
 (defn- ds-conn [request]
   (or (get-in request [:ctx :conn])
       (throw (ex-info "Datascript connection unavailable" {:status 500}))))
+
+(defn- capabilities [request]
+  (or (get-in request [:ctx :capabilities])
+      (store-manager/default-capabilities)))
+
+(defn- capability? [request path]
+  (get-in (capabilities request) path true))
 
 (defn- env-opts [request]
   (or (get-in request [:ctx :env]) {}))
@@ -25,15 +33,20 @@
       (min max-tail-limit)))
 
 (defn tail [request]
-  (let [conn (ds-conn request)
-        raw-limit (get-in request [:query-params "limit"])
-        limit (sanitize-limit raw-limit)
-        relations (commands/tail conn limit)
-        lines (fmt/tail-lines relations)]
-    (http/ok-json {:command "/tail"
-                   :limit limit
-                   :relations relations
-                   :lines lines})))
+  (if-not (capability? request [:links :list?])
+    (http/ok-json {:error "/tail not supported"} 501)
+    (let [conn (ds-conn request)
+          arxana-store (get-in request [:ctx :arxana-store])
+          raw-limit (get-in request [:query-params "limit"])
+          limit (sanitize-limit raw-limit)
+          relations (commands/tail {:conn conn
+                                     :arxana-store arxana-store}
+                                    limit)
+          lines (fmt/tail-lines relations)]
+      (http/ok-json {:command "/tail"
+                     :limit limit
+                     :relations relations
+                     :lines lines}))))
 
 (defn- requested-name [request]
   (or (some-> (get-in request [:path-params :name]) str/trim)
@@ -44,26 +57,30 @@
     (if (str/blank? entity-name)
       (http/ok-json {:command "/ego"
                      :lines ["Usage: /ego <entity>"]})
-      (let [conn (ds-conn request)
+      (if-not (capability? request [:links :list?])
+        (http/ok-json {:error "/ego not supported"} 501)
+        (let [conn (ds-conn request)
             data (commands/ego conn entity-name)
             lines (fmt/ego-lines data entity-name)]
         (http/ok-json {:command "/ego"
                        :name entity-name
                        :lines lines
-                       :ego data})))))
+                       :ego data}))))))
 
 (defn cooccur [request]
   (let [entity-name (requested-name request)]
     (if (str/blank? entity-name)
       (http/ok-json {:command "/cooccur"
                      :lines ["Usage: /cooccur <entity>"]})
-      (let [conn (ds-conn request)
+      (if-not (capability? request [:events :query?])
+        (http/ok-json {:error "/cooccur not supported"} 501)
+        (let [conn (ds-conn request)
             data (commands/cooccurring conn entity-name)
             lines (fmt/cooccur-lines data entity-name)]
         (http/ok-json {:command "/cooccur"
                        :name entity-name
                        :lines lines
-                       :cooccurrences data})))))
+                       :cooccurrences data}))))))
 
 (defn forget! [request]
   (let [entity-name (some-> (get-in request [:body :name]) str/trim)]
@@ -93,7 +110,25 @@
                        :lines lines
                        :entity entity})))))
 
-(defn help [_]
-  (http/ok-json {:command "/help"
-                 :commands fmt/help-lines
-                 :lines fmt/help-lines}))
+(def ^:private command-capabilities
+  {"tail" [:links :list?]
+   "ego" [:links :list?]
+   "cooccur" [:events :query?]})
+
+(defn- supported-command? [request command]
+  (if-let [path (get command-capabilities command)]
+    (capability? request path)
+    true))
+
+(defn help [request]
+  (let [caps (capabilities request)
+        commands (->> fmt/help-lines
+                      (map (fn [line]
+                             (if-let [[_ cmd] (re-matches #"/(\w+).*" line)]
+                               (str line (when-not (supported-command? request (str/lower-case cmd))
+                                           " (not supported)"))
+                               line))))]
+    (http/ok-json {:command "/help"
+                   :commands commands
+                   :capabilities caps
+                   :lines commands})))

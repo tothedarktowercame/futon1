@@ -62,6 +62,21 @@ You can also start the demo from the repository root via `clojure -M:run-m` or
 work exactly as they did in the legacy CLI, and focus-header summaries stream to
 stdout alongside chat replies.
 
+### Running the HTTP API server
+
+External clients should talk to the API module rather than the demo CLI. From
+the repository root run `clojure -M:api`, or from within `apps/api` launch the
+module-specific alias:
+
+```bash
+cd apps/api
+clojure -M:server
+```
+
+Set `BASIC_CHAT_DATA_DIR` (and optional `BASIC_CHAT_XTDB_*` overrides) before
+starting the server so it points at the storage root your client should use.
+Detailed route and environment docs live in `apps/api/README.md`.
+
 ### Installing Clojure and Java dependencies
 
 The demos require a working JVM and the Clojure CLI tools. On Debian/Ubuntu

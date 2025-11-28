@@ -422,10 +422,11 @@ from the final turn posted."
     (dolist (sentence sentences last-header)
       (setq last-header (tatami-send-turn sentence tatami-profile))
       (setq count (1+ count)))
-    (message "Tatami: sent %d sentence%s in %.2fs"
-             count
-             (if (= count 1) "" "s")
-             (float-time (time-subtract (current-time) start-time)))))
+    (prog1 last-header
+      (message "Tatami: sent %d sentence%s in %.2fs"
+               count
+               (if (= count 1) "" "s")
+               (float-time (time-subtract (current-time) start-time))))))
 
 (defalias 'tatami-send-lines #'tatami-send-sentences)
 

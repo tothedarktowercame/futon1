@@ -225,7 +225,32 @@
      :focus_header fh}))
 
 (defn process-turn-handler [request]
-  (http/ok-json (process-turn! request (:body request))))
+  (let [{:keys [ctx]} request
+        body (:body request)
+        profile (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
+                    (:default-profile ctx))
+        protocol-id (or (some-> (:protocol body) str/trim not-empty)
+                        default-protocol)
+        text (normalize-text (:text body))
+        start (System/nanoTime)
+        preview (when text (if (> (count text) 120)
+                             (str (subs text 0 117) "…")
+                           text))]
+    (println (format "TURN POST start profile=%s protocol=%s chars=%s preview=%s"
+                     profile protocol-id (or (some-> text count) 0) (or preview "<empty>")))
+    (try
+      (let [resp (process-turn! request body)
+            elapsed (/ (- (System/nanoTime) start) 1e6)
+            entity-count (count (:entities resp))
+            relation-count (count (:relations resp))]
+        (println (format "TURN POST ok profile=%s %.1fms entities=%d relations=%d"
+                         profile elapsed entity-count relation-count))
+        (http/ok-json resp))
+      (catch Throwable ex
+        (let [elapsed (/ (- (System/nanoTime) start) 1e6)]
+          (println (format "TURN POST error profile=%s %.1fms %s"
+                           profile elapsed (.getMessage ex)))
+          (throw ex))))))
 
 (defn current-focus-header-handler [request]
   (http/ok-json (current-focus-header request)))

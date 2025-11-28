@@ -6,6 +6,7 @@
 
 (def ^:private default
   {:app/data-dir       "data/default"
+   :app/metadata-dir   "data/metadata"
    :app/snapshot-every 100
    :app/server-port    4000
    :xtdb/enabled?      true
@@ -36,6 +37,9 @@
                    (env-str "BASIC_CHAT_DATA_DIR")
                    (assoc :app/data-dir (env-str "BASIC_CHAT_DATA_DIR"))
 
+                   (env-str "BASIC_CHAT_METADATA_DIR")
+                   (assoc :app/metadata-dir (env-str "BASIC_CHAT_METADATA_DIR"))
+
                    (env-str "APP_SERVER_PORT")
                    (assoc :app/server-port (Long/parseLong (env-str "APP_SERVER_PORT")))
 
@@ -45,6 +49,9 @@
         sys-map  (cond-> {}
                    (sysprop-str "basic.chat.data.dir")
                    (assoc :app/data-dir (sysprop-str "basic.chat.data.dir"))
+
+                   (sysprop-str "basic.chat.metadata.dir")
+                   (assoc :app/metadata-dir (sysprop-str "basic.chat.metadata.dir"))
 
                    (sysprop-str "app.server.port")
                    (assoc :app/server-port (Long/parseLong (sysprop-str "app.server.port")))

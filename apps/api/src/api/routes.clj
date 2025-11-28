@@ -23,6 +23,8 @@
            :post me/upsert-handler}]
    ["/me/summary" {:get me/summary-handler}]
    ["/entity" {:post graph/ensure-entity-handler}]
+   ["/entity/:id" {:get graph/fetch-entity!}]
+   ["/entities/history/:id" {:get graph/entity-history!}]
    ["/relation" {:post graph/upsert-relation-handler}]
    ["/types" {:get types/list-types-handler}]
    ["/types/parent" {:post types/set-parent-handler}]

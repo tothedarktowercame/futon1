@@ -32,6 +32,58 @@ The namespace also exposes convenience fns used throughout the demos:
 - `ensure-entity!`, `add-relation!`, `link!` – simple helpers for REPL/manual
   curation.
 - `entities-by-name`, `neighbors` – query utilities for the CLI and tests.
+- `tail` – now hydrates full hyperedge events (type, content, labels, and
+  additional ends) so `/tail` in the CLI/API reports rich multi-end relations
+  instead of lossy two-end projections.
+
+### Identity vs version nodes
+
+Entities now split into two logical layers:
+
+- **Identity nodes** (`:entity/*` attrs) hold the canonical ID, salience stats,
+  external identifier (`:entity/external-id`), and the pointer to the most
+  recent version via `:entity/current-version`.
+- **Version nodes** (`:entity.version/*` attrs) capture every write as an
+  immutable snapshot, chaining to the previous version via
+  `:entity.version/prev`. Each version records `:entity.version/data` plus
+  `:created-at`/`:updated-at` timestamps.
+
+The write path derives a deterministic UUID from `(source, type, external-id)`
+for the identity node, creates a new version node, links it, and updates the
+identity’s `:entity/current-version`. Multiple writes with the same external ID
+therefore grow a version DAG instead of overwriting state.
+
+`apps/api` exposes the feature through two endpoints:
+
+- `GET /entity/:id` – returns the latest version by default, or a historical
+  snapshot when called with `?version=<uuid>` or `?as-of=<millis>`.
+- `GET /entities/history/:id` – lists version metadata (newest first) so a
+  client can browse the timeline before requesting a specific version.
+
+Underlying helpers live in `app.store` (`fetch-entity`, `entity-history`) and
+`app.command-service`, so CLI slash commands and the API share the same logic.
+External callers still own their namespace: reusing an external ID appends to
+the same version chain, enabling full auditability with no extra schema churn.
+
+### Hyperedge-aware `/tail`
+
+The CLI and API both consume the ArxanaStore abstraction. When the underlying
+store exposes true hyperedges (more than two ends, labels, payloads), the
+`/tail` command surfaces those attributes directly:
+
+```
+> /tail 3
+Recent relations:
+  - math/group:Intro —supports→ math/group:Glossary
+    (seen 2025-01-08T14:05:22.484Z,
+     others context=math/topic:Context; labels fresh; content {:text "beta"})
+  - me:profile —mentions→ arxana/hyperedges
+    (seen 2025-01-08T14:02:11.011Z, labels recap)
+```
+
+Even if only one hyperedge matches the criteria, the legacy fallback still
+shows the historic two-end projection, so deployments that have not yet
+recorded hyperedges see identical output.
 
 ## Why XTDB?
 

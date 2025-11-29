@@ -221,6 +221,38 @@ If TEMPORARY is non-nil, skip Tatami ingestion for the next turn."
                 parts)
         my-futon3-tatami-default-prototypes)))
 
+(defun my-futon3--prototype-list (value)
+  (cond
+   ((null value) nil)
+   ((vectorp value) (append value nil))
+   ((listp value) value)
+   (t (list value))))
+
+(defun my-futon3--prototype-string (proto)
+  (cond
+   ((null proto) nil)
+   ((symbolp proto)
+    (let ((name (symbol-name proto)))
+      (if (and (> (length name) 0)
+               (char-equal (aref name 0) ?:))
+          (substring name 1)
+        name)))
+   ((stringp proto)
+    (if (and (> (length proto) 0)
+             (char-equal (aref proto 0) ?:))
+        (substring proto 1)
+      proto))
+   (t (format "%s" proto))))
+
+(defun my-futon3--display-prototypes (value)
+  (let* ((raw (my-futon3--prototype-list value))
+         (strings (delq nil (mapcar #'my-futon3--prototype-string raw))))
+    (cond
+     ((and strings
+           (seq-some (lambda (s) (string-match-p "/" s)) strings)) strings)
+     (my-futon3-tatami-default-prototypes my-futon3-tatami-default-prototypes)
+     (t strings))))
+
 (defun my-futon3-sync-selection ()
   (condition-case err
       (my-futon3--tatami-request
@@ -261,26 +293,45 @@ If TEMPORARY is non-nil, skip Tatami ingestion for the next turn."
                      (completing-read "Tatami target: " table nil t nil nil nil)))
           (proto (cdr (assoc display candidates)))
           (intent-input (read-string "Tatami intent: " my-futon3-tatami-default-intent)))
-     (list (if proto (symbol-name proto) display) intent-input)))
+     (list (cond
+            ((null proto) display)
+            ((symbolp proto) (symbol-name proto))
+            ((stringp proto) proto)
+            (t (format "%s" proto)))
+           intent-input)))
   (setq my-futon3-tatami-default-prototypes (my-futon3--parse-prototype-string prototypes)
         my-futon3-tatami-default-intent intent)
   (my-futon3-sync-selection)
+  (my-chatgpt-shell--refresh-context-all)
   (message "Set Futon3 tatami target to %s (intent %s)"
            my-futon3-tatami-default-prototypes my-futon3-tatami-default-intent))
 
 (defun my-futon3-log-chatgpt-turn (text)
   (when (and text (my-futon3-running-p))
-    (condition-case err
-        (progn
-          (my-futon3-ensure-tatami-session)
-          (my-futon3--tatami-request
-           "POST" "/musn/tatami/log"
-           `(("session-id" . ,my-futon3-tatami-session-id)
-             ("activity" . "agent-work")
-             ("performed?" . t)
-             ("felt-state" . "ok")
-             ("notes" . ,(my-futon3--truncate text 800)))))
-      (error (message "Futon3 tatami log failed: %s" (error-message-string err))))))
+    (let ((attempt 0)
+          (done nil))
+      (while (and (< attempt 2) (not done))
+        (setq attempt (1+ attempt))
+        (condition-case err
+            (progn
+              (my-futon3-ensure-tatami-session)
+              (my-futon3--tatami-request
+               "POST" "/musn/tatami/log"
+               `(("session-id" . ,my-futon3-tatami-session-id)
+                 ("activity" . "agent-work")
+                 ("performed?" . t)
+                 ("felt-state" . "ok")
+                 ("notes" . ,(my-futon3--truncate text 800))))
+              (setq done t))
+          (error
+           (let ((msg (error-message-string err)))
+             (if (and (= attempt 1)
+                      (string-match-p "unknown-session" msg))
+                 (progn
+                   (setq my-futon3-tatami-session-id nil)
+                   (message "Futon3 tatami session expired; retrying."))
+               (message "Futon3 tatami log failed: %s" msg)
+               (setq attempt 2)))))))))
 
 (defun my-futon3-close-tatami-session (&optional summary)
   (when my-futon3-tatami-session-id
@@ -364,8 +415,12 @@ If TEMPORARY is non-nil, skip Tatami ingestion for the next turn."
 (defconst my-chatgpt-shell-context-buffer-name "*Tatami Context*")
 (defconst my-chatgpt-shell-tatami-in-marker "FROM-TATAMI-EDN")
 (defconst my-chatgpt-shell-tatami-out-marker "FROM-CHATGPT-EDN")
+(defvar-local my-chatgpt-shell-last-inbound-edn nil
+  "Most recent FROM-TATAMI-EDN payload prepared for ChatGPT.")
 (defvar-local my-chatgpt-shell-last-edn nil
-  "Most recent FROM-TATAMI-EDN payload sent to ChatGPT.")
+  "Most recent FROM-CHATGPT-EDN payload captured from ChatGPT.")
+(defvar-local my-chatgpt-shell-last-validation-warning nil
+  "Latest warning emitted when FROM-CHATGPT-EDN misses required pattern events.")
 (defvar my-chatgpt-shell-debug nil
   "When non-nil, emit debug messages for Tatami prompts/after-hook.")
 
@@ -545,9 +600,45 @@ r a live process in the *headless-api-server* buffer."
                    (cons "hanzi" (plist-get pair :hanzi))))
            pairs)))
 
+(defun my-chatgpt-shell--plist-p (value)
+  (and (listp value)
+       (cl-evenp (length value))))
+
+(defun my-chatgpt-shell--edn-encode (value)
+  (cond
+   ((null value) "nil")
+   ((eq value t) "true")
+   ((eq value :false) "false")
+   ((stringp value) (prin1-to-string value))
+   ((keywordp value)
+    (let* ((name (symbol-name value))
+           (trim (if (and (> (length name) 0)
+                           (char-equal (aref name 0) ?:))
+                      (substring name 1)
+                    name)))
+      (concat ":" trim)))
+   ((symbolp value) (symbol-name value))
+   ((integerp value) (number-to-string value))
+   ((floatp value) (format "%S" value))
+   ((vectorp value)
+    (concat "[" (mapconcat #'my-chatgpt-shell--edn-encode (append value nil) " ") "]"))
+   ((my-chatgpt-shell--plist-p value)
+    (let (parts)
+      (while value
+        (let ((k (pop value))
+              (v (pop value)))
+          (push (concat (my-chatgpt-shell--edn-encode k)
+                        " "
+                        (my-chatgpt-shell--edn-encode v))
+                parts)))
+      (concat "{" (mapconcat #'identity (nreverse parts) " ") "}")))
+   ((listp value)
+    (concat "(" (mapconcat #'my-chatgpt-shell--edn-encode value " ") ")"))
+   (t (prin1-to-string value))))
+
 (defun my-chatgpt-shell--format-edn-block (marker payload)
   (format "---%s---\n%s\n---END-%s---"
-          marker (prin1-to-string payload) marker))
+          marker (my-chatgpt-shell--edn-encode payload) marker))
 
 (defun my-chatgpt-shell--extract-edn-block (text marker)
   (when (and text marker)
@@ -559,9 +650,8 @@ r a live process in the *headless-api-server* buffer."
           (when end
             (substring text (+ start (length start-marker)) end)))))))
 
-(defun my-chatgpt-shell--extract-chatgpt-edn (text)
-  (when-let* ((raw (my-chatgpt-shell--extract-edn-block
-                    text my-chatgpt-shell-tatami-out-marker)))
+(defun my-chatgpt-shell--parse-edn-string (raw)
+  (when raw
     (let* ((converted (replace-regexp-in-string
                        "}" ")"
                        (replace-regexp-in-string "{" "(" raw nil 'literal)
@@ -569,11 +659,262 @@ r a live process in the *headless-api-server* buffer."
            (value (condition-case err
                       (car (read-from-string converted))
                     (error
-                     (message "Failed to parse FROM-CHATGPT-EDN: %s"
+                     (message "Failed to parse EDN: %s"
                               (error-message-string err))
                      nil))))
       (when (and value (listp value))
         value))))
+
+(defun my-chatgpt-shell--extract-chatgpt-edn (text)
+  (when-let* ((raw (my-chatgpt-shell--extract-edn-block
+                    text my-chatgpt-shell-tatami-out-marker)))
+    (my-chatgpt-shell--parse-edn-string raw)))
+
+(defun my-chatgpt-shell--coerce-seq (value)
+  (cond
+   ((null value) nil)
+   ((vectorp value) (append value nil))
+   ((listp value) value)
+   (t (list value))))
+
+(defun my-chatgpt-shell--events-seq (events)
+  (my-chatgpt-shell--coerce-seq events))
+
+(defun my-chatgpt-shell--valid-pattern-value-p (value)
+  (and value
+       (or (and (stringp value) (> (length value) 0))
+           (keywordp value)
+           (symbolp value))))
+
+(defun my-chatgpt-shell--pattern-event-p (event)
+  (when (listp event)
+    (let ((pattern (plist-get event :pattern))
+          (notes (plist-get event :notes)))
+      (and (my-chatgpt-shell--valid-pattern-value-p pattern)
+           (stringp notes)
+           (> (length notes) 0)))))
+
+(defun my-chatgpt-shell--warn-missing-pattern-event ()
+  (let ((msg "FROM-CHATGPT-EDN missing required :pattern event; remind the model to log {:pattern ... :notes ...} or {:pattern :none ...}."))
+    (unless (equal my-chatgpt-shell-last-validation-warning msg)
+      (message "%s" msg))
+    (setq my-chatgpt-shell-last-validation-warning msg)))
+
+(defun my-chatgpt-shell--validate-pattern-events (edn)
+  (let* ((events (my-chatgpt-shell--events-seq (plist-get edn :events)))
+         (valid (cl-some #'my-chatgpt-shell--pattern-event-p events)))
+    (if valid
+        (setq my-chatgpt-shell-last-validation-warning nil)
+      (my-chatgpt-shell--warn-missing-pattern-event))
+    valid))
+
+(defun my-chatgpt-shell--maybe-update-intent (edn)
+  (let* ((incoming (plist-get edn :intent))
+         (trimmed (and incoming (string-trim incoming))))
+    (when (and trimmed
+               (> (length trimmed) 0)
+               (not (string= trimmed my-futon3-tatami-default-intent)))
+      (setq my-futon3-tatami-default-intent trimmed)
+      (when my-chatgpt-shell-last-inbound-edn
+        (setq my-chatgpt-shell-last-inbound-edn
+              (plist-put (copy-sequence my-chatgpt-shell-last-inbound-edn)
+                         :intent trimmed)))
+      (when my-chatgpt-shell-last-edn
+        (setq my-chatgpt-shell-last-edn
+              (plist-put (copy-sequence my-chatgpt-shell-last-edn)
+                         :intent trimmed)))
+      (my-futon3-sync-selection)
+
+      (my-chatgpt-shell--render-context t))))
+
+(defun my-chatgpt-shell--pattern->string (pattern)
+  (cond
+   ((null pattern) "")
+   ((stringp pattern) pattern)
+   ((keywordp pattern)
+    (let ((name (symbol-name pattern)))
+      (if (string-prefix-p ":" name)
+          (substring name 1)
+        name)))
+   ((symbolp pattern) (symbol-name pattern))
+   (t (format "%s" pattern))))
+
+(defun my-chatgpt-shell--truncate (text limit)
+  (if (and text (> (length text) limit))
+      (concat (substring text 0 limit) "…")
+    text))
+
+(defun my-chatgpt-shell--take-last (items limit)
+  (let ((len (length items)))
+    (cond
+     ((or (<= len limit) (<= limit 0)) items)
+     (t (nthcdr (- len limit) items)))))
+
+(defun my-chatgpt-shell--format-pattern-line (pattern)
+  (let* ((id (or (plist-get pattern :id)
+                 (plist-get pattern :title)
+                 "(unknown)"))
+         (title (plist-get pattern :title))
+         (summary (string-trim (or (plist-get pattern :summary) "")))
+         (score (plist-get pattern :score))
+         (headline (string-trim
+                    (or (and title
+                             (not (string= title id))
+                             (format "%s (%s)" title id))
+                        title
+                        id))))
+    (concat "• " headline
+            (if (> (length summary) 0)
+                (format " – %s" (my-chatgpt-shell--truncate summary 140))
+              "")
+            (if (numberp score)
+                (format " [d=%.2f]" score)
+              ""))))
+
+(defun my-chatgpt-shell--format-support-line (label entries emoji-key id-key)
+  (let ((parts
+         (cl-loop for entry in entries
+                  for emoji = (plist-get entry emoji-key)
+                  for ident = (or (plist-get entry id-key)
+                                  (plist-get entry :title)
+                                  (plist-get entry :name))
+                  for token = (string-trim
+                               (concat (or emoji "")
+                                       (when (and emoji ident) " ")
+                                       (or ident "")))
+                  when (> (length token) 0)
+                  collect token)))
+    (when parts
+      (format "%s: %s" label (string-join parts ", ")))))
+
+(defun my-chatgpt-shell--format-event-line (event)
+  (let* ((pattern (my-chatgpt-shell--pattern->string (plist-get event :pattern)))
+         (kind (my-chatgpt-shell--pattern->string (plist-get event :kind)))
+         (notes (string-trim (format "%s" (or (plist-get event :notes) ""))))
+         (pattern-text (if (and pattern (> (length pattern) 0)
+                                (not (string= pattern "none")))
+                           (format "Pattern %s" pattern)
+                         "No pattern"))
+         (kind-text (if (> (length kind) 0)
+                        (format " (%s)" kind)
+                      ""))
+         (notes-text (if (> (length notes) 0)
+                         (my-chatgpt-shell--truncate notes 160)
+                       "No notes supplied.")))
+    (format "• %s%s – %s" pattern-text kind-text notes-text)))
+
+(defun my-chatgpt-shell--prompt-pattern-summary (edn)
+  (let* ((intent (plist-get edn :intent))
+         (patterns (my-chatgpt-shell--coerce-seq (plist-get edn :patterns)))
+         (fruits (my-chatgpt-shell--coerce-seq (plist-get edn :fruits)))
+         (paramitas (my-chatgpt-shell--coerce-seq (plist-get edn :paramitas)))
+         (parts nil))
+    (when (and intent
+               (not (string-empty-p (string-trim intent))))
+      (push (format "Current intent: %s" intent) parts))
+    (when patterns
+      (let ((lines (cl-loop for pattern in patterns
+                            for idx from 0 below 4
+                            for pid = (or (plist-get pattern :id)
+                                          (plist-get pattern :title)
+                                          "(unknown)")
+                            for summary = (string-trim (or (plist-get pattern :summary)
+                                                          "No summary provided."))
+                            for score = (plist-get pattern :score)
+                            collect (concat pid " → " summary
+                                            (if (numberp score)
+                                                (format " [d=%.2f]" score)
+                                              "")))) )
+        (push (concat "Patterns: " (string-join lines " | ")) parts)))
+    (when fruits
+      (let ((tokens (cl-loop for fruit in fruits
+                             for emoji = (plist-get fruit :emoji)
+                             for name = (or (plist-get fruit :fruit/id)
+                                            (plist-get fruit :title)
+                                            "fruit")
+                             for score = (plist-get fruit :score)
+                             collect (string-trim (concat (or emoji "")
+                                                     (when (and emoji name) " ")
+                                                     name
+                                                     (if (numberp score)
+                                                         (format " [d=%.2f]" score)
+                                                       ""))))))
+        (when tokens
+          (push (concat "Fruits: " (string-join tokens ", ")) parts))))
+    (when paramitas
+      (let ((tokens (cl-loop for paramita in paramitas
+                             for emoji = (plist-get paramita :emoji)
+                             for name = (or (plist-get paramita :paramita/id)
+                                            (plist-get paramita :title)
+                                            "paramita")
+                             for score = (plist-get paramita :score)
+                             collect (string-trim (concat (or emoji "")
+                                                     (when (and emoji name) " ")
+                                                     name
+                                                     (if (numberp score)
+                                                         (format " [d=%.2f]" score)
+                                                       ""))))))
+        (when tokens
+          (push (concat "Pāramitās: " (string-join tokens ", ")) parts))))
+    (when parts
+      (string-join (nreverse parts) "\n"))))
+
+(defun my-chatgpt-shell--insert-inbound-edn (edn)
+  (insert (propertize "Latest FROM-TATAMI-EDN block" 'face 'bold) "\n")
+  (insert (my-chatgpt-shell--format-edn-block my-chatgpt-shell-tatami-in-marker edn) "\n\n"))
+
+(defun my-chatgpt-shell--insert-edn-summary (edn)
+  (let* ((session (or (plist-get edn :session-id) "?"))
+         (mode (my-chatgpt-shell--pattern->string (plist-get edn :mode)))
+         (clock (or (plist-get edn :clock) "?"))
+         (patterns (my-chatgpt-shell--coerce-seq (plist-get edn :patterns)))
+         (fruits (my-chatgpt-shell--coerce-seq (plist-get edn :fruits)))
+         (paramitas (my-chatgpt-shell--coerce-seq (plist-get edn :paramitas)))
+         (events (my-chatgpt-shell--events-seq (plist-get edn :events)))
+         (pattern-limit 3)
+         (event-limit 3))
+    (insert (propertize "Latest FROM-CHATGPT state" 'face 'bold) "\n")
+    (insert (format "Session %s | Mode %s | Clock %s\n"
+                    session (or mode "?") clock))
+    (insert (format "Intent: %s\n\n"
+                    (or (and (plist-get edn :intent)
+                             (stringp (plist-get edn :intent))
+                             (plist-get edn :intent))
+                        my-futon3-tatami-default-intent
+                        "unspecified")))
+    (if patterns
+        (progn
+          (insert (propertize "Candidate clauses" 'face 'bold)
+                  (if (> (length patterns) pattern-limit)
+                      (format " (top %d of %d)" pattern-limit (length patterns))
+                    "")
+                  "\n")
+          (cl-loop for pattern in patterns
+                   for idx from 0
+                   while (< idx pattern-limit)
+                   do (insert (my-chatgpt-shell--format-pattern-line pattern) "\n"))
+          (insert "\n"))
+      (insert "No candidate clauses available.\n\n"))
+    (let ((fruit-line (my-chatgpt-shell--format-support-line "Fruits" fruits :emoji :fruit/id))
+          (param-line (my-chatgpt-shell--format-support-line "Pāramitās" paramitas :emoji :paramita/id)))
+      (when fruit-line
+        (insert fruit-line "\n"))
+      (when param-line
+        (insert param-line "\n"))
+      (when (or fruit-line param-line)
+        (insert "\n")))
+    (insert (propertize "Reasoning trace" 'face 'bold)
+            (if (> (length events) event-limit)
+                (format " (latest %d of %d)" event-limit (length events))
+              "")
+            "\n")
+    (let ((recent (my-chatgpt-shell--take-last events event-limit)))
+      (if recent
+          (dolist (event recent)
+            (insert (my-chatgpt-shell--format-event-line event) "\n"))
+        (insert "No reasoning events recorded yet.\n")))
+    (insert "\n")))
+
 
 (defun my-chatgpt-shell--strip-edn-block (text)
   (let* ((str (or text ""))
@@ -597,6 +938,43 @@ r a live process in the *headless-api-server* buffer."
           (let ((end (match-end 0)))
             (when (search-backward start-marker nil t)
               (delete-region (match-beginning 0) end))))))))
+
+(defun my-chatgpt-shell--buffer-edn-string ()
+  (let ((start-marker (format "---%s---" my-chatgpt-shell-tatami-out-marker))
+        (end-marker (format "---END-%s---" my-chatgpt-shell-tatami-out-marker)))
+    (save-excursion
+      (goto-char (point-max))
+      (when (search-backward end-marker nil t)
+        (let ((end (match-beginning 0)))
+          (when (search-backward start-marker nil t)
+            (let ((start (match-end 0)))
+              (buffer-substring-no-properties start end))))))))
+
+(defun my-chatgpt-shell--process-buffer-edn (buffer)
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and (boundp 'my-chatgpt-shell-profile)
+                 (string= my-chatgpt-shell-profile "General"))
+        (when-let ((raw (my-chatgpt-shell--buffer-edn-string)))
+          (my-chatgpt-shell--remove-edn-from-buffer)
+          (when-let ((edn (my-chatgpt-shell--parse-edn-string raw)))
+            (my-chatgpt-shell--debug "Captured FROM-CHATGPT-EDN: %s" (prin1-to-string edn))
+            (my-chatgpt-shell--apply-chatgpt-edn edn)))))))
+
+(defun my-chatgpt-shell--refresh-context-buffer ()
+  (when (derived-mode-p 'chatgpt-shell-mode)
+    (condition-case err
+        (progn
+          (setq my-chatgpt-shell-last-inbound-edn nil)
+          (my-chatgpt-shell--build-inbound-edn))
+      (error
+       (message "Tatami hint refresh failed: %s" (error-message-string err))))))
+
+(defun my-chatgpt-shell--refresh-context-all ()
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (derived-mode-p 'chatgpt-shell-mode)
+        (my-chatgpt-shell--refresh-context-buffer)))))
 
 (defun my-chatgpt-shell-persist-edn (_payload)
   "Placeholder for future futon1 persistence wiring."
@@ -628,12 +1006,15 @@ r a live process in the *headless-api-server* buffer."
     (setq edn (plist-put edn :clock (my-chatgpt-shell--now-iso)))
     (setq edn (plist-put edn :futons (my-chatgpt-shell--current-futons)))
     (setq edn (plist-put edn :prototypes (my-chatgpt-shell--prototype-keywords)))
+    (setq edn (plist-put edn :intent (or (plist-get edn :intent)
+                                         my-futon3-tatami-default-intent
+                                         "unspecified")))
     (setq edn (plist-put edn :patterns (or (plist-get hints :patterns) [])))
     (setq edn (plist-put edn :fruits (or (plist-get hints :fruits) [])))
     (setq edn (plist-put edn :paramitas (or (plist-get hints :paramitas) [])))
     (setq edn (plist-put edn :events (or (plist-get edn :events) [])))
-    (setq my-chatgpt-shell-last-edn edn)
-    (my-chatgpt-shell--debug "Prepared inbound EDN: %s" (prin1-to-string edn))
+    (setq my-chatgpt-shell-last-inbound-edn edn)
+    (my-chatgpt-shell--render-context)
     edn))
 
 ;; --- Prompt builder for futon1 ----------------------------------------
@@ -663,6 +1044,8 @@ profile-specific prompt loaded from `my-futon-prompt-directory`."
          (tatami-edn (my-chatgpt-shell--build-inbound-edn))
          (tatami-block (my-chatgpt-shell--format-edn-block
                         my-chatgpt-shell-tatami-in-marker tatami-edn))
+         (adjacency-brief (or (my-chatgpt-shell--prompt-pattern-summary tatami-edn)
+                              "No adjacency cues supplied."))
          (prompt (concat
                   "You use markdown liberally to structure responses. "
                   "Always show code snippets in markdown blocks with language labels. "
@@ -671,16 +1054,29 @@ profile-specific prompt loaded from `my-futon-prompt-directory`."
                   ". Please preface all your replies with the metadata ["
                   date "/" time "].\n"
                   "When giving answers related to time, do not use any other cached time values.\n\n"
+                  "Current working intent: " (or my-futon3-tatami-default-intent "unspecified") "\n"
+                  "Infer or refine this intent (<= 10 words) each turn and write it to the FROM-CHATGPT-EDN :intent key so Futon3 can retarget you.\n"
+                  "If you are unsure, describe the **next best question or artifact** that would advance the proof.\n\n"
+                  "Primary directive: perform pattern-theoretic inference (deduction, abduction, induction) over the supplied Tatami hints. Keep any direct response to the user's explicit question to roughly 100 words, then devote the rest of the turn to analysing patterns and adjacent structures.\n"
+                  "Treat all candidate clauses as proof obligations: compare them, combine them creatively, and identify missing premises so Futon3 can learn from gaps.\n\n"
+                  "Pattern reasoning checklist:\n"
+                  "1. Inspect every entry in :patterns (and supporting fruits/pāramitās) from the inbound EDN.\n"
+                  "2. Decide whether one or more clauses apply to the user's latest move.\n"
+                  "3. If a clause applies, cite its ID in markdown and justify the match.\n"
+                  "4. If none apply, explicitly say so and name the blocking condition.\n"
+                  "5. Always append an event map shaped {:kind :note :pattern \"fX/pY\" :notes \"Justification\"}. When nothing applies, record {:pattern :none :notes \"Reason\"}.\n\n"
+                  "Markdown reply template:\n"
+                  "- Pattern verdict (e.g., \"Pattern f2/p7 applies\" or \"No candidate applies because ...\").\n"
+                  "- Reasoning (premises checked, conflicts, or follow-up obligations).\n"
+                  "- Next step suggestion (if helpful).\n\n"
+                  "Adjacency briefing (top hints):\n" adjacency-brief "\n\n"
                   "After answering the user in clear markdown, append a block delimited by ---"
                   my-chatgpt-shell-tatami-out-marker
                   "--- and ---END-" my-chatgpt-shell-tatami-out-marker
                   "--- containing valid EDN that mirrors and updates the keys shown below. "
+                  "Only include keys whose values changed this turn (e.g., :intent, updated :events); do NOT echo the inbound :patterns/fruits etc. unless you are altering them. "
                   "Do not include commentary or markdown inside that EDN block.\n\n"
-                  "Here is the current FROM-TATAMI-EDN block for this turn. These patterns are the candidate clauses you must reason about. In your markdown reply explicitly state which pattern(s), if any, apply to the user's move and why.
-Then, in the FROM-CHATGPT-EDN block, append a new entry to :events describing the chosen pattern(s)  (e.g., {:kind :note :pattern "t4r/rationale" :notes "Matched because..."}).
-Do not mirror the block blindly—use these hints to guide your reasoning and report the result.
-Here is the block:
-"
+                  "Here is the current FROM-TATAMI-EDN block for this turn. These patterns are the candidate clauses you must reason about. Follow the checklist/template above, then append the required :events entry (e.g., {:kind :note :pattern \"t4r/rationale\" :notes \"Matched because...\"}).\nDo not mirror the block blindly—use these hints to guide your reasoning and report the result.\nHere is the block:\n"
                   tatami-block "\n\n"
                   context "\n\n"
                   (or profile-body
@@ -748,7 +1144,8 @@ Always sets the system prompt. Tatami ingestion now occurs via
 
 (defun my-chatgpt-shell--render-context (&optional ensure)
   (let ((summary my-chatgpt-shell-last-summary)
-        (focus my-chatgpt-shell-last-focus))
+        (focus my-chatgpt-shell-last-focus)
+        (inbound my-chatgpt-shell-last-inbound-edn))
     (when-let ((buf (my-chatgpt-shell--context-buffer ensure)))
       (with-current-buffer buf
         (let ((inhibit-read-only t))
@@ -761,20 +1158,26 @@ Always sets the system prompt. Tatami ingestion now occurs via
                                  my-futon3-last-status))))
             (when (and status (plist-get status :events))
               (let* ((selection (plist-get status :selection))
-                     (sel-protos (plist-get selection :prototypes))
-                     (sel-intent (plist-get selection :intent))
+                     (sel-protos (my-futon3--display-prototypes (plist-get selection :prototypes)))
+                     (sel-intent (or (plist-get selection :intent)
+                                     my-futon3-tatami-default-intent
+                                     "unspecified"))
                      (sel-line (when sel-protos
-                                 (format "Active: %s (intent %s)"
-                                         sel-protos (or sel-intent "")))))
+                                 (format "Active: %s | Intent: %s"
+                                         (string-join sel-protos ", ")
+                                         sel-intent))))
                 (insert (propertize "Tatami / Futon3 status (24h)" 'face 'bold) "\n")
                 (when sel-line
                   (insert sel-line "\n"))
                 (insert (format "Events: %s\nProof summaries today: %s\n\n"
                                 (plist-get status :events)
                                 (if (plist-get status :proofs?) "yes" "no"))))))
-          (when focus
-            (insert (propertize "Latest focus header" 'face 'bold) "\n"
-                    focus "\n\n"))
+          (insert (propertize "Latest focus header" 'face 'bold) "\n")
+          (if focus
+              (insert focus "\n\n")
+            (insert "No Tatami focus header captured yet." "\n\n"))
+          (when inbound
+            (my-chatgpt-shell--insert-inbound-edn inbound))
           (when summary
             (insert (propertize "Latest :me summary" 'face 'bold) "\n"
                     summary "\n"))
@@ -832,16 +1235,19 @@ Always sets the system prompt. Tatami ingestion now occurs via
 
 (defun my-chatgpt-shell-after-command (command output _success)
   "Ingest COMMAND text into Tatami and capture FROM-CHATGPT-EDN payloads."
+  (message "DEBUG: [tatami] after-command profile=%s output=%s"
+           (and (boundp 'my-chatgpt-shell-profile) my-chatgpt-shell-profile)
+           (and output (substring output 0 (min 40 (length output)))))
   (when (and (boundp 'my-chatgpt-shell-profile)
              (string= my-chatgpt-shell-profile "General"))
-    (when output
-      (setq output (my-chatgpt-shell--strip-edn-block output))
-      (my-chatgpt-shell--remove-edn-from-buffer))
-    (when-let ((edn (my-chatgpt-shell--extract-chatgpt-edn output)))
-      (setq my-chatgpt-shell-last-edn edn)
-      (my-chatgpt-shell--debug "Captured FROM-CHATGPT-EDN: %s" (prin1-to-string edn))
-      (my-chatgpt-shell-persist-edn edn)
-      (my-chatgpt-shell--maybe-render-context))
+    ;; BUG NOTE: chatgpt-shell-after-command currently hands us only the
+    ;; *timestamp header* (see https://github.com/xenodium/chatgpt-shell/issues/412),
+    ;; so we cannot rely on OUTPUT to contain the FROM-CHATGPT-EDN block. Instead
+    ;; we grab the block directly from the buffer, process it asynchronously, and
+    ;; then strip it from the visible chat. Once the upstream bug is fixed we can
+    ;; simplify this collector.
+    (let ((buffer (current-buffer)))
+      (run-at-time 0 nil #'my-chatgpt-shell--process-buffer-edn buffer))
     (my-chatgpt-shell--ingest command)
     (my-futon3-log-chatgpt-turn command)))
 
@@ -914,3 +1320,18 @@ Used both for selecting the system prompt and for the mode-line lighter.")
                                        (seconds-to-time (/ ms 1000.0)))))
           (replace-match (format "Generated at: %s" ts) t t text))
       text)))
+(defun my-chatgpt-shell--apply-chatgpt-edn (edn)
+  (setq my-chatgpt-shell-last-edn edn)
+  (my-chatgpt-shell-persist-edn edn)
+  (my-chatgpt-shell--validate-pattern-events edn)
+  (my-chatgpt-shell--maybe-update-intent edn)
+  (my-chatgpt-shell--maybe-render-context))
+
+(defun my-chatgpt-shell-inject-chatgpt-edn (text)
+  "Manually feed a FROM-CHATGPT-EDN payload, bypassing the LLM."
+  (interactive "sFROM-CHATGPT-EDN payload: ")
+  (let ((edn (my-chatgpt-shell--parse-edn-string text)))
+    (unless edn
+      (user-error "Could not parse EDN payload"))
+    (my-chatgpt-shell--apply-chatgpt-edn edn)
+    (message "Injected FROM-CHATGPT-EDN payload.")))

@@ -17,11 +17,12 @@ command timed out after 240000 milliseconds
 This does **not** necessarily indicate a regression. To double-check locally:
 
 1. Stop any lingering `clojure` processes (`ps aux | grep clojure`).
-2. Run a single script manually with a fresh data dir:
+2. Run a single script manually with a fresh data dir (any EDN under
+   `apps/client/test/scripts/` works—for example the `hello.edn` smoke test):
    ```bash
    BASIC_CHAT_DATA_DIR=$(mktemp -d) \
    BASIC_CHAT_XTDB_RESOURCE=resources/xtdb-test.edn \
-   clojure -M:run-m -- --protocol basic-chat/v5 --script test/scripts/basic-chat/v5/focus-header.edn --fh-only
+   clojure -M:run-m -- --fh-only --script apps/client/test/scripts/hello.edn
    ```
 3. If that succeeds, rerun the full test suite outside the sandbox or with a
    larger timeout budget.

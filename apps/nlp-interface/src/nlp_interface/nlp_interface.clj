@@ -68,16 +68,165 @@
   (into [:utterance]
         (map (fn [[token tag]] [tag token]) tagged)))
 
+(defn- ensure-token-context [ctx]
+  (if (:tokens ctx)
+    ctx
+    (assoc ctx :tokens (tokenize (:text ctx)))))
+
+(defn- ensure-tag-context [ctx]
+  (if (:pos ctx)
+    ctx
+    (let [ctx' (ensure-token-context ctx)
+          tagged (pos-tag (:tokens ctx'))]
+      (assoc ctx'
+             :pos tagged
+             :tags (mapv second tagged)))))
+
+(def ^:private noun-tags
+  #{"NN" "NNS" "NNP" "NNPS"})
+
+(def ^:private verb-tags
+  #{"VB" "VBD" "VBG" "VBN" "VBP" "VBZ"})
+
+(def ^:private command-verbs
+  #{"meet" "list" "count" "add" "remove" "link" "record" "schedule"
+    "tell" "show" "help" "summarize" "summarise" "display" "explain"
+    "remind" "plan" "organize" "organise" "draft"})
+
+(def ^:private month-tokens
+  #{"jan" "january" "feb" "february" "mar" "march" "apr" "april"
+    "may" "jun" "june" "jul" "july" "aug" "august" "sep" "sept"
+    "september" "oct" "october" "nov" "november" "dec" "december"})
+
+(defn- temporal-token?
+  [token tag]
+  (let [lower (some-> token str/lower-case)]
+    (or (= "CD" tag)
+        (contains? month-tokens lower)
+        (re-matches #"^(\d{1,2}|\d{4})$" (or token "")))))
+
+(defn- chunk-kind
+  [token tag idx]
+  (let [lower (some-> token str/lower-case)]
+    (cond
+      (contains? command-verbs lower) :verb
+      (contains? verb-tags tag) :verb
+      (temporal-token? token tag) :temporal
+      (contains? noun-tags tag) :noun
+      (= "POS" tag) :other
+      (and (= "'s" token) (> idx 0)) :other
+      :else :other)))
+
+(defn- start-chunk [kind idx token tag]
+  {:kind kind
+   :start idx
+   :tokens [token]
+   :tags [tag]})
+
+(defn- extend-chunk [chunk token tag]
+  (-> chunk
+      (update :tokens conj token)
+      (update :tags conj tag)))
+
+(defn- commit-chunk [chunks chunk idx]
+  (if (and chunk (seq (:tokens chunk)))
+    (let [text (str/join " " (:tokens chunk))]
+      (conj chunks (-> chunk
+                       (assoc :end idx)
+                       (assoc :text text))))
+    chunks))
+
+(defn- chunk-tokens
+  [tagged]
+  (loop [idx 0
+         acc []
+         chunk nil]
+    (if (= idx (count tagged))
+      (commit-chunk acc chunk idx)
+      (let [[token tag] (nth tagged idx)
+            kind (chunk-kind token tag idx)]
+        (cond
+          (= kind :other)
+          (recur (inc idx) (commit-chunk acc chunk idx) nil)
+
+          (nil? chunk)
+          (recur (inc idx) acc (start-chunk kind idx token tag))
+
+          (= kind (:kind chunk))
+          (recur (inc idx) acc (extend-chunk chunk token tag))
+
+          :else
+          (recur (inc idx)
+                 (commit-chunk acc chunk idx)
+                 (start-chunk kind idx token tag)))))))
+
+(defn- tokenize-stage [ctx _opts]
+  (ensure-token-context ctx))
+
+(defn- tag-stage [ctx _opts]
+  (ensure-tag-context ctx))
+
+(defn- chunk-stage [ctx _opts]
+  (if (and (:chunks ctx) (:parse-tree ctx))
+    ctx
+    (let [ctx' (ensure-tag-context ctx)
+          tagged (:pos ctx')
+          parse (parse-tree tagged)
+          chunks (chunk-tokens tagged)]
+      (assoc ctx'
+             :parse-tree parse
+             :chunks chunks))))
+
+(defn- intent-stage [ctx opts]
+  (if (:intent ctx)
+    ctx
+    (let [ctx' (ensure-tag-context ctx)
+          tokens (:tokens ctx')
+          extras (merge {:tokens tokens}
+                        (select-keys ctx' [:chunks :tags])
+                        (:intent opts))
+          intent-result (intent/analyze (:text ctx') extras)]
+      (assoc ctx' :intent intent-result))))
+
+(def default-stages [:tokenize :tag :chunk :intent])
+
+(def ^:private stage->fn
+  {:tokenize tokenize-stage
+   :tag tag-stage
+   :chunk chunk-stage
+   :intent intent-stage})
+
+(defn run-pipeline
+  "Execute the deterministic NLP pipeline and return a map describing each stage.
+
+  `stage-order` defaults to `default-stages`. Pass a subset (e.g. `[:tokenize :tag]`)
+  to test or reuse intermediate artefacts without touching the whole pipeline.
+
+  Extra opts are forwarded to individual stages (currently only `:intent`)."
+  ([text]
+   (run-pipeline text default-stages {}))
+  ([text stage-order]
+   (run-pipeline text stage-order {}))
+  ([text stage-order opts]
+   (let [stages (if (seq stage-order)
+                  stage-order
+                  default-stages)]
+     (reduce (fn [ctx stage]
+               (if-let [f (get stage->fn stage)]
+                 (f ctx opts)
+                 ctx))
+             {:text text}
+             stages))))
+
 (defn handle-input [db text ts]
-  (let [tokens (tokenize text)
-        intent-raw (intent/analyze text {:tokens tokens})
-        intent (dissoc intent-raw :intent-candidates)
+  (let [{:keys [tokens tags pos parse-tree chunks intent]}
+        (run-pipeline text)
+        intent-raw intent
+        intent (some-> intent-raw (dissoc :intent-candidates))
         intent-candidates (:intent-candidates intent-raw)
         utt-node (gm/add-utterance! db text ts {:intent intent-raw})
         intent-node (gm/add-intent! db intent-raw)
         link (gm/link! db (:db/eid utt-node) (:db/eid intent-node) :derives)
-        tagged (pos-tag tokens)
-        tags (mapv second tagged)
         entities-raw (ner-er/ner tokens tags (force gazetteer))
         entities (mapv (fn [ent]
                          (let [entity (gm/ensure-entity! db ent)]
@@ -99,8 +248,10 @@
      :intent intent
      :intent-candidates intent-candidates
      :tokens tokens
-     :pos tagged
-     :parse-tree (parse-tree tagged)
+     :pos pos
+     :tags tags
+     :parse-tree parse-tree
+     :chunks chunks
      :entities (mapv (fn [{:keys [name type span]}]
                        {:name name :type type :span span})
                      entities)
@@ -115,14 +266,15 @@
   ([db text ts]
    (handle-input-v4 db text ts {}))
   ([db text ts opts]
-   (let [tokens (tokenize text)
-         intent-raw (intent/analyze text {:tokens tokens})
-         intent (dissoc intent-raw :intent-candidates)
+   (let [{:keys [tokens pos intent tags chunks]}
+         (run-pipeline text)
+         intent-raw intent
+         intent (some-> intent-raw (dissoc :intent-candidates))
          intent-candidates (:intent-candidates intent-raw)
          utt-node (gm/add-utterance! db text ts {:intent intent-raw})
          intent-node (gm/add-intent! db intent-raw)
          link (gm/link! db (:db/eid utt-node) (:db/eid intent-node) :derives)
-         tagged (pos-tag tokens)
+         tagged pos
          now (now-from-ts ts)
          catalog (entity-catalog db)
          ner-opts (assoc opts :catalog catalog)
@@ -170,6 +322,8 @@
       :intent-candidates intent-candidates
       :tokens tokens
       :pos tagged
+      :tags tags
+      :chunks chunks
       :entities stored
       :relations relations
       :links [link]})))

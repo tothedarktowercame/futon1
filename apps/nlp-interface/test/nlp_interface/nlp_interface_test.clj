@@ -7,6 +7,32 @@
 (def sample-text "Meet Tom in Minneapolis on 12 Oct about XTDB v5 with Isabella.")
 (def sample-now (ZonedDateTime/of 2024 3 1 12 0 0 0 (ZoneId/of "UTC")))
 
+(deftest pipeline-stages
+  (testing "tokenize stage emits the deterministic split"
+    (let [{:keys [tokens]} (sut/run-pipeline sample-text [:tokenize])]
+      (is (= ["Meet" "Tom" "in" "Minneapolis" "on" "12" "Oct" "about" "XTDB" "v5" "with" "Isabella" "."]
+             tokens))))
+  (testing "tag stage annotates each token"
+    (let [{:keys [pos tags]} (sut/run-pipeline sample-text [:tokenize :tag])]
+      (is (= ["Meet" "NNP"] (first pos)))
+      (is (= ["Tom" "NNP"] (second pos)))
+      (is (= ["12" "CD"] (nth pos 5)))
+      (is (= (map second pos) tags))))
+  (testing "chunk stage groups nouns and temporal expressions"
+    (let [{:keys [chunks parse-tree]} (sut/run-pipeline sample-text [:tokenize :tag :chunk])
+          chunk-by-text (into {} (map (juxt :text identity) chunks))]
+      (is (= :utterance (first parse-tree)))
+      (is (= :noun (:kind (get chunk-by-text "Tom"))))
+      (is (= :noun (:kind (get chunk-by-text "Minneapolis"))))
+      (is (= :temporal (:kind (get chunk-by-text "12 Oct"))))
+      (is (= :noun (:kind (get chunk-by-text "XTDB v5"))))
+      (is (= :noun (:kind (get chunk-by-text "Isabella"))))))
+  (testing "intent stage returns dictionary hits"
+    (let [{:keys [intent]} (sut/run-pipeline "Hello there" [:tokenize :intent])]
+      (is (= :greet (:type intent)))
+      (is (= :dictionary (:source intent)))
+      (is (> (:conf intent) 0.9)))))
+
 (deftest recognize-entities-v4
   (let [tokens (sut/tokenize sample-text)
         pos-tags (sut/pos-tag tokens)

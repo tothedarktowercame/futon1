@@ -126,6 +126,19 @@ Two classpath configs are provided:
 - Tests typically point to a temp copy so each run gets fresh storage (see
   [`resources/xtdb-test.edn`](resources/xtdb-test.edn)).
 
+### REPL-ready XT recipes
+
+`app.xt.recipes` wraps the most common XT stories so you can introspect the store without
+rewriting queries at the REPL:
+
+- `(recipes/list-entities {:limit 10 :sort :seen})` – paginated salience summaries ordered by
+  recency/seen-count.
+- `(recipes/entity-relations entity-id {:direction :incoming})` – ego traversal helpers that
+  annotate directionality.
+- `(recipes/counts)` – quick sanity check before/after test runs.
+
+See [`doc/xt-stories.md`](doc/xt-stories.md) for copy/paste walkthroughs.
+
 ### Demo: salience survives restarts
 
 ```bash
@@ -144,6 +157,9 @@ EOS
 
 # The focus header still lists Serena with the preserved seen-count/last-seen,
 # even though Datascript was freshly initialised.
+
+> Prefer a scripted version? `clojure -M -m app.scripts.salience-demo` walks through the
+> same behaviour and prints both snapshots so you can capture the output for status updates.
 
 > **RocksDB note:** XTDB uses RocksDB under the hood. Each server process needs
 > its own `BASIC_CHAT_DATA_DIR`; running multiple JVMs against the same data

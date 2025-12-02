@@ -3,7 +3,10 @@
 futon1 is a collection of deterministic chat demos that showcase a tiered NLP
 stack, an in-memory knowledge graph, and an append-only persistence layer. The
 current interactive entry point is the `apps/demo` wrapper around the
-`apps/client` session runner.
+`apps/client` session runner. Futon1’s mandate is primarily **storage and
+durability**—it keeps the fact graph coherent and exposes a minimal HTTP/CLI
+surface so higher futons (via Futon3’s interface layer) can rely on a stable
+data store without embedding UI or orchestration logic here.
 
 ## Repository structure
 
@@ -20,11 +23,9 @@ current interactive entry point is the `apps/demo` wrapper around the
 
 ## Core features
 
-- **Protocol variants**: the deterministic pipelines (`basic-chat/v1` …
-  `basic-chat/v6`) live under `protocols/` and can be selected by the HTTP API
-  or client session. `basic-chat/v6` is the default focus-header flow, layering
-  XTDB persistence on top of the v4 NER, relation extraction, and context-aware
-  output.
+- **Protocol variants**: the legacy `basic-chat` flows have been retired from
+  active builds. The CLI now always drives the shared ingest pipeline described
+  below; see `HISTORY.md` if you need the historical notes for those versions.
 - **Persistence**: the Datascript cache mirrors every mutation into XTDB. On
   boot the session hydrates from XT so salience metadata (seen-counts,
   last-seen timestamps, pinned flags) is ready before focus headers are
@@ -94,18 +95,6 @@ Flags mirror the features above; pass `-- --help` (invalid option) to see usage
 from the CLI. Add `--fh` when you need a machine-readable focus header (or
 `--fh-only` to suppress the normal EDN output).
 
-### Scripts
-
-Automated regressions use the `client.api/run-script` helper. From a REPL:
-
-```clojure
-(require '[client.api :as api]
-         '[clojure.edn :as edn])
-
-(with-open [session (api/start {})]
-  (let [lines (:turns (edn/read-string (slurp "test/scripts/basic-chat/v5/focus-header.edn")))]
-    (api/run-script session lines)))
-```
 
 ## Persistence layout
 

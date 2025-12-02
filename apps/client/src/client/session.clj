@@ -152,6 +152,13 @@
 (defn- capability-supported? [ctx path]
   (get-in (:capabilities ctx) path true))
 
+(defn- slash-supported?
+  "Return true when the slash command is supported for the current profile."
+  [ctx command-name]
+  (if-let [path (get slash-command-capabilities command-name)]
+    (capability-supported? ctx path)
+    true))
+
 (def ^:private unavailable-command-msg
   #(str "Command /" % " is not available on this profile."))
 

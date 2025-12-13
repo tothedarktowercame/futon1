@@ -36,6 +36,34 @@ The namespace also exposes convenience fns used throughout the demos:
   additional ends) so `/tail` in the CLI/API reports rich multi-end relations
   instead of lossy two-end projections.
 
+### Public API contract
+
+The modules under `graph_memory.*` expose a stable API consumed by every FUTON1 frontend:
+
+- `graph_memory.main/init-db`, `seed!`, `ensure-entity!`, `add-relation!`, `link!` – the only
+  sanctioned creation/update helpers. They always return Datascript transactions, and each write is
+  mirrored into XTDB via `app.store/put-entity!` or `put-rel!`.
+- `graph_memory.main/entities-by-name`, `neighbors`, `tail`, and `app.store/list-entities` – the
+  read surface consumed by CLI `/me`, `/tail`, `/links`, and the API. Returning Clojure maps keeps
+  transport layers free of storage-specific details.
+- Identity/version semantics: identity documents are keyed by `:entity/id` (deterministic UUID
+  derived from source + type + external-id). Version documents live under
+  `:entity.version/*` and are guaranteed never to mutate—callers can rely on the immutable audit
+  trail when requesting historical snapshots.
+
+Any new helper must preserve these boundaries; schema-changing edits require an accompanying
+`MIGRATIONS.md` note so XTDB documents stay queryable across releases.
+
+### Seed graph expectations
+
+`graph_memory.seed` initialises a minimal anchor graph (pinned profile, canonical prototypes, and
+seed relations such as `me → futon-stack`). Tests assume these anchors are present so fresh stores
+can emit meaningful focus headers before any ingest occurs. When extending the seed graph, update:
+
+1. `graph_memory.seed/seed-data` – ensures Datascript + XTDB receive the new anchors.
+2. `test/graph_memory/seed_test.clj` – locks the canonical list of pinned nodes and relations.
+3. `resources/baseline/demo_session.edn` – optional when new anchors affect focus headers.
+
 ### Identity vs version nodes
 
 Entities now split into two logical layers:
@@ -106,6 +134,16 @@ We retain Datascript because:
   always included in the activation set that feeds focus headers, so even brand
   new profiles (which may have zero relations yet) still emit stable salience
   summaries.
+
+Mirrored document shapes:
+
+- Entities persist as maps containing `:entity/id`, `:entity/name`, `:entity/type`, salience fields,
+  optional `:entity/external-id`, and the latest `:entity/current-version`. These keys are part of
+  the contract—schema evolutions must preserve them or ship a migration note.
+- Relations persist as maps containing `:relation/id`, `:relation/type`, `:relation/src`,
+  `:relation/dst`, optional payload (`:relation/content`, `:relation/labels`), and timestamps
+  (`:relation/last-seen`, `:relation/seen-count`). Hyperedge metadata is stored alongside the same
+  document so consumers do not need separate lookups.
 
 XT mirroring lives in `apps/graph-memory/src/app/store.clj`, alongside the
 helpers (`src/app/xt.clj`) that start nodes and submit documents.

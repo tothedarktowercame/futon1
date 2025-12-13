@@ -301,15 +301,25 @@ INTERACTIVE controls messaging."
            (default-directory (file-name-as-directory (expand-file-name base-dir)))
            (command tatami-start-command)
            (process-name "headless-api-server")
-           (buf (get-buffer-create "*headless-api-server*")))
+           (buf (get-buffer-create "*headless-api-server*"))
+           (data-dir (tatami--default-data-directory))
+           (env (append (when tatami-profile
+                          (list (format "ALPHA_PROFILE=%s" tatami-profile)))
+                        (when data-dir
+                          (list (format "BASIC_CHAT_DATA_DIR=%s" data-dir)))
+                        process-environment)))
       (unless (and (listp command) (car command))
         (error "`tatami-start-command' must be a non-empty list"))
       (when interactive
-        (message "Starting headless server using %s" (string-join command " ")))
+        (message "Starting headless server using %s (ALPHA_PROFILE=%s data-dir=%s)"
+                 (string-join command " ")
+                 (or tatami-profile "default")
+                 data-dir))
       ;; Optional: some users prefer this for faster I/O, less PTY weirdness:
       ;; (let ((process-connection-type nil) ...)
-      (setq tatami--server-process
-            (apply #'start-process process-name buf command))
+      (let ((process-environment env))
+        (setq tatami--server-process
+              (apply #'start-process process-name buf command)))
       (set-process-query-on-exit-flag tatami--server-process nil)
       (set-process-sentinel tatami--server-process
                             (lambda (_proc _event) ;; keep simple; we poll below
@@ -379,6 +389,78 @@ When PROFILE is provided, override `tatami-profile'."
       (when (called-interactively-p 'interactive)
         (message "Focus header retrieved for profile %s" (or tatami-profile "default")))
       fh)))
+
+(defun tatami-fetch-trails (&optional limit profile)
+  "Fetch recent trail entries as an alist.
+When LIMIT is provided, cap the number of entries (default 10).
+PROFILE overrides `tatami-profile'."
+  (interactive (list (when current-prefix-arg
+                       (read-number "Trail limit: " 10))
+                     (when current-prefix-arg
+                       (read-string "Profile: " tatami-profile))))
+  (let ((tatami-profile (or profile tatami-profile))
+        (limit (or limit 10)))
+    (unless (tatami--ensure-server (called-interactively-p 'interactive))
+      (error "Headless server is not reachable%s"
+             (if tatami--last-error
+                 (format ": %s" tatami--last-error)
+               "")))
+    (let* ((path (format "/api/%CE%B1/trails?limit=%d" limit))
+           (resp (tatami--request "GET" path nil t))
+           (trails (alist-get 'trails resp)))
+      trails)))
+
+(defun tatami--format-trail-entry (trail)
+  (let* ((session (alist-get 'session-id trail))
+         (turn (alist-get 'turn-id trail))
+         (intent (or (alist-get 'intent trail) "<intent missing>"))
+         (timestamp (alist-get 'timestamp trail))
+         (ts (when timestamp
+               (format-time-string "%Y-%m-%d %H:%M:%S"
+                                   (seconds-to-time (/ (float timestamp) 1000.0))
+                                   t)))
+         (fruits (alist-get 'fruits trail))
+         (paramitas (alist-get 'paramitas trail))
+         (fruit-labels (when (seq fruits)
+                         (mapconcat (lambda (item) (format "%s" (alist-get 'fruit/id item))) ", ")))
+         (orb-labels (when (seq paramitas)
+                       (mapconcat (lambda (item) (format "%s" (alist-get 'paramita/id item))) ", ")))
+         (futons (alist-get 'futons trail))
+         (protos (alist-get 'prototypes trail))
+         (meta (->> (list (when ts (concat "at " ts))
+                          (when fruit-labels (concat "fruits " fruit-labels))
+                          (when orb-labels (concat "paramitas " orb-labels))
+                          (when (seq futons) (concat "futons " (mapconcat (lambda (item) (format "%s" item)) futons ", ")))
+                          (when (seq protos) (concat "prototypes " (mapconcat (lambda (item) (format "%s" item)) protos ", "))))
+                     (remove #'null)
+                     (string-join "; "))))
+    (concat "  - " (or session "?") "/" (or turn "?")
+            " — " intent
+            (when (and meta (not (string-empty-p meta)))
+              (format " (%s)" meta)))))
+
+(defun tatami-show-trails (&optional limit profile)
+  "Display recent trail entries in a dedicated buffer."
+  (interactive (list (when current-prefix-arg
+                       (read-number "Trail limit: " 10))
+                     (when current-prefix-arg
+                       (read-string "Profile: " tatami-profile))))
+  (let* ((data (tatami-fetch-trails (or limit 10) profile))
+         (trails (or data '()))
+         (buffer (get-buffer-create "*Tatami Trails*")))
+    (with-current-buffer buffer
+      (read-only-mode -1)
+      (erase-buffer)
+      (insert (format "Trails (limit %d)\n\n" (or limit 10)))
+      (if (seq trails)
+          (dolist (trail trails)
+            (insert (tatami--format-trail-entry trail) "\n"))
+        (insert "(none)\n"))
+      (goto-char (point-min))
+      (view-mode 1))
+    (when (called-interactively-p 'interactive)
+      (pop-to-buffer buffer))
+    trails))
 
 (defun tatami-send-turn (text &optional profile)
   "Post TEXT to the /api/α/turns endpoint and return the updated focus header.

@@ -26,6 +26,26 @@ text → tokenize → POS tag → chunk → intent
 ;; => {:tokens ["Schedule" "a" "trip"], :pos [["Schedule" "NNP"] ...]}
 ```
 
+### Public API contracts
+
+- `run-pipeline` always returns a map containing the requested stages (`:tokens`, `:pos`,
+  `:chunks`, `:intent`, `:entities`, `:relations`). Passing an explicit vector of stages keeps the
+  function pure; no storage writes occur when NLP is used for inspection/testing.
+- `handle-input` / `handle-input-v4` wrap `run-pipeline` and emit a response map with these keys:
+  - `:utterance` – deterministic UUID + timestamp (persisted via `graph-memory.main/add-utterance!`).
+  - `:intent` – map with `:type`, `:conf`, and `:source` (`:dictionary` vs. `:fallback`).
+  - `:entities` – vector of `{ :name :type :id :span [:start :end] :value? ... }` maps ready for
+    storage.
+  - `:relations` – vector of derived relation triples (`:type`, `:src`, `:dst`).
+  - `:features` / `:intent-candidates` – debug vectors surfaced to the CLI and focus headers.
+- Gazetteer/pattern resources (`resources/gazetteer/*.edn`, `resources/patterns.edn`,
+  `resources/intent_*.edn`) define the deterministic vocabulary and therefore form part of the
+  stable API. Updates must keep the EDN schemas unchanged and be accompanied by fixture updates
+  under `test/nlp_interface`.
+
+Callers outside the demo/client workflow should stick to these entry points; lower-level helpers
+remain intentionally private so the schema/heuristic layers can evolve without breaking clients.
+
 ### Stage catalogue
 
 - **Tokenize** – `tokenize` is the shared splitter used by the tests and downstream apps. It

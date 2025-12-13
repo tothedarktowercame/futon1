@@ -17,6 +17,22 @@
    :intent/confidence {}
    :intent/source   {}
    :intent/candidates {}
+   :trail/id        {:db/unique :db.unique/identity}
+   :trail/session-id {}
+   :trail/turn-id   {}
+   :trail/profile   {}
+   :trail/timestamp {:db/index true}
+   :trail/intent    {}
+   :trail/patterns  {}
+   :trail/events    {}
+   :trail/fruits    {}
+   :trail/paramitas {}
+   :trail/futons    {}
+   :trail/prototypes {}
+   :trail/rule      {}
+   :trail/salience  {}
+   :trail/source    {}
+   :trail/payload   {}
    :link/id         {:db/unique :db.unique/identity}
    :link/type       {}
    :link/from       {:db/valueType :db.type/ref}

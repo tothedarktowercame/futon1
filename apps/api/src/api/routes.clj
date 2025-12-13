@@ -3,6 +3,7 @@
             [api.handlers.graph :as graph]
             [api.handlers.me :as me]
             [api.handlers.slash :as slash]
+            [api.handlers.trails :as trails]
             [api.handlers.turns :as turns]
             [api.handlers.types :as types]
             [reitit.ring :as ring]))
@@ -24,8 +25,11 @@
    ["/me/summary" {:get me/summary-handler}]
    ["/entity" {:post graph/ensure-entity-handler}]
    ["/entity/:id" {:get graph/fetch-entity!}]
+   ["/entities/latest" {:get graph/entity-latest!}]
    ["/entities/history/:id" {:get graph/entity-history!}]
    ["/relation" {:post graph/upsert-relation-handler}]
+   ["/trails" {:post trails/record-trail-handler
+               :get trails/recent-trails-handler}]
    ["/types" {:get types/list-types-handler}]
    ["/types/parent" {:post types/set-parent-handler}]
    ["/types/merge" {:post types/merge-aliases-handler}]])

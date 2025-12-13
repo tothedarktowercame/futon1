@@ -130,6 +130,18 @@ Set these when running multiple instances in parallel (tests, tooling, CLI):
 - `BASIC_CHAT_XTDB_ENABLED` – disable XT hydration/mirroring when set to a
   falsy string (`false`, `0`, `off`, `no`).
 
+## Baseline snapshot and determinism
+
+`docs/baseline.md` describes the canonical ingest→NLP→graph-memory→XTDB pipeline and references
+`resources/baseline/demo_session.edn`, the Willie/Jane transcript used by tests. Regenerate the
+fixture via `clojure -M:baseline/snapshot --write resources/baseline/demo_session.edn`. The
+`apps/client/test/client/session_test.clj` suite compares focus headers plus Datascript/XTDB
+summaries against this snapshot, keeping FUTON1 prototypes 0–1 in a DONE state. The
+`Futon1 Deterministic Stack` GitHub Action (`.github/workflows/futon1-stack-tests.yml`) runs the
+client determinism test, the `apps/graph-memory` regression suite, and the
+`apps/nlp-interface` pipeline tests on every push/PR to `main`, so broken storage/NLP behaviour is
+caught before downstream futons rely on it.
+
 ## Testing
 
 Each app provides a Test Runner. The graph/persistence regressions now live

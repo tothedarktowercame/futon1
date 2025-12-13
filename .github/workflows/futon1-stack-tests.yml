@@ -1,0 +1,52 @@
+name: Futon1 Deterministic Stack
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  clojure-suites:
+    name: ${{ matrix.job-name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job-name: apps/client determinism
+            workdir: apps/client
+            cmd: clojure -M:test
+          - job-name: apps/graph-memory regression suite
+            workdir: apps/graph-memory
+            cmd: clojure -M:test -m cognitect.test-runner
+          - job-name: apps/nlp-interface pipeline tests
+            workdir: apps/nlp-interface
+            cmd: clojure -M:test
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@12.5
+        with:
+          cli: 1.11.1.1435
+
+      - name: Cache Maven deps
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+
+      - name: Run ${{ matrix.job-name }}
+        working-directory: ${{ matrix.workdir }}
+        run: ${{ matrix.cmd }}

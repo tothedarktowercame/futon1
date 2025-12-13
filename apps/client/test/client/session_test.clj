@@ -2,16 +2,88 @@
   (:require [app.command-service :as svc]
             [app.store-manager :as store-manager]
             [app.xt :as xt]
-            [datascript.core :as d]
+            [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
-            [client.api :as api])
+            [client.api :as api]
+            [datascript.core :as d])
   (:import (java.nio.file Files)
            (java.nio.file.attribute FileAttribute)))
 
 (defn temp-dir []
   (-> (Files/createTempDirectory "client-session-test" (into-array FileAttribute []))
       (.toFile)))
+
+(def baseline-demo-path
+  (.getPath (io/file ".." ".." "resources" "baseline" "demo_session.edn")))
+
+(def baseline-demo-fixture
+  (delay
+    (when-not (.exists (io/file baseline-demo-path))
+      (throw (ex-info "Baseline demo fixture is missing" {:path baseline-demo-path})))
+    (edn/read-string (slurp baseline-demo-path))))
+
+(defn- focus-lines [turns]
+  (mapv (fn [turn]
+          (vec (get-in turn [:data :focus-header-lines])))
+        turns))
+
+(defn- ds-entities [conn]
+  (->> (d/q '[:find ?name ?type ?seen
+              :where [?e :entity/name ?name]
+                     [?e :entity/type ?type]
+                     [?e :entity/seen-count ?seen]]
+            @conn)
+       (map (fn [[name type seen]] {:name name :type type :seen-count seen}))
+       (sort-by :name)
+       vec))
+
+(defn- ds-relations [conn]
+  (->> (d/q '[:find ?src-name ?rel-type ?dst-name
+              :where
+              [?src :entity/name ?src-name]
+              [?dst :entity/name ?dst-name]
+              [?rel :relation/src ?src]
+              [?rel :relation/dst ?dst]
+              [?rel :relation/type ?rel-type]]
+            @conn)
+       (map (fn [[src type dst]] {:src src :type type :dst dst}))
+       (sort-by (juxt :src :dst :type))
+       vec))
+
+(defn- xt-entities []
+  (->> (xt/q '[:find ?name ?type ?seen
+               :where
+               [?e :entity/name ?name]
+               [?e :entity/type ?type]
+               [?e :entity/seen-count ?seen]])
+       (map (fn [[name type seen]] {:name name :type type :seen-count seen}))
+       (sort-by :name)
+       vec))
+
+(defn- xt-relations []
+  (->> (xt/q '[:find ?src ?type ?dst
+               :where
+               [?rel :relation/src ?src-e]
+               [?rel :relation/dst ?dst-e]
+               [?rel :relation/type ?type]
+               [?src-e :entity/name ?src]
+               [?dst-e :entity/name ?dst]])
+       (map (fn [[src type dst]] {:src src :type type :dst dst}))
+       (sort-by (juxt :src :dst :type))
+       vec))
+
+(defn- capture-baseline [session lines]
+  (let [turns (mapv #(api/run-line session %) lines)
+        _ (xt/sync-node!)
+        ctx ((:ctx-provider session))
+        conn (:conn ctx)]
+    {:focus-header (focus-lines turns)
+     :datascript-entities (ds-entities conn)
+     :datascript-relations (ds-relations conn)
+     :xtdb-entities (xt-entities)
+     :xtdb-relations (xt-relations)}))
 
 (defn with-session-fixture [f]
   (let [dir (.getAbsolutePath (temp-dir))
@@ -148,5 +220,18 @@
        (testing "Enriched section never diverges from recent within the excerpt"
          (is (nil? divergence)))
        (when divergence
-         (is (pos? (:turn divergence)))
-         (is (seq (:extras divergence))))))))
+       (is (pos? (:turn divergence)))
+        (is (seq (:extras divergence))))))))
+
+(deftest baseline-demo-remains-deterministic
+  (with-session-fixture
+   (fn [session]
+     (let [fixture @baseline-demo-fixture
+           observed (capture-baseline session (:script fixture))]
+       (doseq [k [:focus-header
+                  :datascript-entities
+                  :datascript-relations
+                  :xtdb-entities
+                  :xtdb-relations]]
+         (is (= (get fixture k) (get observed k))
+             (str "Mismatch in baseline segment " k)))))))

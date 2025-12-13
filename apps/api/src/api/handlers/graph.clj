@@ -76,6 +76,25 @@
                      :entity-id entity-id}
                     404))))
 
+(defn- parse-entity-type [value]
+  (when-let [raw (some-> value str/trim not-empty)]
+    (let [clean (if (str/starts-with? raw ":") (subs raw 1) raw)]
+      (keyword clean))))
+
+(defn entity-latest!
+  [request]
+  (let [profile (request-profile request)
+        ctx {:conn (store-manager/conn profile)}
+        query (:query-params request)
+        type-param (parse-entity-type (get query "type"))
+        limit (or (some-> (get query "limit") parse-long-param) 1)]
+    (if (nil? type-param)
+      (http/ok-json {:error "type query parameter required"} 400)
+      (let [entities (commands/latest-entities ctx {:type type-param :limit limit})]
+        (http/ok-json {:profile profile
+                       :type (str type-param)
+                       :entities (or entities [])})))))
+
 (defn upsert-relation!
   [request body]
   (let [profile (request-profile request)

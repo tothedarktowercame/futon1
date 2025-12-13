@@ -104,28 +104,51 @@
               (is (seq (:text parsed)))))
 
           (testing "type registry endpoints"
-            (let [types-resp (get-request client (format "http://localhost:%d/api/α/types" port))
-                  types-json (json/parse-string (:body types-resp) true)]
-              (is (= 200 (:status types-resp)))
-              (is (= "α" (get-in types-resp [:headers "x-api-version"])))
-              (is (seq (get-in types-json [:types :entity])))
-              (is (vector? (get-in types-json [:types :intent]))))
-            (let [parent-resp (json-request client "POST" (format "http://localhost:%d/api/α/types/parent" port)
-                                            {:type "person" :parent "topic/*"})]
-              (is (= 200 (:status parent-resp)))
-              (is (= "α" (get-in parent-resp [:headers "x-api-version"])))
-              (is (= "topic/*" (get-in parent-resp [:json :type :parent]))))
-            (let [merge-resp (json-request client "POST" (format "http://localhost:%d/api/α/types/merge" port)
-                                           {:into "person" :aliases ["human"]})]
-              (is (= 200 (:status merge-resp)))
-              (is (= "α" (get-in merge-resp [:headers "x-api-version"])))
-              (is (= "person" (get-in merge-resp [:json :type :id])))
-              (is (some #(= "human" %) (get-in merge-resp [:json :type :aliases])))))
-          (let [types-after (get-request client (format "http://localhost:%d/api/α/types" port))
-                parsed (json/parse-string (:body types-after) true)]
-            (is (= 200 (:status types-after)))
-            (is (= "α" (get-in types-after [:headers "x-api-version"])))
-            (is (some #(= "human" %)
+          (let [types-resp (get-request client (format "http://localhost:%d/api/α/types" port))
+                types-json (json/parse-string (:body types-resp) true)]
+            (is (= 200 (:status types-resp)))
+            (is (= "α" (get-in types-resp [:headers "x-api-version"])))
+            (is (seq (get-in types-json [:types :entity])))
+            (is (vector? (get-in types-json [:types :intent]))))
+          (let [parent-resp (json-request client "POST" (format "http://localhost:%d/api/α/types/parent" port)
+                                          {:type "person" :parent "topic/*"})]
+            (is (= 200 (:status parent-resp)))
+            (is (= "α" (get-in parent-resp [:headers "x-api-version"])))
+            (is (= "topic/*" (get-in parent-resp [:json :type :parent]))))
+          (let [merge-resp (json-request client "POST" (format "http://localhost:%d/api/α/types/merge" port)
+                                         {:into "person" :aliases ["human"]})]
+            (is (= 200 (:status merge-resp)))
+            (is (= "α" (get-in merge-resp [:headers "x-api-version"])))
+            (is (= "person" (get-in merge-resp [:json :type :id])))
+            (is (some #(= "human" %) (get-in merge-resp [:json :type :aliases])))))
+        (testing "latest entities endpoint"
+          (let [entity-payload {:name "Clock-out summary"
+                                :type "clock-out/summary"
+                                :external-id "test-clock-1"}
+                post-resp (json-request client "POST" (format "http://localhost:%d/api/α/entity" port)
+                                        entity-payload)]
+            (is (= 200 (:status post-resp)))
+            (is (= "α" (get-in post-resp [:headers "x-api-version"]))))
+          (let [latest-resp (get-request client (format "http://localhost:%d/api/α/entities/latest?type=clock-out/summary" port))
+                parsed (json/parse-string (:body latest-resp) true)]
+            (is (= 200 (:status latest-resp)))
+            (is (= "α" (get-in latest-resp [:headers "x-api-version"])))
+            (is (= "clock-out/summary" (:type parsed)))
+            (is (seq (:entities parsed))))
+          (let [empty-resp (get-request client (format "http://localhost:%d/api/α/entities/latest?type=unknown/type" port))
+                parsed (json/parse-string (:body empty-resp) true)]
+            (is (= 200 (:status empty-resp)))
+            (is (vector? (:entities parsed)))
+            (is (empty? (:entities parsed))))
+          (let [bad-resp (get-request client (format "http://localhost:%d/api/α/entities/latest" port))
+                parsed (json/parse-string (:body bad-resp) true)]
+            (is (= 400 (:status bad-resp)))
+            (is (= {:error "type query parameter required"} parsed))))
+        (let [types-after (get-request client (format "http://localhost:%d/api/α/types" port))
+              parsed (json/parse-string (:body types-after) true)]
+          (is (= 200 (:status types-after)))
+          (is (= "α" (get-in types-after [:headers "x-api-version"])))
+          (is (some #(= "human" %)
                       (mapcat (comp seq :aliases) (get-in parsed [:types :entity]))))))
         (finally
           (server/stop!))))

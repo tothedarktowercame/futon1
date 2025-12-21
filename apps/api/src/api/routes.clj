@@ -6,6 +6,7 @@
             [api.handlers.trails :as trails]
             [api.handlers.turns :as turns]
             [api.handlers.types :as types]
+            [api.handlers.docbook :as docbook]
             [reitit.ring :as ring]))
 
 (def ^:private shared-routes
@@ -32,7 +33,10 @@
                :get trails/recent-trails-handler}]
    ["/types" {:get types/list-types-handler}]
    ["/types/parent" {:post types/set-parent-handler}]
-   ["/types/merge" {:post types/merge-aliases-handler}]])
+   ["/types/merge" {:post types/merge-aliases-handler}]
+   ["/docs/:book/contents" {:get docbook/contents-handler}]
+   ["/docs/:book/heading/:doc-id" {:get docbook/heading-handler}]
+   ["/docs/:book/recent" {:get docbook/recent-handler}]])
 
 (def ^:private versioned-prefixes
   ["/api/α"

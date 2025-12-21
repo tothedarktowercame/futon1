@@ -34,6 +34,10 @@
   {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}
    :main-opts ["-m" "scripts.futon3-ingest"]}
 
+  :scripts/docbook-ingest
+  {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}
+   :main-opts ["-m" "scripts.docbook-ingest"]}
+
   :scripts/inspect-pattern
   {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}
    :main-opts ["-m" "scripts.inspect-pattern"]}

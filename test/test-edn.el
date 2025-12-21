@@ -1,0 +1,7 @@
+(load-file "contrib/aob-chatgpt.el")
+(let* ((fake-edn "---FROM-CHATGPT-EDN---\n{:session-id \"test\" :clock \"2025\" :patterns ({:title \"Sample\" :summary \"Short\" :score 0.1}) :fruits ({:fruit/id \"doable\" :emoji \"🍒\" :score 0.2}) :paramitas ({:paramita/id \"truth\" :orb \"🟣\" :emoji \"🟣\"}) :events ({:activity :coding :text \"did a thing\"})}\n---END-FROM-CHATGPT-EDN---")
+       (text (concat "Response body\n" fake-edn)))
+  (setq my-chatgpt-shell-last-edn nil)
+  (let ((parsed (my-chatgpt-shell--extract-chatgpt-edn text)))
+    (message "Parsed: %S" parsed))
+  (message "Stripped: %s" (my-chatgpt-shell--strip-edn-block text)))

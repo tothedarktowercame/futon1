@@ -7,8 +7,13 @@ apps/headless-api/data/
 # Clojure tool artifacts
 .pom/
 .classpath
+.cpcache
 .cpcache/
+.cpcache.old/
 .nrepl-port
+.eastwood
+.eastwood/
+.dir-locals.el
 # Editor backups
 **/*~
 **/\#*#
@@ -28,3 +33,4 @@ MANIFEST-*
 OPTIONS-*
 *.sst
 *.log
+**/transcript.txt

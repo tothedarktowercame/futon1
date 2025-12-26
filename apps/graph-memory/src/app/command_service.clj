@@ -279,16 +279,34 @@
   [value]
   (cond
     (map? value)
-    (let [name (some-> (:name value) str str/trim)
-          type (:type value)
-          id (:id value)]
+    (let [getv (fn [k]
+                 (or (get value k)
+                     (when (keyword? k)
+                       (get value (name k)))
+                     (when (string? k)
+                       (get value (keyword k)))))
+          name (some-> (or (getv :name) (getv "name")) str str/trim)
+          type (or (getv :type) (getv "type"))
+          id (or (getv :id) (getv "id"))
+          source (or (getv :source) (getv "source"))
+          external-id (or (getv :external-id) (getv "external-id"))
+          last-seen (or (getv :last-seen) (getv "last-seen"))
+          seen-count (or (getv :seen-count) (getv "seen-count"))
+          pinned? (let [flag (or (getv :pinned?) (getv "pinned?"))]
+                    (when (or (contains? value :pinned?) (contains? value "pinned?"))
+                      flag))]
       (when-not (seq name)
         (throw (ex-info "Entity name required"
                         {:status 400
                          :entity value})))
       (cond-> {:name name}
         type (assoc :type type)
-        id (assoc :id id)))
+        id (assoc :id id)
+        source (assoc :source source)
+        external-id (assoc :external-id external-id)
+        last-seen (assoc :last-seen last-seen)
+        seen-count (assoc :seen-count seen-count)
+        (some? pinned?) (assoc :pinned? pinned?)))
 
     (string? value)
     (let [trimmed (str/trim value)]

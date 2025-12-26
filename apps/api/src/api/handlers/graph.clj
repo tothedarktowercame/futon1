@@ -24,7 +24,12 @@
      :lines (fmt/entity-lines entity)}))
 
 (defn ensure-entity-handler [request]
-  (http/ok-json (ensure-entity! request (:body request))))
+  (let [body (:body request)
+        debug? (some-> (get-in request [:query-params "debug"]) str (= "1"))
+        payload (ensure-entity! request body)]
+    (http/ok-json (if debug?
+                    (assoc payload :debug {:body body})
+                    payload))))
 
 (defn- parse-long-param [value]
   (when (some? value)

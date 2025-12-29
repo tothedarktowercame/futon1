@@ -79,8 +79,15 @@ provides an ASCII alias for proxies or clients that cannot emit unicode paths.
 | `GET /api/α/types` | List registered entity/relation types, parents, and aliases. |
 | `POST /api/α/types/parent` | Override or clear a type's parent (`{type, parent?, kind?}`). |
 | `POST /api/α/types/merge` | Merge aliases into a canonical type (`{into,type?,aliases}` accepts strings or keywords). |
+| `GET /api/α/patterns/registry` | Return a lightweight pattern registry for fast sync diffs (computed on request; candidate for persistence similar to docbook TOC). |
+| `DELETE /api/α/docs/:book/doc/:doc-id` | Delete a docbook heading plus its entries for the given book/doc-id. |
+| `DELETE /api/α/docs/:book/toc/:doc-id` | Delete a docbook heading only; pass `?cascade=true` to also delete entries. |
 
 Each endpoint also accepts `/api/alpha/...` as an alias.
+
+Note: the API does not expose a global delete for arbitrary XTDB documents; deletion is scoped to docbook content only.
+
+Relation payloads can omit `type` if you provide `props.relation/type`, `props.link/type`, `props.pattern/type`, or `props.label` (string/keyword); the handler normalizes these into `type` before upserting.
 
 ### Type registry
 

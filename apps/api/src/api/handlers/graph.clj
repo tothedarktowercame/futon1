@@ -11,6 +11,28 @@
   (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
       (store-manager/default-profile)))
 
+(defn- normalize-relation-type [value]
+  (cond
+    (keyword? value) value
+    (string? value) (let [trimmed (str/trim value)
+                          clean (if (str/starts-with? trimmed ":")
+                                  (subs trimmed 1)
+                                  trimmed)]
+                      (when (seq clean) (keyword clean)))
+    :else nil))
+
+(defn- maybe-infer-relation-type [payload]
+  (let [props (:props payload)
+        raw (or (:relation/type props)
+                (:link/type props)
+                (:relation/type payload)
+                (:pattern/type props)
+                (:type payload)
+                (:label props))]
+    (if-let [inferred (normalize-relation-type raw)]
+      {:type inferred}
+      {})))
+
 (defn ensure-entity!
   [request body]
   (let [profile (request-profile request)
@@ -97,7 +119,9 @@
       (http/ok-json {:error "type query parameter required"} 400)
       (let [entities (commands/latest-entities ctx {:type type-param :limit limit})]
         (http/ok-json {:profile profile
-                       :type (str type-param)
+                       :type (if (keyword? type-param)
+                               (subs (str type-param) 1)
+                               (str type-param))
                        :entities (or entities [])})))))
 
 (defn upsert-relation!
@@ -107,7 +131,8 @@
              :env (store-manager/env profile)
              :record-anchors! (fn [anchors]
                                 (store-manager/record-anchors! profile anchors))}
-        {:keys [relation]} (commands/upsert-relation! ctx body)]
+        relation-spec (merge body (maybe-infer-relation-type body))
+        {:keys [relation]} (commands/upsert-relation! ctx relation-spec)]
     {:profile profile
      :relation relation
      :lines (fmt/relation-lines relation)}))

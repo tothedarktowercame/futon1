@@ -107,6 +107,11 @@
        (xt/await-tx node tx-res))
      tx-res)))
 
+(defn submit-async!
+  "Submit XTDB ops without blocking on tx indexing."
+  [ops]
+  (submit! ops {:await? false}))
+
 (defn sync-node!
   "Force the node to index all pending transactions."
   []
@@ -126,6 +131,13 @@
         tx [[::xt/put doc']]]
     (submit! tx)))
 
+(defn put-entity-async!
+  "Submit an entity document without awaiting the tx."
+  [doc]
+  (let [doc' (-> doc coerce-id)
+        tx [[::xt/put doc']]]
+    (submit-async! tx)))
+
 (defn put-rel!
   [doc valid-from-ms valid-to-ms]
   (let [doc' (-> doc coerce-id)
@@ -133,6 +145,15 @@
              (when valid-from-ms (java.util.Date. valid-from-ms))
              (when valid-to-ms (java.util.Date. valid-to-ms))]]]
     (submit! tx)))
+
+(defn put-rel-async!
+  "Submit a relation document without awaiting the tx."
+  [doc valid-from-ms valid-to-ms]
+  (let [doc' (-> doc coerce-id)
+        tx [[::xt/put doc'
+             (when valid-from-ms (java.util.Date. valid-from-ms))
+             (when valid-to-ms (java.util.Date. valid-to-ms))]]]
+    (submit-async! tx)))
 
 (defn delete-doc!
   "Remove a document (entity or relation) from XTDB by id."

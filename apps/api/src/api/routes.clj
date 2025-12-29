@@ -2,10 +2,12 @@
   (:require [api.handlers.diag :as diag]
             [api.handlers.graph :as graph]
             [api.handlers.me :as me]
+            [api.handlers.model :as model]
             [api.handlers.slash :as slash]
             [api.handlers.trails :as trails]
             [api.handlers.turns :as turns]
             [api.handlers.types :as types]
+            [api.handlers.patterns :as patterns]
             [api.handlers.docbook :as docbook]
             [reitit.ring :as ring]))
 
@@ -31,12 +33,24 @@
    ["/relation" {:post graph/upsert-relation-handler}]
    ["/trails" {:post trails/record-trail-handler
                :get trails/recent-trails-handler}]
+   ["/meta/model" {:get model/describe-handler}]
+   ["/meta/model/registry" {:get model/registry-handler}]
+   ["/meta/model/verify" {:get model/verify-handler}]
+   ["/meta/model/docbook" {:get model/describe-docbook-handler}]
+   ["/meta/model/docbook/verify" {:get model/verify-docbook-handler}]
+   ["/meta/model/open-world-ingest" {:get model/describe-open-world-handler}]
+   ["/meta/model/open-world-ingest/verify" {:get model/verify-open-world-handler}]
+   ["/patterns/registry" {:get patterns/registry-handler}]
    ["/types" {:get types/list-types-handler}]
    ["/types/parent" {:post types/set-parent-handler}]
    ["/types/merge" {:post types/merge-aliases-handler}]
    ["/docs/:book/contents" {:get docbook/contents-handler}]
+   ["/docs/:book/toc" {:get docbook/toc-handler}]
+   ["/docs/:book/contents/order" {:post docbook/update-contents-order-handler}]
    ["/docs/:book/heading/:doc-id" {:get docbook/heading-handler}]
-   ["/docs/:book/recent" {:get docbook/recent-handler}]])
+   ["/docs/:book/recent" {:get docbook/recent-handler}]
+   ["/docs/:book/doc/:doc-id" {:delete docbook/delete-handler}]
+   ["/docs/:book/toc/:doc-id" {:delete docbook/delete-toc-handler}]])
 
 (def ^:private versioned-prefixes
   ["/api/α"

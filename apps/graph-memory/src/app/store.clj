@@ -136,15 +136,28 @@
 (defn- xt-entity->tx
   [doc]
   (when-let [id (:entity/id doc)]
-    (let [name (:entity/name doc)]
-      (cond-> {:entity/id id}
-        (some? name) (assoc :entity/name name)
-        (:entity/type doc) (assoc :entity/type (:entity/type doc))
-        (:entity/last-seen doc) (assoc :entity/last-seen (:entity/last-seen doc))
-        (:entity/seen-count doc) (assoc :entity/seen-count (:entity/seen-count doc))
-        (contains? doc :entity/pinned?) (assoc :entity/pinned? (:entity/pinned? doc))
-        (:entity/external-id doc) (assoc :entity/external-id (:entity/external-id doc))
-        (:entity/source doc) (assoc :entity/source (:entity/source doc))))))
+    (let [name (:entity/name doc)
+          type (:entity/type doc)
+          last-seen (:entity/last-seen doc)
+          seen-count (:entity/seen-count doc)
+          pinned? (contains? doc :entity/pinned?)
+          external-id (:entity/external-id doc)
+          source (:entity/source doc)]
+      (when (or (some? name)
+                (some? type)
+                (some? last-seen)
+                (some? seen-count)
+                pinned?
+                (some? external-id)
+                (some? source))
+        (cond-> {:entity/id id}
+          (some? name) (assoc :entity/name name)
+          (some? type) (assoc :entity/type type)
+          (some? last-seen) (assoc :entity/last-seen last-seen)
+          (some? seen-count) (assoc :entity/seen-count seen-count)
+          pinned? (assoc :entity/pinned? (:entity/pinned? doc))
+          (some? external-id) (assoc :entity/external-id external-id)
+          (some? source) (assoc :entity/source source))))))
 
 (defn- xt-relation->tx
   [doc]
@@ -214,16 +227,12 @@
                       found?))))
             (ensure-entity! [eid]
               (when (and eid (not (present? eid)))
-                (if-let [doc (xt/entity eid)]
+                (when-let [doc (xt/entity eid)]
                   (when-let [tx (xt-entity->tx doc)]
                     (d/transact! conn [(cond-> tx
                                          (nil? (:entity/name tx)) (dissoc :entity/name))])
                     (when-let [id (:entity/id tx)]
-                      (swap! known-ids conj id)))
-                  (let [stub {:entity/id eid}]
-                    (d/transact! conn [stub])
-                    (swap! known-ids conj eid)
-                    (swap! stubbed! conj eid)))))]
+                      (swap! known-ids conj id))))))]
       (let [relation-count (atom 0)
             skipped (atom [])]
         (doseq [doc rel-docs]
@@ -375,7 +384,7 @@
     (when (and (xt-enabled? xtdb-opts) (xt/started?))
       (when-let [doc (entity->xt-doc entity)]
         (try
-          (xt/put-entity! doc)
+          (xt/put-entity-async! doc)
           (catch Exception ex
             (log-mirror-error! "entity" ex)))))))
 
@@ -400,7 +409,7 @@
           (maybe-mirror-entity! opts hydrated)))
       (when-let [doc (relation->xt-doc relation)]
         (try
-          (xt/put-rel! doc nil nil)
+          (xt/put-rel-async! doc nil nil)
           (catch Exception ex
             (log-mirror-error! "relation" ex)))))))
 

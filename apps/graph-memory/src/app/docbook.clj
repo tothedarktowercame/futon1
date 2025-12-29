@@ -142,7 +142,7 @@
              :doc/book book
              :doc/version "org"
              :doc/status status
-             :doc/context body}
+             :doc/body body}
       title (assoc :doc/title title)
       (:doc/function-name opts) (assoc :doc/function-name (:doc/function-name opts))
       (:doc/function-anchor opts) (assoc :doc/function-anchor (:doc/function-anchor opts))
@@ -194,7 +194,8 @@
 
 (defn- entry-doc [book m]
   (let [doc-id (or (:doc_id m) (:doc/id m))
-        entry-id (or (:doc/entry-id m) (:doc_entry_id m) (:doc/entry_id m) (:entry_id m) (:run_id m))]
+        entry-id (or (:doc/entry-id m) (:doc_entry_id m) (:doc/entry_id m) (:entry_id m) (:run_id m))
+        body (or (:doc/body m) (:doc/context m) (:body m) (:context m))]
     (when (and doc-id entry-id)
       (let [status (normalize-status (or (:doc/status m) (:status m)))]
         (cond-> {:xt/id entry-id
@@ -204,6 +205,7 @@
                  :doc/version (or (:version m) (:doc/version m))
                  :doc/timestamp (or (:timestamp m) (:doc/timestamp m))
                  :doc/status status}
+          body (assoc :doc/body body)
           (:replaces m) (assoc :doc/replaces (:replaces m))
           (:doc/replaces m) (assoc :doc/replaces (:doc/replaces m))
           (:merges m) (assoc :doc/merges (:merges m))
@@ -218,7 +220,6 @@
           (:doc/scope m) (assoc :doc/scope (:doc/scope m))
           (:tracker_refs m) (assoc :doc/tracker-refs (:tracker_refs m))
           (:doc/tracker-refs m) (assoc :doc/tracker-refs (:doc/tracker-refs m))
-          (:doc/context m) (assoc :doc/context (:doc/context m))
           (:doc/delta m) (assoc :doc/delta (:doc/delta m))
           (:doc/verification m) (assoc :doc/verification (:doc/verification m))
           (:doc/toc-version m) (assoc :doc/toc-version (:doc/toc-version m))
@@ -283,6 +284,13 @@
                 #(compare %2 %1))
        first))
 
+(defn- normalize-entry [entry]
+  (cond-> entry
+    (and (:doc/context entry) (not (:doc/body entry)))
+    (-> (assoc :doc/body (:doc/context entry))
+        (dissoc :doc/context))
+    (:doc/context entry) (dissoc :doc/context)))
+
 (defn- entries-for-doc [db doc-id]
   (->> (xt/q db '{:find [(pull ?e [*])]
                   :in [?doc-id]
@@ -291,12 +299,86 @@
        (map first)))
 
 (defn heading->with-latest [db heading]
-  (let [entries (entries-for-doc db (:doc/id heading))]
+  (let [entries (->> (entries-for-doc db (:doc/id heading))
+                     (map normalize-entry))
+        latest (latest-entry entries)]
     (assoc heading
            :doc/entries (sort-by #(or (:doc/timestamp %) "") #(compare %2 %1) entries)
-           :doc/latest (latest-entry entries))))
+           :doc/latest latest)))
+
+(defn- toc-order-id [book]
+  (str "docbook-toc-order::" book))
+
+(defn- fetch-toc-order [db book]
+  (some-> (xtdb/entity db (toc-order-id book))
+          :doc/toc-order))
+
+(defn- heading-sort-key [heading]
+  [(or (:doc/path_string heading) "")
+   (or (:doc/title heading) "")
+   (or (:doc/id heading) "")])
+
+(defn- active-entry? [entry]
+  (not= :removed (:doc/status entry)))
+
+(defn- default-heading-order [headings]
+  (->> headings
+       (sort-by heading-sort-key)
+       (map :doc/id)
+       vec))
+
+(defn- merge-order [preferred fallback]
+  (let [preferred* (vec (distinct preferred))
+        seen (set preferred*)]
+    (vec (concat preferred* (remove seen fallback)))))
+
+(defn- ordered-headings [db book]
+  (let [headings (->> (xt/q db '{:find [(pull ?h [*])]
+                                 :in [?book]
+                                 :where [[?h :doc/book ?book]]}
+                            book)
+                      (map first)
+                      (remove :doc/entry-id))
+        default-order (default-heading-order headings)
+        stored-order (fetch-toc-order db book)
+        ordered-ids (if (seq stored-order)
+                      (merge-order (filter (set default-order) stored-order)
+                                   default-order)
+                      default-order)
+        headings-by-id (group-by :doc/id headings)]
+    (->> ordered-ids
+         (mapcat #(get headings-by-id %)))))
 
 (defn contents [book]
+  (ensure-xt-node!)
+  (let [db (xt/db)
+        headings (->> (ordered-headings db book)
+                      (map #(heading->with-latest db %)))]
+    {:book book
+     :headings headings}))
+
+(def ^:private toc-heading-keys
+  [:doc/id :doc/path_string :doc/outline_path :doc/level :doc/title])
+
+(def ^:private toc-latest-keys
+  [:doc/entry-id :doc/timestamp :doc/version :doc/status])
+
+(defn toc [book]
+  (ensure-xt-node!)
+  (let [db (xt/db)
+        headings (ordered-headings db book)]
+    {:book book
+     :headings (mapv (fn [heading]
+                       (let [entries (entries-for-doc db (:doc/id heading))
+                             active (filter active-entry? entries)
+                             latest (latest-entry entries)]
+                         (cond-> (select-keys heading toc-heading-keys)
+                           (seq active) (assoc :doc/entry-count (count active))
+                           latest (assoc :doc/latest (select-keys latest toc-latest-keys)))))
+                     headings)}))
+
+(defn update-toc-order!
+  [book {:keys [order source timestamp]}]
   (ensure-xt-node!)
   (let [db (xt/db)
         headings (->> (xt/q db '{:find [(pull ?h [*])]
@@ -304,9 +386,32 @@
                                  :where [[?h :doc/book ?book]]}
                             book)
                       (map first)
-                      (map #(heading->with-latest db %)))]
-    {:book book
-     :headings headings}))
+                      (remove :doc/entry-id))
+        default-order (default-heading-order headings)
+        heading-ids (set default-order)
+        order* (->> order
+                    (map #(some-> % str str/trim not-empty))
+                    (remove nil?))
+        known-order (filter heading-ids order*)
+        ignored (remove heading-ids order*)
+        stored-order (fetch-toc-order db book)
+        existing-order (if (seq stored-order)
+                         (merge-order (filter heading-ids stored-order)
+                                      default-order)
+                         default-order)
+        final-order (merge-order known-order existing-order)
+        doc {:xt/id (toc-order-id book)
+             :doc/book book
+             :doc/toc-order final-order
+             :doc/toc-source source
+             :doc/toc-updated-at timestamp}]
+    (xt/submit! [[::xtdb/put (cond-> doc
+                               (nil? source) (dissoc :doc/toc-source)
+                               (nil? timestamp) (dissoc :doc/toc-updated-at))]])
+    (cond-> {:status "ok"
+             :book book
+             :count (count final-order)}
+      (seq ignored) (assoc :ignored-doc-ids (vec (distinct ignored))))))
 
 (defn heading+entries [book doc-id]
   (ensure-xt-node!)
@@ -319,6 +424,53 @@
     (when heading
       (heading->with-latest db heading))))
 
+(defn- docs-for [db book doc-id]
+  (->> (xt/q db '{:find [(pull ?e [*])]
+                  :in [?book ?doc-id]
+                  :where [[?e :doc/book ?book]
+                          [?e :doc/id ?doc-id]]}
+             book
+             doc-id)
+       (map first)))
+
+(defn- doc-xt-ids [docs]
+  (->> docs
+       (keep :xt/id)
+       distinct
+       vec))
+
+(defn delete-doc!
+  "Delete a docbook heading and its entries by book + doc-id."
+  [book doc-id]
+  (ensure-xt-node!)
+  (let [db (xt/db)
+        ids (doc-xt-ids (docs-for db book doc-id))]
+    (when (seq ids)
+      (xt/submit! (mapv (fn [id] [::xtdb/delete id]) ids)))
+    {:book book
+     :doc-id doc-id
+     :deleted (count ids)}))
+
+(defn delete-toc!
+  "Delete a docbook heading from the TOC; optionally cascade to entries."
+  ([book doc-id]
+   (delete-toc! book doc-id {}))
+  ([book doc-id {:keys [cascade?]}]
+   (ensure-xt-node!)
+   (let [db (xt/db)
+         docs (docs-for db book doc-id)
+         entries (filter :doc/entry-id docs)
+         headings (remove :doc/entry-id docs)
+         ids (doc-xt-ids (if cascade?
+                           (concat headings entries)
+                           headings))]
+     (when (seq ids)
+       (xt/submit! (mapv (fn [id] [::xtdb/delete id]) ids)))
+     {:book book
+      :doc-id doc-id
+      :deleted (count ids)
+      :cascade? (boolean cascade?)})))
+
 (defn recent-entries
   ([book] (recent-entries book 20))
   ([book limit]
@@ -330,7 +482,10 @@
                                          [?e :doc/id ?did]
                                          [?h :doc/id ?did]]}
                             book)
-                      (map (fn [[e h]] (assoc e :doc/heading h)))
+                      (map (fn [[e h]]
+                             (-> e
+                                 normalize-entry
+                                 (assoc :doc/heading h))))
                       (remove #(= :removed (:doc/status %)))
                       (sort-by #(or (:doc/timestamp %) "") #(compare %2 %1))
                       (take (or limit 20)))]

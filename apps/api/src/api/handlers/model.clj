@@ -2,6 +2,7 @@
   (:require [api.util.http :as http]
             [app.model :as model]
             [app.model-docbook :as model-docbook]
+            [app.model-meta :as model-meta]
             [app.model-open-world :as model-open-world]
             [app.store-manager :as store-manager]
             [app.xt :as xt]
@@ -22,6 +23,10 @@
 (defn- ensure-open-world-descriptor! [profile conn]
   (let [env (store-manager/env profile)]
     (model-open-world/ensure-descriptor! conn env)))
+
+(defn- ensure-meta-model-descriptor! [profile conn]
+  (let [env (store-manager/env profile)]
+    (model-meta/ensure-descriptor! conn env)))
 
 (defn describe-handler [request]
   (let [profile (request-profile request)
@@ -80,6 +85,25 @@
         result (model-open-world/verify conn)]
     (http/ok-json (assoc result :profile profile))))
 
+(defn describe-meta-model-handler [request]
+  (let [profile (request-profile request)
+        conn (store-manager/conn profile)
+        desc (or (model-meta/describe conn)
+                 (do
+                   (ensure-meta-model-descriptor! profile conn)
+                   (model-meta/describe conn)))]
+    (if desc
+      (http/ok-json (assoc desc :profile profile))
+      (http/ok-json {:error "Meta-model descriptor not found"
+                     :profile profile}
+                    404))))
+
+(defn verify-meta-model-handler [request]
+  (let [profile (request-profile request)
+        conn (store-manager/conn profile)
+        result (model-meta/verify conn)]
+    (http/ok-json (assoc result :profile profile))))
+
 (defn registry-handler [request]
   (let [profile (request-profile request)
         conn (store-manager/conn profile)
@@ -91,6 +115,10 @@
                     (do
                       (ensure-docbook-descriptor! profile conn)
                       (model-docbook/describe conn)))
+        meta-model (or (model-meta/describe conn)
+                       (do
+                         (ensure-meta-model-descriptor! profile conn)
+                         (model-meta/describe conn)))
         open-world (or (model-open-world/describe conn)
                        (do
                          (ensure-open-world-descriptor! profile conn)
@@ -99,6 +127,7 @@
                    :descriptors
                    {:patterns patterns
                     :docbook docbook
+                    :meta-model meta-model
                     :open-world-ingest open-world}})))
 
 (defn- inventory-type-counts []
@@ -128,6 +157,10 @@
                        (do
                          (ensure-patterns-descriptor! profile conn)
                          (model/describe conn)))
+          meta-model (or (model-meta/describe conn)
+                         (do
+                           (ensure-meta-model-descriptor! profile conn)
+                           (model-meta/describe conn)))
           open-world (or (model-open-world/describe conn)
                          (do
                            (ensure-open-world-descriptor! profile conn)
@@ -141,14 +174,15 @@
                                  (or (= type :model/descriptor)
                                      (contains? covered type))))
                        vec)]
-      (http/ok-json {:profile profile
-                     :generated-at (System/currentTimeMillis)
-                     :covered {:pattern-types (sort-by str covered-patterns)
-                               :open-world-types (sort-by str covered-open-world)}
-                     :pending pending
-                     :descriptors
-                     {:patterns patterns
-                      :open-world-ingest open-world}}))
+    (http/ok-json {:profile profile
+                   :generated-at (System/currentTimeMillis)
+                   :covered {:pattern-types (sort-by str covered-patterns)
+                             :open-world-types (sort-by str covered-open-world)}
+                   :pending pending
+                   :descriptors
+                   {:patterns patterns
+                     :meta-model meta-model
+                     :open-world-ingest open-world}}))
     (catch Exception e
       (http/ok-json {:error "XTDB not available"
                      :message (.getMessage e)}

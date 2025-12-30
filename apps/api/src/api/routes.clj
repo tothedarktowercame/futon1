@@ -41,6 +41,8 @@
    ["/meta/model/docbook/verify" {:get model/verify-docbook-handler}]
    ["/meta/model/open-world-ingest" {:get model/describe-open-world-handler}]
    ["/meta/model/open-world-ingest/verify" {:get model/verify-open-world-handler}]
+   ["/meta/model/meta" {:get model/describe-meta-model-handler}]
+   ["/meta/model/meta/verify" {:get model/verify-meta-model-handler}]
    ["/patterns/registry" {:get patterns/registry-handler}]
    ["/types" {:get types/list-types-handler}]
    ["/types/parent" {:post types/set-parent-handler}]

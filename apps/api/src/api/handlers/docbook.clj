@@ -53,6 +53,34 @@
         data (docbook/recent-entries book limit)]
     (http/ok-json data)))
 
+(defn entry-handler [request]
+  (let [book (normalize-book request)
+        payload (:body request)]
+    (if-not (map? payload)
+      (http/ok-json {:error "Expected entry payload object"
+                     :book book}
+                    400)
+      (let [result (docbook/upsert-entry! book payload)]
+        (if (:ok? result)
+          (http/ok-json (dissoc result :ok?))
+          (http/ok-json (dissoc result :ok?) 400))))))
+
+(defn entries-handler [request]
+  (let [book (normalize-book request)
+        payload (:body request)
+        entries (cond
+                  (sequential? payload) payload
+                  (sequential? (:entries payload)) (:entries payload)
+                  :else nil)]
+    (if-not (sequential? entries)
+      (http/ok-json {:error "Expected entries list"
+                     :book book}
+                    400)
+      (let [result (docbook/upsert-entries! book entries)]
+        (if (:ok? result)
+          (http/ok-json (dissoc result :ok?))
+          (http/ok-json (dissoc result :ok?) 400))))))
+
 (defn delete-handler [request]
   (let [book (normalize-book request)
         doc-id (some-> (get-in request [:path-params :doc-id]) str/trim not-empty)]

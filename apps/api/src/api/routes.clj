@@ -48,6 +48,8 @@
    ["/docs/:book/contents" {:get docbook/contents-handler}]
    ["/docs/:book/toc" {:get docbook/toc-handler}]
    ["/docs/:book/contents/order" {:post docbook/update-contents-order-handler}]
+   ["/docs/:book/entry" {:post docbook/entry-handler}]
+   ["/docs/:book/entries" {:post docbook/entries-handler}]
    ["/docs/:book/heading/:doc-id" {:get docbook/heading-handler}]
    ["/docs/:book/recent" {:get docbook/recent-handler}]
    ["/docs/:book/doc/:doc-id" {:delete docbook/delete-handler}]

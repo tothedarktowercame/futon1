@@ -75,6 +75,8 @@ provides an ASCII alias for proxies or clients that cannot emit unicode paths.
 | `POST /api/α/ingest` | Bulk ingest plain text or NDJSON turns. Optional header `X-Chunking: sentences`. |
 | `POST /api/α/entity` | Programmatic entity ensure (`{name, type?}`). |
 | `POST /api/α/relation` | Programmatic relation upsert (`{type, src, dst}`). |
+| `POST /api/α/docs/:book/entry` | Upsert a single docbook entry (idempotent by `doc/entry-id`; heading is upserted too). |
+| `POST /api/α/docs/:book/entries` | Upsert a batch of docbook entries (idempotent by `doc/entry-id`). |
 | `GET /api/α/entities/latest?type=` | Return the most recently seen entities of the requested type (e.g. `clock-out/summary`). Optional `limit` query parameter controls the count. |
 | `GET /api/α/types` | List registered entity/relation types, parents, and aliases. |
 | `POST /api/α/types/parent` | Override or clear a type's parent (`{type, parent?, kind?}`). |

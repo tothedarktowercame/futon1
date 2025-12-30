@@ -45,6 +45,13 @@
 (defn- short-hash [value]
   (subs (sha1 value) 0 12))
 
+(defn derive-doc-id
+  "Derive a doc-id from book + outline path using the toc hash rule."
+  [book outline-path]
+  (when (seq outline-path)
+    (let [outline-key (str/join "/" outline-path)]
+      (str book "-" (short-hash (format "%s::%s" book outline-key))))))
+
 (defn- spine-includes [root spine-file]
   (when (and spine-file (.exists (io/file spine-file)))
     (let [lines (str/split-lines (slurp spine-file))
@@ -224,6 +231,77 @@
           (:doc/verification m) (assoc :doc/verification (:doc/verification m))
           (:doc/toc-version m) (assoc :doc/toc-version (:doc/toc-version m))
           (:notes m) (assoc :doc/notes (:notes m)))))))
+
+(defn- normalize-entry-payload
+  [book payload]
+  (let [outline (or (:doc/outline_path payload) (:outline_path payload))
+        path-str (or (:doc/path_string payload) (:path_string payload)
+                     (when (seq outline) (str/join " / " outline)))
+        title (or (:doc/title payload) (:title payload)
+                  (when (seq outline) (last outline)))
+        doc-id (or (:doc/id payload) (:doc_id payload)
+                   (derive-doc-id book outline))]
+    (cond-> (assoc payload :doc/book book)
+      doc-id (assoc :doc/id doc-id)
+      outline (assoc :doc/outline_path outline)
+      path-str (assoc :doc/path_string path-str)
+      title (assoc :doc/title title))))
+
+(defn upsert-entry!
+  "Upsert a single docbook heading + entry (idempotent by entry-id)."
+  [book payload]
+  (ensure-xt-node!)
+  (let [book (or book "futon4")
+        payload (normalize-entry-payload book payload)
+        heading (heading-doc payload)
+        entry (entry-doc book payload)]
+    (if-not (and heading entry)
+      {:ok? false
+       :error "doc_id + entry_id required (or outline_path to derive doc_id)"
+       :book book}
+      (do
+        (xt/submit! [[::xtdb/put heading]
+                     [::xtdb/put entry]])
+        {:ok? true
+         :book book
+         :doc-id (:doc/id heading)
+         :entry-id (:doc/entry-id entry)
+         :heading heading
+         :entry entry}))))
+
+(defn upsert-entries!
+  "Upsert a batch of docbook entries (idempotent by entry-id)."
+  [book entries]
+  (ensure-xt-node!)
+  (let [book (or book "futon4")
+        prepared (map (fn [payload]
+                        (let [payload (normalize-entry-payload book payload)
+                              heading (heading-doc payload)
+                              entry (entry-doc book payload)]
+                          {:payload payload
+                           :heading heading
+                           :entry entry
+                           :ok? (and heading entry)}))
+                      entries)
+        errors (->> prepared
+                    (remove :ok?)
+                    (map (fn [{:keys [payload]}]
+                           {:error "doc_id + entry_id required (or outline_path to derive doc_id)"
+                            :payload payload}))
+                    vec)
+        txs (->> prepared
+                 (filter :ok?)
+                 (mapcat (fn [{:keys [heading entry]}]
+                           [[::xtdb/put heading]
+                            [::xtdb/put entry]]))
+                 vec)]
+    (when (seq txs)
+      (xt/submit! txs))
+    {:ok? (empty? errors)
+     :book book
+     :count (count entries)
+     :accepted (- (count entries) (count errors))
+     :errors errors}))
 
 (defn- read-json [path]
   (with-open [r (io/reader path)]

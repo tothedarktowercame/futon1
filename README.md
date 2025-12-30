@@ -78,6 +78,11 @@ Set `BASIC_CHAT_DATA_DIR` (and optional `BASIC_CHAT_XTDB_*` overrides) before
 starting the server so it points at the storage root your client should use.
 Detailed route and environment docs live in `apps/api/README.md`.
 
+### Operator guides
+
+- `README-archivist.md` covers client usage patterns and the model registry.
+- `README-storage.md` documents hydration and XTDB internals.
+
 ### Installing Clojure and Java dependencies
 
 The demos require a working JVM and the Clojure CLI tools. On Debian/Ubuntu

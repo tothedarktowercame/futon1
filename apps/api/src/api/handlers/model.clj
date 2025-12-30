@@ -11,10 +11,25 @@
   (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
       (store-manager/default-profile)))
 
+(defn- ensure-patterns-descriptor! [profile conn]
+  (let [env (store-manager/env profile)]
+    (model/ensure-descriptor! conn env)))
+
+(defn- ensure-docbook-descriptor! [profile conn]
+  (let [env (store-manager/env profile)]
+    (model-docbook/ensure-descriptor! conn env)))
+
+(defn- ensure-open-world-descriptor! [profile conn]
+  (let [env (store-manager/env profile)]
+    (model-open-world/ensure-descriptor! conn env)))
+
 (defn describe-handler [request]
   (let [profile (request-profile request)
         conn (store-manager/conn profile)
-        desc (model/describe conn)]
+        desc (or (model/describe conn)
+                 (do
+                   (ensure-patterns-descriptor! profile conn)
+                   (model/describe conn)))]
     (if desc
       (http/ok-json (assoc desc :profile profile))
       (http/ok-json {:error "Model descriptor not found"
@@ -30,7 +45,10 @@
 (defn describe-docbook-handler [request]
   (let [profile (request-profile request)
         conn (store-manager/conn profile)
-        desc (model-docbook/describe conn)]
+        desc (or (model-docbook/describe conn)
+                 (do
+                   (ensure-docbook-descriptor! profile conn)
+                   (model-docbook/describe conn)))]
     (if desc
       (http/ok-json (assoc desc :profile profile))
       (http/ok-json {:error "Docbook model descriptor not found"
@@ -46,7 +64,10 @@
 (defn describe-open-world-handler [request]
   (let [profile (request-profile request)
         conn (store-manager/conn profile)
-        desc (model-open-world/describe conn)]
+        desc (or (model-open-world/describe conn)
+                 (do
+                   (ensure-open-world-descriptor! profile conn)
+                   (model-open-world/describe conn)))]
     (if desc
       (http/ok-json (assoc desc :profile profile))
       (http/ok-json {:error "Open-world ingest model descriptor not found"
@@ -62,9 +83,18 @@
 (defn registry-handler [request]
   (let [profile (request-profile request)
         conn (store-manager/conn profile)
-        patterns (model/describe conn)
-        docbook (model-docbook/describe conn)
-        open-world (model-open-world/describe conn)]
+        patterns (or (model/describe conn)
+                     (do
+                       (ensure-patterns-descriptor! profile conn)
+                       (model/describe conn)))
+        docbook (or (model-docbook/describe conn)
+                    (do
+                      (ensure-docbook-descriptor! profile conn)
+                      (model-docbook/describe conn)))
+        open-world (or (model-open-world/describe conn)
+                       (do
+                         (ensure-open-world-descriptor! profile conn)
+                         (model-open-world/describe conn)))]
     (http/ok-json {:profile profile
                    :descriptors
                    {:patterns patterns
@@ -94,8 +124,14 @@
   (try
     (let [profile (request-profile request)
           conn (store-manager/conn profile)
-          patterns (model/describe conn)
-          open-world (model-open-world/describe conn)
+          patterns (or (model/describe conn)
+                       (do
+                         (ensure-patterns-descriptor! profile conn)
+                         (model/describe conn)))
+          open-world (or (model-open-world/describe conn)
+                         (do
+                           (ensure-open-world-descriptor! profile conn)
+                           (model-open-world/describe conn)))
           covered-patterns (covered-pattern-types patterns)
           covered-open-world (open-world-types)
           covered (into covered-patterns covered-open-world)

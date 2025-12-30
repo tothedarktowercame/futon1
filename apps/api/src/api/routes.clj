@@ -34,7 +34,8 @@
    ["/trails" {:post trails/record-trail-handler
                :get trails/recent-trails-handler}]
    ["/meta/model" {:get model/describe-handler}]
-   ["/meta/model/registry" {:get model/registry-handler}]
+  ["/meta/model/registry" {:get model/registry-handler}]
+  ["/meta/model/queue" {:get model/queue-handler}]
    ["/meta/model/verify" {:get model/verify-handler}]
    ["/meta/model/docbook" {:get model/describe-docbook-handler}]
    ["/meta/model/docbook/verify" {:get model/verify-docbook-handler}]

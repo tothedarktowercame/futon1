@@ -4,6 +4,7 @@
             [app.model-docbook :as model-docbook]
             [app.model-open-world :as model-open-world]
             [app.store-manager :as store-manager]
+            [app.xt :as xt]
             [clojure.string :as str]))
 
 (defn- request-profile [request]
@@ -69,3 +70,50 @@
                    {:patterns patterns
                     :docbook docbook
                     :open-world-ingest open-world}})))
+
+(defn- inventory-type-counts []
+  (->> (xt/q '{:find [?type (count ?e)]
+               :where [[?e :entity/type ?type]]})
+       (map (fn [[type count]] {:type type :count count}))
+       (remove (fn [{:keys [type]}] (nil? type)))
+       (sort-by (juxt (comp str :type) :count))))
+
+(defn- open-world-types []
+  (->> (xt/q '{:find [?id]
+               :where [[?t :type/id ?id]]})
+       (map first)
+       (remove nil?)
+       set))
+
+(defn- covered-pattern-types [patterns]
+  (if-let [entities (get-in patterns [:descriptor :entities])]
+    (set (keys entities))
+    #{}))
+
+(defn queue-handler [request]
+  (try
+    (let [profile (request-profile request)
+          conn (store-manager/conn profile)
+          patterns (model/describe conn)
+          open-world (model-open-world/describe conn)
+          covered-patterns (covered-pattern-types patterns)
+          covered-open-world (open-world-types)
+          covered (into covered-patterns covered-open-world)
+          inventory (inventory-type-counts)
+          pending (->> inventory
+                       (remove (fn [{:keys [type]}]
+                                 (or (= type :model/descriptor)
+                                     (contains? covered type))))
+                       vec)]
+      (http/ok-json {:profile profile
+                     :generated-at (System/currentTimeMillis)
+                     :covered {:pattern-types (sort-by str covered-patterns)
+                               :open-world-types (sort-by str covered-open-world)}
+                     :pending pending
+                     :descriptors
+                     {:patterns patterns
+                      :open-world-ingest open-world}}))
+    (catch Exception e
+      (http/ok-json {:error "XTDB not available"
+                     :message (.getMessage e)}
+                    503))))

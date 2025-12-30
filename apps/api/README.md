@@ -80,6 +80,7 @@ provides an ASCII alias for proxies or clients that cannot emit unicode paths.
 | `POST /api/α/types/parent` | Override or clear a type's parent (`{type, parent?, kind?}`). |
 | `POST /api/α/types/merge` | Merge aliases into a canonical type (`{into,type?,aliases}` accepts strings or keywords). |
 | `GET /api/α/patterns/registry` | Return a lightweight pattern registry for fast sync diffs (computed on request; candidate for persistence similar to docbook TOC). |
+| `GET /api/α/meta/model/queue` | Summarize covered vs pending XTDB entity types based on the model registry. |
 | `DELETE /api/α/docs/:book/doc/:doc-id` | Delete a docbook heading plus its entries for the given book/doc-id. |
 | `DELETE /api/α/docs/:book/toc/:doc-id` | Delete a docbook heading only; pass `?cascade=true` to also delete entries. |
 

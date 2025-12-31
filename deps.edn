@@ -5,6 +5,7 @@
         :main-opts ["-m" "api.server"]}
 
   :server {:deps {api/api {:local/root "apps/api"}}
+           :jvm-opts ["-Dfuton.config=config-server.edn"]
            :main-opts ["-m" "api.server"]}
 
   :run-m {:deps {demo/demo {:local/root "apps/demo"}}
@@ -33,6 +34,16 @@
   :scripts/ingest-futon3
   {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}
    :main-opts ["-m" "scripts.futon3-ingest"]}
+
+  :server/ingest-patterns
+  {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}
+   :jvm-opts ["-Dfuton.config=config-server.edn"]
+   :main-opts ["-m" "scripts.futon3-ingest"]}
+
+  :server/ingest-docbook
+  {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}
+   :jvm-opts ["-Dfuton.config=config-server.edn"]
+   :main-opts ["-m" "scripts.docbook-ingest"]}
 
   :scripts/docbook-ingest
   {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}

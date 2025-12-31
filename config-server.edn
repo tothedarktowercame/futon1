@@ -1,0 +1,12 @@
+;; ./config-server.edn
+;; Your own endpoint, separate from Codex's "default"
+{:app/data-dir           "data/server"
+ :app/snapshot-every     100
+ :app/server-port        8081                          ;; different port
+
+ :xtdb/enabled?          true
+ :xtdb/config-path       "apps/graph-memory/resources/xtdb.edn"
+
+ ;; optional run-time behaviours
+ :warmup/enable?         true
+ :warmup/focus-k         5}

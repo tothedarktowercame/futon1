@@ -2,6 +2,7 @@
   "Ingest Futon3 devmaps + pattern library definitions into Futon1."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [app.config :as cfg]
             [app.store-manager :as store-manager]
             [app.store :as store]
             [clojure.stacktrace :as stack])
@@ -338,8 +339,11 @@
         (println (usage))
         (System/exit 0))
       (let [resolved-root (resolve-root root)
-            cfg (store-manager/configure!)
-            profile-id (or profile (:default-profile cfg))
+            ;; Respect FUTON_CONFIG / config.edn for data-dir
+            app-cfg (cfg/config)
+            sm-cfg (store-manager/configure!
+                    {:data-root (:app/data-dir app-cfg)})
+            profile-id (or profile (:default-profile sm-cfg))
             conn (store-manager/conn profile-id)
             env (assoc (store-manager/env profile-id) :now (now-ms))
             patterns (vec (parse-patterns resolved-root))

@@ -187,3 +187,4 @@
       (http/ok-json {:error "XTDB not available"
                      :message (.getMessage e)}
                     503))))
+        _ (ensure-patterns-descriptor! profile conn)

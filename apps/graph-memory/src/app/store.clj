@@ -277,7 +277,8 @@
 (defn- ds-entities
   [conn]
   (map first (d/q '[:find (pull ?e [:entity/id :entity/name :entity/type
-                                    :entity/last-seen :entity/seen-count :entity/pinned?])
+                                    :entity/last-seen :entity/seen-count :entity/pinned?
+                                    :entity/external-id :entity/source :media/sha256])
                     :where
                     [?e :entity/id _]]
                   @conn)))
@@ -304,7 +305,10 @@
       (:entity/type entity) (assoc :entity/type (:entity/type entity))
       (:entity/last-seen entity) (assoc :entity/last-seen (:entity/last-seen entity))
       (:entity/seen-count entity) (assoc :entity/seen-count (:entity/seen-count entity))
-      (contains? entity :entity/pinned?) (assoc :entity/pinned? (boolean (:entity/pinned? entity))))))
+      (contains? entity :entity/pinned?) (assoc :entity/pinned? (boolean (:entity/pinned? entity)))
+      (:entity/external-id entity) (assoc :entity/external-id (:entity/external-id entity))
+      (:entity/source entity) (assoc :entity/source (:entity/source entity))
+      (:media/sha256 entity) (assoc :media/sha256 (:media/sha256 entity)))))
 
 (defn- ds-relation->xt-doc
   [relation]
@@ -349,7 +353,9 @@
         (:external-id entity) (assoc :entity/external-id (:external-id entity))
         (:entity/external-id entity) (assoc :entity/external-id (:entity/external-id entity))
         (:source entity) (assoc :entity/source (:source entity))
-        (:entity/source entity) (assoc :entity/source (:entity/source entity))))))
+        (:entity/source entity) (assoc :entity/source (:entity/source entity))
+        (:media/sha256 entity) (assoc :media/sha256 (:media/sha256 entity))
+        (:entity/media-sha256 entity) (assoc :media/sha256 (:entity/media-sha256 entity))))))
 
 (defn- relation->xt-doc
   [relation]
@@ -597,7 +603,7 @@
 (def ^:private entity-pull-pattern
   (conj '[:db/id :entity/id :entity/name :entity/type
           :entity/last-seen :entity/seen-count :entity/pinned?
-          :entity/external-id :entity/source]
+          :entity/external-id :entity/source :media/sha256]
         {:entity/current-version version-pull-pattern}))
 
 (defn- version->public [m]
@@ -620,6 +626,7 @@
                :pinned? (:entity/pinned? m)
                :external-id (:entity/external-id m)
                :source (:entity/source m)
+               :media/sha256 (:media/sha256 m)
                :db/eid (:db/id m)}
         version (assoc :version version)))))
 
@@ -699,6 +706,10 @@
           (when raw-name (entity-by-name conn raw-name))))
     :else nil))
 
+(defn- meaningful-source? [value]
+  (let [clean (clean-string value)]
+    (and clean (not= clean "external"))))
+
 (defn- normalize-entity-spec [spec]
   (cond
     (string? spec)
@@ -719,6 +730,7 @@
           raw-id (or (:id spec) (:entity/id spec) uuid-from-name)
           raw-external (or (:external-id spec) (:entity/external-id spec))
           raw-source (or (:source spec) (:entity/source spec) (:external-source spec))
+          raw-sha (or (:media/sha256 spec) (:entity/media-sha256 spec))
           id-info (fid/coerce-id {:id raw-id
                                   :external-id raw-external
                                   :type normalized-type
@@ -726,8 +738,9 @@
           entity-id (:entity/id id-info)
           external-id (or (clean-string raw-external)
                           (:entity/external-id id-info))
-          source (or (clean-string raw-source)
-                     (:entity/source id-info))
+          source (when (meaningful-source? raw-source)
+                   (clean-string raw-source))
+          sha256 (clean-string raw-sha)
           base (cond-> {:name name}
                  entity-id (assoc :id entity-id)
                  normalized-type (assoc :type normalized-type)
@@ -735,7 +748,8 @@
                  seen-count (assoc :seen-count seen-count)
                  (some? pinned?) (assoc :pinned? pinned?)
                  external-id (assoc :external-id external-id)
-                 source (assoc :source source))]
+                 source (assoc :source source)
+                 sha256 (assoc :media/sha256 sha256))]
       (if (str/blank? name)
         (throw (ex-info "Entity name required" {:spec spec}))
         base))
@@ -774,7 +788,8 @@
              :seen-count (:entity/seen-count identity)}
       (contains? identity :entity/pinned?) (assoc :pinned? (:entity/pinned? identity))
       (:entity/external-id identity) (assoc :external-id (:entity/external-id identity))
-      (:entity/source identity) (assoc :source (:entity/source identity)))))
+      (:entity/source identity) (assoc :source (:entity/source identity))
+      (:media/sha256 identity) (assoc :media/sha256 (:media/sha256 identity)))))
 
 (defn- upsert-entity!
   [conn {:keys [id name type last-seen seen-count pinned? external-id source] :as spec}]
@@ -792,7 +807,9 @@
                         (if existing (inc (long (or current-count 0))) 1))
         pinned-flag (if (contains? spec :pinned?) (boolean pinned?) (:entity/pinned? existing))
         ext-id (clean-string external-id)
-        src (clean-string source)
+        src (when (meaningful-source? source)
+              (clean-string source))
+        sha (clean-string (:media/sha256 spec))
         entity-id (or (:entity/id existing) id (UUID/randomUUID))]
     (if existing
       (let [final-type (or normalized-type (:entity/type existing))
@@ -813,6 +830,8 @@
                                   [:db/add (:db/id existing) :entity/external-id ext-id])
                                 (when (and src (not= (:entity/source existing) src))
                                   [:db/add (:db/id existing) :entity/source src])
+                                (when (and sha (not= (:media/sha256 existing) sha))
+                                  [:db/add (:db/id existing) :media/sha256 sha])
                                 (when (contains? spec :pinned?)
                                   [:db/add (:db/id existing) :entity/pinned? pinned-flag])]
                                (remove nil?))))
@@ -824,6 +843,7 @@
                  normalized-type (assoc :entity/type normalized-type)
                  ext-id (assoc :entity/external-id ext-id)
                  src (assoc :entity/source src)
+                 sha (assoc :media/sha256 sha)
                  (contains? spec :pinned?) (assoc :entity/pinned? pinned-flag))]
         (d/transact! conn [tx])))
     (let [identity (entity-by-id conn entity-id)
@@ -919,7 +939,8 @@
                           (:seen-count upserted) (assoc :seen-count (:seen-count upserted))
                           (contains? upserted :pinned?) (assoc :pinned? (:pinned? upserted))
                           (:external-id upserted) (assoc :external-id (:external-id upserted))
-                          (:source upserted) (assoc :source (:source upserted)))}]
+                          (:source upserted) (assoc :source (:source upserted))
+                          (:media/sha256 upserted) (assoc :media/sha256 (:media/sha256 upserted)))}]
     {:event event'
      :result upserted}))
 
@@ -1098,6 +1119,22 @@
   [conn {:keys [data-dir] :as opts} event]
   (when-not data-dir
     (throw (ex-info "Missing data-dir in opts" {:opts opts})))
+  (when (:skip-verify? opts)
+    (throw (ex-info "skip-verify? is disallowed; invariants must be enforced"
+                    {:opts (dissoc opts :verify-fn)})))
+  (when-let [verify-fn (:verify-fn opts)]
+    (let [preview (d/create-conn schema)]
+      (reset! preview @conn)
+      (apply-event! preview event)
+      (let [verify-opts (assoc opts :baseline-conn conn)
+            result (try
+                     (verify-fn preview event verify-opts)
+                     (catch clojure.lang.ArityException _
+                       (verify-fn preview event)))]
+        (when (and (map? result) (false? (:ok? result)))
+          (throw (ex-info "Model invariants failed"
+                          {:result result
+                           :event event})))))) 
   (ensure-dir! data-dir)
   (let [applied (apply-event! conn event)
         final-event (if (and (map? applied) (:event applied))
@@ -1233,6 +1270,7 @@
         final-pinned (if has-pinned? (boolean (:pinned? spec)) (:entity/pinned? existing))
         external-id (:external-id spec)
         source (:source spec)
+        sha (:media/sha256 spec)
         payload (cond-> {:id entity-id
                          :name name
                          :last-seen now
@@ -1240,7 +1278,8 @@
                   final-type (assoc :type final-type)
                   has-pinned? (assoc :pinned? final-pinned)
                   external-id (assoc :external-id external-id)
-                  source (assoc :source source))]
+                  source (assoc :source source)
+                  sha (assoc :media/sha256 sha))]
     (when final-type
       (types/ensure! :entity final-type))
     (let [applied (tx! conn opts {:type :entity/upsert
@@ -1249,7 +1288,7 @@
           stored (or (entity-by-id conn entity-id)
                      (entity-by-name conn name))
           public (or (some-> stored entity->public)
-                     (select-keys applied [:id :name :type :db/eid :last-seen :seen-count :pinned? :external-id :source]))]
+                     (select-keys applied [:id :name :type :db/eid :last-seen :seen-count :pinned? :external-id :source :media/sha256]))]
       (maybe-mirror-entity! opts public)
       public)))
 

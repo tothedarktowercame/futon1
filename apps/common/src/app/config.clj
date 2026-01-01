@@ -11,6 +11,9 @@
    :app/server-port    4000
    :xtdb/enabled?      true
    :xtdb/config-path   "apps/graph-memory/resources/xtdb.edn"
+   :open-world/ingest-on-turns? true
+   :model/verify-on-write? true
+   :model/penholder nil
    :warmup/enable?     true
    :warmup/focus-k     5})
 
@@ -22,6 +25,9 @@
 
 (defn- env-str [k] (some-> (System/getenv k) str/trim not-empty))
 (defn- sysprop-str [k] (some-> (System/getProperty k) str/trim not-empty))
+(defn- truthy? [value]
+  (contains? #{"1" "true" "yes" "on"}
+             (some-> value str/lower-case)))
 
 (defn- config-path []
   ;; Allow override of config path itself
@@ -44,7 +50,17 @@
                    (assoc :app/server-port (Long/parseLong (env-str "APP_SERVER_PORT")))
 
                    (env-str "XTDB_CONFIG")
-                   (assoc :xtdb/config-path (env-str "XTDB_CONFIG")))
+                   (assoc :xtdb/config-path (env-str "XTDB_CONFIG"))
+
+                   (env-str "OPEN_WORLD_INGEST_ON_TURNS")
+                   (assoc :open-world/ingest-on-turns?
+                          (truthy? (env-str "OPEN_WORLD_INGEST_ON_TURNS")))
+
+                   (env-str "MODEL_VERIFY_ON_WRITE")
+                   (assoc :model/verify-on-write? (truthy? (env-str "MODEL_VERIFY_ON_WRITE")))
+
+                   (env-str "MODEL_PENHOLDER")
+                   (assoc :model/penholder (env-str "MODEL_PENHOLDER")))
 
         sys-map  (cond-> {}
                    (sysprop-str "basic.chat.data.dir")
@@ -57,7 +73,17 @@
                    (assoc :app/server-port (Long/parseLong (sysprop-str "app.server.port")))
 
                    (sysprop-str "xtdb.config")
-                   (assoc :xtdb/config-path (sysprop-str "xtdb.config")))]
+                   (assoc :xtdb/config-path (sysprop-str "xtdb.config"))
+
+                   (sysprop-str "open.world.ingest.on.turns")
+                   (assoc :open-world/ingest-on-turns?
+                          (truthy? (sysprop-str "open.world.ingest.on.turns")))
+
+                   (sysprop-str "model.verify.on.write")
+                   (assoc :model/verify-on-write? (truthy? (sysprop-str "model.verify.on.write")))
+
+                   (sysprop-str "model.penholder")
+                   (assoc :model/penholder (sysprop-str "model.penholder")))]
     (merge default file-map env-map sys-map)))
 
 (defonce ^:private !cfg (atom nil))

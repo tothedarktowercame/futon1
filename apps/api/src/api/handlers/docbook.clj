@@ -1,7 +1,24 @@
 (ns api.handlers.docbook
   (:require [api.util.http :as http]
+            [app.config :as config]
             [app.docbook :as docbook]
+            [app.model-docbook :as model-docbook]
+            [app.store-manager :as store-manager]
             [clojure.string :as str]))
+
+(defn- request-profile [request]
+  (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
+      (store-manager/default-profile)))
+
+(defn- verify-docbook? []
+  (true? (:model/verify-on-write? (config/config))))
+
+(defn- maybe-verify-docbook [request]
+  (when (verify-docbook?)
+    (let [profile (request-profile request)
+          conn (store-manager/conn profile)
+          result (model-docbook/verify conn)]
+      (assoc result :profile profile))))
 
 (defn- normalize-book [request]
   (or (some-> (get-in request [:path-params :book]) str/trim not-empty)
@@ -33,8 +50,16 @@
                     400)
       (let [result (docbook/update-toc-order! book {:order order
                                                     :source source
-                                                    :timestamp timestamp})]
-        (http/ok-json result)))))
+                                                    :timestamp timestamp})
+            verification (maybe-verify-docbook request)]
+        (if (and verification (not (:ok? verification)))
+          (http/ok-json {:error "Docbook invariants failed"
+                         :book book
+                         :invariants verification
+                         :result result}
+                        409)
+          (http/ok-json (cond-> result
+                          verification (assoc :invariants verification))))))))
 
 (defn heading-handler [request]
   (let [book (normalize-book request)
@@ -62,7 +87,15 @@
                     400)
       (let [result (docbook/upsert-entry! book payload)]
         (if (:ok? result)
-          (http/ok-json (dissoc result :ok?))
+          (let [verification (maybe-verify-docbook request)]
+            (if (and verification (not (:ok? verification)))
+              (http/ok-json {:error "Docbook invariants failed"
+                             :book book
+                             :invariants verification
+                             :result (dissoc result :ok?)}
+                            409)
+              (http/ok-json (cond-> (dissoc result :ok?)
+                              verification (assoc :invariants verification)))))
           (http/ok-json (dissoc result :ok?) 400))))))
 
 (defn entries-handler [request]
@@ -78,7 +111,15 @@
                     400)
       (let [result (docbook/upsert-entries! book entries)]
         (if (:ok? result)
-          (http/ok-json (dissoc result :ok?))
+          (let [verification (maybe-verify-docbook request)]
+            (if (and verification (not (:ok? verification)))
+              (http/ok-json {:error "Docbook invariants failed"
+                             :book book
+                             :invariants verification
+                             :result (dissoc result :ok?)}
+                            409)
+              (http/ok-json (cond-> (dissoc result :ok?)
+                              verification (assoc :invariants verification)))))
           (http/ok-json (dissoc result :ok?) 400))))))
 
 (defn delete-handler [request]

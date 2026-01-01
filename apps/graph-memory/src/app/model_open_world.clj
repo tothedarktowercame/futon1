@@ -17,6 +17,7 @@
 (def ^:private default-descriptor
   {:model/scope :open-world-ingest
    :schema/version "0.1.0"
+   :schema/certificate {:penholder "code" :issued-at 0}
    :client/schema-min "0.1.0"
    :entities
    {:open-world/entity {:required [:entity/id :entity/label :entity/lower-label :entity/kind
@@ -38,7 +39,7 @@
                   :fallback :proper
                   :allow-custom? true}
    :operations
-   {:open-world/ingest {:inputs [:text] :outputs [:xtdb]}}
+   {:open-world/ingest {:inputs [:text :actor] :outputs [:xtdb]}}
    :stores
    {:xtdb {:role :canonical}
     :datascript {:role :cache}}
@@ -102,7 +103,8 @@
     (or existing
         (:source
          (store/ensure-entity! conn env
-                               {:name descriptor-name
+                               {:id descriptor-name
+                                :name descriptor-name
                                 :type descriptor-type
                                 :external-id (:schema/version default-descriptor)
                                 :source default-descriptor})))))
@@ -112,7 +114,8 @@
   [conn env descriptor]
   (:source
    (store/ensure-entity! conn env
-                         {:name descriptor-name
+                         {:id descriptor-name
+                          :name descriptor-name
                           :type descriptor-type
                           :external-id (:schema/version descriptor)
                           :source descriptor})))

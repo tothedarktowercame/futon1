@@ -2,6 +2,7 @@
   "Model descriptor + invariant checks for model/descriptor entities."
   (:require [app.store :as store]
             [clojure.edn :as edn]
+            [clojure.string :as str]
             [datascript.core :as d])
   (:import (java.security MessageDigest)
            (java.util Base64)))
@@ -12,6 +13,7 @@
 (def ^:private default-descriptor
   {:model/scope :meta-model
    :schema/version "0.1.0"
+   :schema/certificate {:penholder "code" :issued-at 0}
    :client/schema-min "0.1.0"
    :entities
    {:model/descriptor {:required [:name :type :source :external-id]
@@ -24,7 +26,8 @@
    :invariants
    [:meta-model/descriptor-source-present
     :meta-model/descriptor-has-schema
-    :meta-model/descriptor-has-scope]})
+    :meta-model/descriptor-has-scope
+    :meta-model/descriptor-has-certificate]})
 
 (defn descriptor-template []
   default-descriptor)
@@ -72,7 +75,8 @@
     (or existing
         (:source
          (store/ensure-entity! conn env
-                               {:name descriptor-name
+                               {:id descriptor-name
+                                :name descriptor-name
                                 :type descriptor-type
                                 :external-id (:schema/version default-descriptor)
                                 :source default-descriptor})))))
@@ -82,7 +86,8 @@
   [conn env descriptor]
   (:source
    (store/ensure-entity! conn env
-                         {:name descriptor-name
+                         {:id descriptor-name
+                          :name descriptor-name
                           :type descriptor-type
                           :external-id (:schema/version descriptor)
                           :source descriptor})))
@@ -100,55 +105,87 @@
    :ok? (empty? failures)
    :failures (vec failures)})
 
-(defn- descriptor-docs [db]
-  (->> (d/q '[:find ?id ?name ?source
-              :in $ ?dtype
-              :where
-              [?e :entity/type ?dtype]
-              [?e :entity/id ?id]
-              [?e :entity/name ?name]
-              [(get-else $ ?e :entity/source nil) ?source]]
-            db descriptor-type)
-       (map (fn [[id name source]]
-              {:id id :name name :source source}))))
+(defn- missing? [value]
+  (cond
+    (nil? value) true
+    (string? value) (str/blank? value)
+    (sequential? value) (empty? value)
+    (map? value) (empty? value)
+    :else false))
 
-(defn- check-source-present [conn]
-  (let [docs (descriptor-docs @conn)
-        failures (->> docs
+(defn- descriptor-docs
+  ([db] (descriptor-docs db nil))
+  ([db only]
+   (let [docs (->> (d/q '[:find ?id ?name ?source
+                          :in $ ?dtype
+                          :where
+                          [?e :entity/type ?dtype]
+                          [?e :entity/id ?id]
+                          [?e :entity/name ?name]
+                          [(get $ ?e :entity/source) ?source]]
+                        db descriptor-type)
+                   (map (fn [[id name source]]
+                          {:id id :name name :source source})))
+         only (set (remove nil? (or only [])))]
+     (if (seq only)
+       (filter (fn [{:keys [id name]}]
+                 (or (contains? only id)
+                     (contains? only name)))
+               docs)
+       docs))))
+
+(defn- check-source-present [docs]
+  (let [failures (->> docs
                       (filter (fn [{:keys [source]}] (nil? source)))
                       (mapv (fn [{:keys [id name]}]
                               [id name :missing-source])))]
     (invariant-result :meta-model/descriptor-source-present failures)))
 
-(defn- check-schema-present [conn]
-  (let [docs (descriptor-docs @conn)
-        failures (->> docs
+(defn- check-schema-present [docs]
+  (let [failures (->> docs
                       (filter (fn [{:keys [source]}]
-                                (not (contains? (or source {}) :schema/version))))
+                                (let [parsed (parse-descriptor source)]
+                                  (not (and (map? parsed)
+                                            (contains? parsed :schema/version))))))
                       (mapv (fn [{:keys [id name]}]
                               [id name :missing-schema])))]
     (invariant-result :meta-model/descriptor-has-schema failures)))
 
-(defn- check-scope-present [conn]
-  (let [docs (descriptor-docs @conn)
-        failures (->> docs
+(defn- check-scope-present [docs]
+  (let [failures (->> docs
                       (filter (fn [{:keys [source]}]
-                                (not (contains? (or source {}) :model/scope))))
+                                (let [parsed (parse-descriptor source)]
+                                  (not (and (map? parsed)
+                                            (contains? parsed :model/scope))))))
                       (mapv (fn [{:keys [id name]}]
                               [id name :missing-scope])))]
     (invariant-result :meta-model/descriptor-has-scope failures)))
 
+(defn- check-certificate-present [docs]
+  (let [failures (->> docs
+                      (filter (fn [{:keys [source]}]
+                                (let [parsed (parse-descriptor source)
+                                      certificate (when (map? parsed)
+                                                    (:schema/certificate parsed))]
+                                  (missing? certificate))))
+                      (mapv (fn [{:keys [id name]}]
+                              [id name :missing-certificate])))]
+    (invariant-result :meta-model/descriptor-has-certificate failures)))
+
 (def ^:private invariant-handlers
   {:meta-model/descriptor-source-present check-source-present
    :meta-model/descriptor-has-schema check-schema-present
-   :meta-model/descriptor-has-scope check-scope-present})
+   :meta-model/descriptor-has-scope check-scope-present
+   :meta-model/descriptor-has-certificate check-certificate-present})
 
 (defn verify
-  [conn]
-  (let [checks (mapv (fn [key]
-                       (if-let [handler (get invariant-handlers key)]
-                         (handler conn)
-                         (invariant-result key [[:missing-handler key]])))
-                     (:invariants default-descriptor))]
-    {:ok? (every? :ok? checks)
-     :results checks}))
+  ([conn] (verify conn nil))
+  ([conn {:keys [only]}]
+   (let [docs (descriptor-docs @conn only)
+         checks (mapv (fn [key]
+                        (if-let [handler (get invariant-handlers key)]
+                          (handler docs)
+                          (invariant-result key [[:missing-handler key]])))
+                      (:invariants default-descriptor))]
+     {:ok? (every? :ok? checks)
+      :results checks})))

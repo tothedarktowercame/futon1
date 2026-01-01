@@ -1,6 +1,7 @@
 (ns api.handlers.graph
   (:require
    [api.util.http :as http]
+   [api.handlers.invariants :as invariants]
    [app.command-service :as commands]
    [app.slash.format :as fmt]
    [app.store-manager :as store-manager]
@@ -10,6 +11,10 @@
 (defn- request-profile [request]
   (or (some-> (get-in request [:headers "x-profile"]) str/trim not-empty)
       (store-manager/default-profile)))
+
+(defn- request-env [request profile]
+  (merge (store-manager/env profile)
+         (get-in request [:ctx :env])))
 
 (defn- normalize-relation-type [value]
   (cond
@@ -37,7 +42,7 @@
   [request body]
   (let [profile (request-profile request)
         ctx {:conn (store-manager/conn profile)
-             :env (store-manager/env profile)
+             :env (request-env request profile)
              :record-anchors! (fn [anchors]
                                 (store-manager/record-anchors! profile anchors))}
         {:keys [entity]} (commands/ensure-entity! ctx body)]
@@ -48,10 +53,18 @@
 (defn ensure-entity-handler [request]
   (let [body (:body request)
         debug? (some-> (get-in request [:query-params "debug"]) str (= "1"))
-        payload (ensure-entity! request body)]
-    (http/ok-json (if debug?
-                    (assoc payload :debug {:body body})
-                    payload))))
+        payload (ensure-entity! request body)
+        verification (invariants/maybe-verify-core (:profile payload))]
+    (if (and verification (not (:ok? verification)))
+      (http/ok-json {:error "Model invariants failed"
+                     :profile (:profile payload)
+                     :invariants verification
+                     :result payload}
+                    409)
+      (http/ok-json (cond-> (if debug?
+                              (assoc payload :debug {:body body})
+                              payload)
+                      verification (assoc :invariants verification))))))
 
 (defn- parse-long-param [value]
   (when (some? value)
@@ -128,7 +141,7 @@
   [request body]
   (let [profile (request-profile request)
         ctx {:conn (store-manager/conn profile)
-             :env (store-manager/env profile)
+             :env (request-env request profile)
              :record-anchors! (fn [anchors]
                                 (store-manager/record-anchors! profile anchors))}
         relation-spec (merge body (maybe-infer-relation-type body))
@@ -138,4 +151,13 @@
      :lines (fmt/relation-lines relation)}))
 
 (defn upsert-relation-handler [request]
-  (http/ok-json (upsert-relation! request (:body request))))
+  (let [payload (upsert-relation! request (:body request))
+        verification (invariants/maybe-verify-core (:profile payload))]
+    (if (and verification (not (:ok? verification)))
+      (http/ok-json {:error "Model invariants failed"
+                     :profile (:profile payload)
+                     :invariants verification
+                     :result payload}
+                    409)
+      (http/ok-json (cond-> payload
+                      verification (assoc :invariants verification))))))

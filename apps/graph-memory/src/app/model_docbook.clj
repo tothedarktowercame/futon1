@@ -1,9 +1,10 @@
 (ns app.model-docbook
   "Model descriptor + invariant checks for docbook storage."
   (:require [app.store :as store]
+            [app.xt :as xt]
             [clojure.edn :as edn]
             [clojure.string :as str]
-            [datascript.core :as d])
+            [xtdb.api :as xtdb])
   (:import (java.security MessageDigest)
            (java.util Base64)))
 
@@ -13,6 +14,7 @@
 (def ^:private default-descriptor
   {:model/scope :docbook
    :schema/version "0.1.0"
+   :schema/certificate {:penholder "code" :issued-at 0}
    :client/schema-min "0.1.0"
    :entities
    {:docbook/heading {:required [:doc/id :doc/book :doc/title :doc/outline_path :doc/path_string :doc/level]
@@ -84,7 +86,8 @@
     (or existing
         (:source
          (store/ensure-entity! conn env
-                               {:name descriptor-name
+                               {:id descriptor-name
+                                :name descriptor-name
                                 :type descriptor-type
                                 :external-id (:schema/version default-descriptor)
                                 :source default-descriptor})))))
@@ -94,7 +97,8 @@
   [conn env descriptor]
   (:source
    (store/ensure-entity! conn env
-                         {:name descriptor-name
+                         {:id descriptor-name
+                          :name descriptor-name
                           :type descriptor-type
                           :external-id (:schema/version descriptor)
                           :source descriptor})))
@@ -129,30 +133,30 @@
   [:doc/id :doc/entry-id :doc/book :doc/status :doc/body])
 
 (defn- heading-entities [db]
-  (let [ids (->> (d/q '[:find ?e
-                        :where
-                        [?e :doc/id ?_]
-                        (not [?e :doc/entry-id ?_])
-                        (not [?e :doc/toc-order ?_])]
-                      db)
+  (let [ids (->> (xt/q db '{:find [?e]
+                           :where [[?e :doc/id _]
+                                   (not [?e :doc/entry-id _])
+                                   (not [?e :doc/toc-order _])]})
                   (map first))]
-    (map #(d/pull db heading-keys %) ids)))
+    (->> ids
+         (map #(some-> (xtdb/entity db %) (select-keys heading-keys)))
+         (remove nil?))))
 
 (defn- entry-entities [db]
-  (let [ids (->> (d/q '[:find ?e
-                        :where
-                        [?e :doc/entry-id ?_]]
-                      db)
+  (let [ids (->> (xt/q db '{:find [?e]
+                           :where [[?e :doc/entry-id _]]})
                   (map first))]
-    (map #(d/pull db entry-keys %) ids)))
+    (->> ids
+         (map #(some-> (xtdb/entity db %) (select-keys entry-keys)))
+         (remove nil?))))
 
 (defn- toc-entities [db]
-  (let [ids (->> (d/q '[:find ?e
-                        :where
-                        [?e :doc/toc-order ?_]]
-                      db)
+  (let [ids (->> (xt/q db '{:find [?e]
+                           :where [[?e :doc/toc-order _]]})
                   (map first))]
-    (map #(d/pull db [:doc/book :doc/toc-order]) ids)))
+    (->> ids
+         (map #(some-> (xtdb/entity db %) (select-keys [:doc/book :doc/toc-order])))
+         (remove nil?))))
 
 (defn- headings-by-book [db]
   (->> (heading-entities db)
@@ -166,9 +170,8 @@
                  (assoc acc (:doc/id h) (:doc/book h)))
                {})))
 
-(defn- check-heading-required [conn]
-  (let [db @conn
-        failures (vec
+(defn- check-heading-required [db]
+  (let [failures (vec
                   (keep (fn [heading]
                           (when-let [missing (seq (missing-fields heading heading-keys))]
                             {:doc-id (:doc/id heading)
@@ -178,9 +181,8 @@
                         (heading-entities db)))]
     (invariant-result :docbook/heading-required failures)))
 
-(defn- check-entry-required [conn]
-  (let [db @conn
-        failures (vec
+(defn- check-entry-required [db]
+  (let [failures (vec
                   (keep (fn [entry]
                           (when-let [missing (seq (missing-fields entry (remove #{:doc/status :doc/body} entry-keys)))]
                             {:doc-id (:doc/id entry)
@@ -191,9 +193,8 @@
                         (entry-entities db)))]
     (invariant-result :docbook/entry-required failures)))
 
-(defn- check-heading-has-entry [conn]
-  (let [db @conn
-        headings (heading-entities db)
+(defn- check-heading-has-entry [db]
+  (let [headings (heading-entities db)
         entries (entry-entities db)
         entries-by-doc (group-by :doc/id entries)
         failures (vec
@@ -205,9 +206,8 @@
                         headings))]
     (invariant-result :docbook/heading-has-entry failures)))
 
-(defn- check-entry-body-required [conn]
-  (let [db @conn
-        failures (vec
+(defn- check-entry-body-required [db]
+  (let [failures (vec
                   (keep (fn [entry]
                           (let [status (:doc/status entry)]
                             (when (and (not= :removed status)
@@ -220,9 +220,8 @@
                         (entry-entities db)))]
     (invariant-result :docbook/entry-body-required failures)))
 
-(defn- check-entry-has-heading [conn]
-  (let [db @conn
-        heading-ids (->> (heading-entities db)
+(defn- check-entry-has-heading [db]
+  (let [heading-ids (->> (heading-entities db)
                          (keep :doc/id)
                          set)
         failures (vec
@@ -235,9 +234,8 @@
                         (entry-entities db)))]
     (invariant-result :docbook/entry-has-heading failures)))
 
-(defn- check-entry-book-matches-heading [conn]
-  (let [db @conn
-        heading-books (heading-book-map db)
+(defn- check-entry-book-matches-heading [db]
+  (let [heading-books (heading-book-map db)
         failures (vec
                   (keep (fn [entry]
                           (let [doc-id (:doc/id entry)
@@ -253,9 +251,8 @@
                         (entry-entities db)))]
     (invariant-result :docbook/entry-book-matches-heading failures)))
 
-(defn- check-toc-covers-headings [conn]
-  (let [db @conn
-        headings (headings-by-book db)
+(defn- check-toc-covers-headings [db]
+  (let [headings (headings-by-book db)
         failures (vec
                   (mapcat
                    (fn [{:doc/keys [book toc-order]}]
@@ -270,9 +267,8 @@
                    (toc-entities db)))]
     (invariant-result :docbook/toc-covers-headings failures)))
 
-(defn- check-toc-known-headings [conn]
-  (let [db @conn
-        headings (headings-by-book db)
+(defn- check-toc-known-headings [db]
+  (let [headings (headings-by-book db)
         failures (vec
                   (mapcat
                    (fn [{:doc/keys [book toc-order]}]
@@ -301,13 +297,17 @@
   "Run invariants listed in the descriptor. Returns {:ok? ... :results ...}."
   [conn]
   (if-let [desc (descriptor conn)]
-    (let [keys (or (:invariants desc) [])
-          results (vec (keep (fn [k]
-                               (when-let [f (get invariant-registry k)]
-                                 (f conn)))
-                             keys))
-          ok? (every? :ok? results)]
-      {:ok? ok?
-       :results results})
+    (if-not (xt/started?)
+      {:ok? false
+       :error :xtdb/unavailable}
+      (let [db (xt/db)
+            keys (or (:invariants desc) [])
+            results (vec (keep (fn [k]
+                                 (when-let [f (get invariant-registry k)]
+                                   (f db)))
+                               keys))
+            ok? (every? :ok? results)]
+        {:ok? ok?
+         :results results}))
     {:ok? false
      :error :descriptor/missing}))

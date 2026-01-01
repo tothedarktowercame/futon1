@@ -69,6 +69,14 @@ When nil, use the current `default-directory` at invocation time."
   :type '(choice (const :tag "Default profile" nil) string)
   :group 'tatami)
 
+(defcustom tatami-actor nil
+  "Default actor included in /turns requests.
+
+When nil, fall back to `user-full-name` or `user-login-name`.  This may be a
+string (actor name) or an alist describing the actor payload."
+  :type '(choice (const :tag "Infer from user" nil) string (alist :key-type string))
+  :group 'tatami)
+
 (defcustom tatami-startup-wait 15
   "Seconds to wait for the server to become reachable after launch."
   :type 'integer
@@ -124,6 +132,15 @@ When nil an absolute path to `data` is inferred relative to
 (defun tatami--profile-header ()
   (when tatami-profile
     (cons "X-Profile" tatami-profile)))
+
+(defun tatami--actor-payload ()
+  (let ((fallback (string-trim (or user-full-name user-login-name ""))))
+    (cond
+     ((and (listp tatami-actor) (not (stringp tatami-actor))) tatami-actor)
+     ((and (stringp tatami-actor) (not (string-empty-p (string-trim tatami-actor))))
+      (string-trim tatami-actor))
+     ((not (string-empty-p fallback)) fallback)
+     (t "Me"))))
 
 (defun tatami--cleanup-buffer (buffer)
   (when (buffer-live-p buffer)
@@ -478,7 +495,10 @@ When PROFILE is provided, override `tatami-profile'."
              (if tatami--last-error
                  (format ": %s" tatami--last-error)
                "")))
-    (let ((resp (tatami--request "POST" "/api/%CE%B1/turns" `((text . ,text)) t)))
+    (let* ((actor (tatami--actor-payload))
+           (payload `((text . ,text)
+                      (actor . ,actor)))
+           (resp (tatami--request "POST" "/api/%CE%B1/turns" payload t)))
       (when (called-interactively-p 'interactive)
         (message "Turn submitted; %d entities returned" (length (alist-get 'entities resp))))
       (alist-get 'focus_header resp))))

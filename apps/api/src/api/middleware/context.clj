@@ -40,7 +40,10 @@
                       :or   {clock #(System/currentTimeMillis)
                              xtdb-db-fn x/db}}]
    (fn [request]
-     (let [base   (merge {} (deref-if base-ctx) (:ctx request))
+     (let [base-ctx* (merge {} (deref-if base-ctx) (:ctx request))
+           base   (update base-ctx* :env
+                          (fn [env]
+                            (merge {} (:env (deref-if base-ctx)) (:env (:ctx request)) env)))
            now    (or (:now base) (clock))
            ds-db  (or (:ds/db base) (try-ds-db (ds-conn-from base)))
            xt-db  (or (:xt/db base) (call-db-0-or-1 xtdb-db-fn (xt-node-from base)))

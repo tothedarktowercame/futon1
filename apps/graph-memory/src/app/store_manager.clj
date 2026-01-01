@@ -2,6 +2,7 @@
   "Manage Datascript/XTDB resources and per-profile metadata for the headless API."
   (:require [app.config :as cfg]
             [app.focus :as focus]
+            [app.invariants :as invariants]
             [app.store :as store]
             [app.xt :as xt]
             [clojure.edn :as edn]
@@ -76,12 +77,15 @@
         metadata-root-env (getenv-trim "BASIC_CHAT_METADATA_DIR")
         metadata-root (absolute-path metadata-root-env)
         snapshot (some-> (getenv-trim "ALPHA_SNAPSHOT_EVERY") Integer/parseInt)
-        profile (or (getenv-trim "ALPHA_PROFILE") "default")]
+        profile (or (getenv-trim "ALPHA_PROFILE") "default")
+        penholder (or (getenv-trim "MODEL_PENHOLDER")
+                      (getenv-trim "BASIC_CHAT_PENHOLDER"))]
     {:data-root (.getAbsolutePath (io/file data-root))
      :metadata-root metadata-root
      :snapshot-every (or snapshot 100)
      :xtdb (xt-config)
-     :default-profile profile}))
+     :default-profile profile
+     :model/penholder penholder}))
 
 (defn configure!
   "Replace the active configuration and clear in-memory profile caches."
@@ -207,6 +211,7 @@
 
 (defn- create-profile-state [profile]
   (let [{:keys [snapshot-every xtdb metadata-root]} (config)
+        penholder-raw (:model/penholder (config))
         profile-id (if (= :me profile) (default-profile) profile)
         dir   (ensure-dir! (profile-dir profile))        ;; -> java.io.File
         metadata-base (or metadata-root dir)
@@ -214,26 +219,32 @@
                                   str
                                   ensure-dir!)
         me-doc (read-profile dir)
+        penholder (some-> penholder-raw str str/trim not-empty)
         env   {:data-dir       dir
                :metadata-root  profile-metadata-root
                :snapshot-every snapshot-every
                :xtdb           xtdb}
         conn  (store/restore! env me-doc)
+        env'  (cond-> env
+                penholder (assoc :penholder penholder)
+                (invariants/verify-on-write?)
+                (assoc :verify-fn invariants/verify-event))
+        _ (invariants/ensure-descriptors! conn env')
         node  (when (xt/started?) (xt/node))
-        arxana-store (alpha-store/alpha-store {:conn conn :env env})
+        arxana-store (alpha-store/alpha-store {:conn conn :env env'})
         state {:profile      profile
                :profile-dir  dir
-               :env          env
+               :env          env'
                :conn         conn
                :arxana-store arxana-store
-               :capabilities (alpha-store/capabilities env)
+               :capabilities (alpha-store/capabilities env')
                :me           (atom (or me-doc {}))
                :last-anchors (atom [])
                :xt-node      node
                :xt/db        (when node (xt/db node))}]
     (when-not (-> state :me deref :entity/id)
       (let [entity-spec {:id :me, :name "Me", :type :person, :pinned? true}]
-        (store/ensure-entity! conn env entity-spec)
+        (store/ensure-entity! conn env' entity-spec)
         (swap! (:me state) assoc :entity/id :me)
         (write-profile! dir @(:me state))))
     (->canonical-state state)))

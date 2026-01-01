@@ -19,6 +19,17 @@
 3. `graph_memory/types_registry/load-cache!` queries XT for `:type/id` docs and builds a cache with alias/parent info. `/types` renders this cache via Datascript, so those type stats persist across runs even if there are zero relation docs.
 4. Bang commands (`!entity`, `!rel`, `!type merge`) update Datascript and immediately mirror changes to XT via `xt/submit!`. Next boot, hydration replays them back.
 
+## HUD Read Load Mitigation
+
+Heavy HUD polling can churn XTDB snapshots. To keep the LMDB layer stable under
+high read load, the API now caches these read-heavy responses for a few seconds:
+
+- `/api/alpha/me/summary` (see `apps/api/src/api/handlers/me.clj`)
+- `/api/alpha/focus-header` (see `apps/api/src/api/handlers/turns.clj`)
+
+Each endpoint uses a short TTL (2–3s) keyed by profile/options. If you need
+fresh data for a request, add `?cache=0` to bypass the cache.
+
 ## Why `/tail` Can Be Empty While `/types` Isn’t
 
 - `/types` reflects `graph_memory.types_registry`, which is hydrated from every `:type/*` doc stored in XTDB. Even a brand new profile includes the seeded `:me`, `:person`, etc., doc set, so `/types` always returns data.

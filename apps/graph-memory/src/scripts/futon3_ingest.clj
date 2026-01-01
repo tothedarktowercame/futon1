@@ -52,7 +52,15 @@
 ;; --- Parsing helpers --------------------------------------------------------
 
 (def ^:private clause-re
-  (re-pattern "!\\s+(?:conclusion|claim|instantiated-by):\\s*(.*?)\\s*\\[(.*?)\\]"))
+  (re-pattern "(?m)^!\\s+(?:conclusion|claim|instantiated-by):\\s*(.*?)(?:\\s*\\[(.*?)\\])?\\s*$"))
+
+(defn- normalize-sigils-block [block]
+  (some-> block
+          str/trim
+          (str/replace #"^\[" "")
+          (str/replace #"\]$" "")
+          str/trim
+          not-empty))
 
 (defn- split-sigils [block]
   (->> (str/split block #"\s+")
@@ -152,15 +160,17 @@
         block (split-arg-blocks text)
         :let [title (extract-meta block "title")
               arg (extract-meta block "arg")
+              sigils-meta (normalize-sigils-block (extract-meta block "sigils"))
               matches (re-seq clause-re block)
               components (vec (parse-component-lines block))]
         match matches
-        :let [[_ summary sigils-block] match]
+        :let [[_ summary sigils-inline] match
+              sigils-block (or (normalize-sigils-block sigils-inline) sigils-meta)]
         :when summary]
     {:id (or arg (.getName file))
      :title (or title arg (.getName file))
      :summary (str/trim summary)
-     :sigils (vec (split-sigils sigils-block))
+     :sigils (vec (split-sigils (or sigils-block "")))
      :components components}))
 
 (defn- devmap-files [root]

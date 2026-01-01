@@ -122,29 +122,31 @@
        relations))
 
 (defn- canonical-ego-id
-  [id]
-  (if (= :open-world-ingest.nlp/ego id)
-    :me
-    id))
+  [ego-id id]
+  (let [resolved (or ego-id :me)]
+    (if (= :open-world-ingest.nlp/ego id)
+      resolved
+      id)))
 
 (defn- canonical-ego-doc
-  [doc]
+  [ego-id doc]
   (-> doc
-      (update :xt/id canonical-ego-id)
-      (update :entity/id canonical-ego-id)
-      (update :relation/src canonical-ego-id)
-      (update :relation/dst canonical-ego-id)))
+      (update :xt/id #(canonical-ego-id ego-id %))
+      (update :entity/id #(canonical-ego-id ego-id %))
+      (update :relation/src #(canonical-ego-id ego-id %))
+      (update :relation/dst #(canonical-ego-id ego-id %))))
 
-(defn store-analysis!
-  [text {:keys [entities relations]}]
+(defn- store-analysis*
+  [node text {:keys [entities relations ego-id actor-name actor-id actor-type]}]
   (let [now (util/now)
         utterance-id (str (UUID/randomUUID))
+        actor-name (some-> actor-name str str/trim not-empty)
         grouped (vals (group-by :entity/id entities))
-        db (current-db)
+        db (xt/db node)
         entity-results (map (fn [occurrences]
                               (let [entity (first occurrences)
                                     entity-id (:entity/id entity)
-                                    existing (xt/entity db (canonical-ego-id entity-id))
+                                    existing (xt/entity db (canonical-ego-id ego-id entity-id))
                                     labels (set (map :entity/label occurrences))
                                     doc (entity-doc existing now entity labels)]
                                 {:doc doc
@@ -159,22 +161,25 @@
         mention-docs' (mapcat (fn [{:keys [id occurrences]}]
                                 (mention-docs utterance-id now id occurrences))
                               entity-results)
-        utterance-doc {:xt/id utterance-id
-                       :utterance/id utterance-id
-                       :utterance/text text
-                       :utterance/ts now
-                       :utterance/entity-count (count grouped)
-                       :utterance/relation-count (count distinct-relations)}
+        utterance-doc (cond-> {:xt/id utterance-id
+                               :utterance/id utterance-id
+                               :utterance/text text
+                               :utterance/ts now
+                               :utterance/entity-count (count grouped)
+                               :utterance/relation-count (count distinct-relations)}
+                        actor-id (assoc :utterance/actor-id actor-id)
+                        actor-name (assoc :utterance/actor-name actor-name)
+                        actor-type (assoc :utterance/actor-type actor-type))
         ops (-> []
                 (into (map (fn [{:keys [doc]}]
-                             [::xt/put (canonical-ego-doc doc)]) entity-results))
+                             [::xt/put (canonical-ego-doc ego-id doc)]) entity-results))
                 (into (map (fn [doc]
-                             [::xt/put (canonical-ego-doc doc)]) mention-docs'))
+                             [::xt/put (canonical-ego-doc ego-id doc)]) mention-docs'))
                 (into (map (fn [doc]
-                             [::xt/put (canonical-ego-doc doc)]) relation-docs'))
+                             [::xt/put (canonical-ego-doc ego-id doc)]) relation-docs'))
                 (conj [::xt/put utterance-doc]))
-        tx (xt/submit-tx (node) ops)]
-    (xt/await-tx (node) tx)
+        tx (xt/submit-tx node ops)]
+    (xt/await-tx node tx)
     {:utterance/id utterance-id
      :entities (map (fn [{:keys [entity new?]}]
                       {:id (:entity/id entity)
@@ -191,6 +196,16 @@
                          time (assoc :time time)
                          loc (assoc :loc loc)))
                      distinct-relations)}))
+
+(defn store-analysis!
+  [text {:keys [entities relations] :as analysis}]
+  (store-analysis* (node) text analysis))
+
+(defn store-analysis-with-node!
+  "Store open-world analysis using an existing XTDB node.
+   Optional :ego-id, :actor-id, :actor-name, :actor-type annotate the utterance."
+  [node text {:keys [entities relations ego-id] :as analysis}]
+  (store-analysis* node text analysis))
 
 (defn entity-by-name
   [name]

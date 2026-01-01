@@ -23,6 +23,8 @@
 
 (def ^:private default-limit 5)
 (def ^:private max-limit 50)
+(def ^:private summary-cache-ttl-ms 3000)
+(defonce ^:private !summary-cache (atom {}))
 
 (defn- normalize-profile [value]
   (when-let [trimmed (some-> value str/trim not-empty)]
@@ -49,6 +51,12 @@
     (-> (or (long-or-nil raw) default-limit)
         (clamp 1 max-limit))))
 
+(defn- cache-allowed? [request]
+  (let [raw (some-> (or (get-in request [:query-params :cache])
+                        (get-in request [:query-params "cache"]))
+                    str/lower-case)]
+    (not (contains? #{"0" "false" "no" "off"} raw))))
+
 (defn- enrich-ctx [request]
   (let [base    (:ctx request)
         qps     (:query-params request)
@@ -56,7 +64,7 @@
         prof    (request-profile request)
         limit   (request-limit request)
         conn    (store-manager/conn prof)
-        env     (store-manager/env prof)
+        env     (or (:env base) (store-manager/env prof))
         ds-db   (try (d/db conn) (catch Throwable _ nil))
         xt-node (or (:xt-node base)
                     (:xtdb-node base)
@@ -103,9 +111,21 @@
         format  (request-format request)
         profile (request-profile request)
         limit   (request-limit request)
-        ctx     (enrich-ctx request)]
-    (tap> (slim-ctx ctx))
-    (if debug?
+        cache?  (and (not debug?) (cache-allowed? request))
+        cache-key [profile format limit]
+        now     (System/currentTimeMillis)
+        cached  (when cache?
+                  (get @!summary-cache cache-key))
+        ctx     (when-not (and cached
+                               (< (- now (:ts cached)) summary-cache-ttl-ms))
+                  (enrich-ctx request))]
+    (when ctx
+      (tap> (slim-ctx ctx)))
+    (cond
+      (and cached (< (- now (:ts cached)) summary-cache-ttl-ms))
+      (:resp cached)
+
+      debug?
       (let [ds-db     (:ds/db ctx)
             xt-db     (:xt/db ctx)
             eid       (try (commands/resolve-me-id ctx) (catch Throwable _ nil))
@@ -133,21 +153,26 @@
           :recent-count      (count recent)
           :recent-sample     (->> recent (take 5))
           :query-params      (:query-params request)}))
+
+      :else
       (let [raw-summary      (try (commands/profile-summary ctx nil)
                                   (catch clojure.lang.ArityException _
                                     (commands/profile-summary ctx limit)))
             resolved-profile (or profile (:profile raw-summary))
             profile-header   (some-> resolved-profile str)
             headers          (cond-> {}
-                               profile-header (assoc "X-Profile" profile-header))]
-        (if (and raw-summary (:text raw-summary))
-          (let [summary-data (assoc raw-summary :profile resolved-profile)
-                lines        (fmt/profile-summary-lines summary-data)
-                text         (str/join "\n" lines)]
-            (case format
-              :edn (http/ok-edn summary-data 200 headers)
-              (http/ok-text text 200 headers)))
-          (http/ok-text "No profile data recorded." 200 headers))))))
+                               profile-header (assoc "X-Profile" profile-header))
+            resp             (if (and raw-summary (:text raw-summary))
+                               (let [summary-data (assoc raw-summary :profile resolved-profile)
+                                     lines        (fmt/profile-summary-lines summary-data)
+                                     text         (str/join "\n" lines)]
+                                 (case format
+                                   :edn (http/ok-edn summary-data 200 headers)
+                                   (http/ok-text text 200 headers)))
+                               (http/ok-text "No profile data recorded." 200 headers))]
+        (when cache?
+          (swap! !summary-cache assoc cache-key {:ts now :resp resp}))
+        resp))))
 
 (defn summary-handler [request]
   (summary request))

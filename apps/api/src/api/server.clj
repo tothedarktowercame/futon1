@@ -1,11 +1,13 @@
 (ns api.server
   (:require [api.handlers.turns :as turns]
             [api.middleware.context :refer [wrap-context]]
+            [api.middleware.penholder :refer [wrap-penholder]]
             [api.middleware.qparams :refer [wrap-query-ctx]]
             [api.routes :refer [dispatch]]
             [app.config :as cfg]
             [app.store-manager :as store-manager]
             [app.xt :as xt]
+            [cheshire.core :as json]
             [clojure.stacktrace :as st]
             [ring.adapter.jetty :as jetty]
             [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
@@ -44,7 +46,7 @@
   ([data status]
    {:status status
     :headers {"Content-Type" "application/json"}
-    :body data}))
+    :body (json/generate-string data)}))
 
 (defn- add-api-version [resp]
   (update resp :headers #(assoc (or % {}) "X-API-Version" api-version-header-value)))
@@ -81,6 +83,7 @@
       (wrap-json-body {:keywords? true})
       wrap-params                 ;; <-- add this
       (wrap-context ctx)          ;; <-- runs after params so handlers see :query-params
+      wrap-penholder
       wrap-query-ctx
       wrap-exceptions
       wrap-api-version))

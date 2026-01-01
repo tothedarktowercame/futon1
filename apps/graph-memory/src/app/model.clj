@@ -19,14 +19,16 @@
 (def ^:private default-descriptor
   {:model/scope :patterns
    :schema/version "0.1.0"
+   :schema/certificate {:penholder "code" :issued-at 0}
    :client/schema-min "0.1.0"
    :entities
    {:pattern/language {:required [:name] :id-strategy :uuid}
-    :pattern/library {:required [:name] :id-strategy :uuid}
-    :pattern/component {:required [:name] :id-strategy :uuid}
-    :pattern/language-source {:required [:name] :id-strategy :uuid}
-    :pattern/language-status {:required [:name] :id-strategy :uuid}
-    :pattern/language-catalog {:required [:name] :id-strategy :uuid}}
+   :pattern/library {:required [:name] :id-strategy :uuid}
+   :pattern/component {:required [:name] :id-strategy :uuid}
+   :pattern/language-source {:required [:name] :id-strategy :uuid}
+   :pattern/language-status {:required [:name] :id-strategy :uuid}
+    :pattern/language-catalog {:required [:name] :id-strategy :uuid}
+    :sigil {:required [:name] :id-strategy :uuid}}
    :operations
    {:pattern/sync {:inputs [:filesystem] :outputs [:xtdb]}}
    :stores
@@ -87,7 +89,8 @@
     (or existing
         (:source
          (store/ensure-entity! conn env
-                               {:name descriptor-name
+                               {:id descriptor-name
+                                :name descriptor-name
                                 :type descriptor-type
                                 :external-id (:schema/version default-descriptor)
                                 :source default-descriptor})))))
@@ -97,7 +100,8 @@
   [conn env descriptor]
   (:source
    (store/ensure-entity! conn env
-                         {:name descriptor-name
+                         {:id descriptor-name
+                          :name descriptor-name
                           :type descriptor-type
                           :external-id (:schema/version descriptor)
                           :source descriptor})))

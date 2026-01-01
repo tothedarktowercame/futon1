@@ -67,7 +67,7 @@ provides an ASCII alias for proxies or clients that cannot emit unicode paths.
 
 | Method & Path | Description |
 |---------------|-------------|
-| `POST /api/α/turns` | Run the deterministic pipeline (`{text, ts?, source?, protocol?}`) and return entities, relations, intent, context, and `focus_header`. |
+| `POST /api/α/turns` | Run the deterministic pipeline (`{text, ts?, source?, protocol?, actor}`) and return entities, relations, intent, context, and `focus_header` (`actor` or `X-Actor` required to map first-person pronouns). |
 | `GET /api/α/focus-header` | Return the current focus header. Accepts `focus_days` and `allow_works` query parameters. |
 | `GET /api/α/me` | Fetch the structured profile document for the active profile. |
 | `POST /api/α/me` | Shallow merge the provided map into the profile (`Content-Type: application/json`). |
@@ -82,7 +82,11 @@ provides an ASCII alias for proxies or clients that cannot emit unicode paths.
 | `POST /api/α/types/parent` | Override or clear a type's parent (`{type, parent?, kind?}`). |
 | `POST /api/α/types/merge` | Merge aliases into a canonical type (`{into,type?,aliases}` accepts strings or keywords). |
 | `GET /api/α/patterns/registry` | Return a lightweight pattern registry for fast sync diffs (computed on request; candidate for persistence similar to docbook TOC). |
+| `GET /api/α/meta/model` | Return the model registry (patterns, docbook, media, open-world ingest, meta-model). |
+| `GET /api/α/meta/model/registry` | Alias of `/meta/model`. |
 | `GET /api/α/meta/model/queue` | Summarize covered vs pending XTDB entity types based on the model registry. |
+| `GET /api/α/meta/model/media` | Return the media model descriptor. |
+| `GET /api/α/meta/model/media/verify` | Run media model invariants. |
 | `GET /api/α/meta/model/meta` | Return the meta-model descriptor for `model/descriptor` entities. |
 | `GET /api/α/meta/model/meta/verify` | Run meta-model invariants over stored model descriptors. |
 | `DELETE /api/α/docs/:book/doc/:doc-id` | Delete a docbook heading plus its entries for the given book/doc-id. |

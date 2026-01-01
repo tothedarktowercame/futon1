@@ -46,6 +46,8 @@
         (println "[v6] ents:" (count ents) "rels:" (count rels)))
       {:in        line
        :intent    nil
+       :open-world {:entities (:entities analysis)
+                    :relations (:relations analysis)}
        :entities  ents
        :relations rels
        :tokens    []

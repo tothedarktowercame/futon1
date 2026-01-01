@@ -53,6 +53,12 @@ curl -s http://localhost:8080/api/alpha/meta/model/registry
 curl -s http://localhost:8080/api/alpha/meta/model/queue
 ```
 
+## Future work: agent certs
+
+Model descriptor certificates are currently internal. Keep open the option to
+allow signed certificates from user-managed agents (e.g. a future `/agent`
+route) so delegated automation can issue trusted descriptor updates.
+
 ## Requesting a new database type
 
 Default to existing types and open-world labels unless the data requires new

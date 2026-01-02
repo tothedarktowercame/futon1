@@ -1,0 +1,83 @@
+{:description
+ "Deterministic Willie/Jane scenario verifying focus-header and XTDB mirroring.",
+ :script
+ ["I like Willie Dixon."
+  "Jane works at MIT."
+  "Remind me about Willie."],
+ :datascript-entities
+ [{:name "Jane", :type :person, :seen-count 2}
+  {:name "MIT", :type :org, :seen-count 2}
+  {:name "Me", :type :person, :seen-count 7}
+  {:name "Willie", :type :person, :seen-count 1}
+  {:name "Willie Dixon", :type :person, :seen-count 2}
+  {:name "model/descriptor/docbook",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/media",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/meta-model",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/open-world-ingest",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/patterns",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/penholder",
+   :type :model/descriptor,
+   :seen-count 1}],
+ :xtdb-entities
+ [{:name "Jane", :type :person, :seen-count 2}
+  {:name "MIT", :type :org, :seen-count 2}
+  {:name "Me", :type :person, :seen-count 7}
+  {:name "Willie", :type :person, :seen-count 1}
+  {:name "Willie Dixon", :type :person, :seen-count 2}
+  {:name "model/descriptor/docbook",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/media",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/meta-model",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/open-world-ingest",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/patterns",
+   :type :model/descriptor,
+   :seen-count 1}
+  {:name "model/descriptor/penholder",
+   :type :model/descriptor,
+   :seen-count 1}],
+ :focus-header
+ [["Focus header"
+   "  context:"
+   "  Current:"
+   "  Me -[like]-> Willie Dixon"
+   ""
+   "FOCUS: Me (person), Willie Dixon (person)"]
+  ["Focus header"
+   "  context:"
+   "  Recent:"
+   "  Me -[like]-> Willie Dixon"
+   "  Current:"
+   "  Jane -[works-at]-> MIT"
+   ""
+   "FOCUS: Jane (person), MIT (org)"]
+  ["Focus header"
+   "  context:"
+   "  Recent:"
+   "  Jane -[works-at]-> MIT"
+   "  Me -[like]-> Willie Dixon"
+   ""
+   "FOCUS: Me (person), Willie (person)"]],
+ :xtdb-relations
+ [{:src "Jane", :type :mit/works-at, :dst "MIT"}
+  {:src "Me", :type :dixon/like, :dst "Willie Dixon"}],
+ :datascript-relations
+ [{:src "Jane", :type :mit/works-at, :dst "MIT"}
+  {:src "Me", :type :dixon/like, :dst "Willie Dixon"}],
+ :id "baseline/demo-v1"}

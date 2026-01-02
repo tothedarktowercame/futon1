@@ -35,6 +35,7 @@
                                                       :src {:name "Pat"}
                                                       :dst {:name "Boston"}
                                                       :confidence 0.85})
+            _ (xt/sync-node!)
             db (xt/db)
             entity-doc (-> (xta/q db '{:find [(pull ?e [:entity/id :entity/name :entity/type :entity/seen-count :entity/last-seen :entity/pinned?])]
                                        :where [[?e :entity/name "Pat"]]})
@@ -135,6 +136,7 @@
                                                   :seen-count 5
                                                   :pinned? true})
             expired (store/expire-entity! conn env {:name "Pat"})
+            _ (xt/sync-node!)
             doc (-> (xt/q '{:find [(pull ?e [:entity/seen-count :entity/last-seen :entity/pinned?])]
                             :in [?id]
                             :where [[?e :entity/id ?id]]}

@@ -88,6 +88,9 @@
 (def ^:private verb-tags
   #{"VB" "VBD" "VBG" "VBN" "VBP" "VBZ"})
 
+(def ^:private chunk-stop-words
+  #{"a" "an" "and" "about" "by" "for" "in" "on" "of" "or" "the" "to" "with"})
+
 (def ^:private command-verbs
   #{"meet" "list" "count" "add" "remove" "link" "record" "schedule"
     "tell" "show" "help" "summarize" "summarise" "display" "explain"
@@ -109,6 +112,8 @@
   [token tag idx]
   (let [lower (some-> token str/lower-case)]
     (cond
+      (re-matches #"[.,?!]" (or token "")) :other
+      (contains? chunk-stop-words lower) :other
       (contains? command-verbs lower) :verb
       (contains? verb-tags tag) :verb
       (temporal-token? token tag) :temporal

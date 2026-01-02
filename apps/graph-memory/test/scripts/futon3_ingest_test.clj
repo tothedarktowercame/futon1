@@ -26,22 +26,22 @@
 
 (deftest parse-patterns-extracts-sigils
   (with-temp
-    (fn [dir]
-      (let [library-dir (doto (io/file dir "library") .mkdirs)
-            file (io/file library-dir "sample.flexiarg")
-            content "@arg sample/pattern\n@title Sample Pattern\n! instantiated-by: Example [🍒/好 🟣/真]\n"]
-        (spit file content)
-        (let [patterns (ingest/parse-patterns dir)]
-          (is (= 1 (count patterns)))
-          (is (= {:emoji "🍒" :hanzi "好"}
-                 (-> patterns first :sigils first)))))))
+   (fn [dir]
+     (let [library-dir (doto (io/file dir "library") .mkdirs)
+           file (io/file library-dir "sample.flexiarg")
+           content "@arg sample/pattern\n@title Sample Pattern\n! instantiated-by: Example [🍒/好 🟣/真]\n"]
+       (spit file content)
+       (let [patterns (#'ingest/parse-patterns dir)]
+         (is (= 1 (count patterns)))
+         (is (= {:emoji "🍒" :hanzi "好"}
+                (-> patterns first :sigils first))))))))
 
 (deftest parse-devmaps-extracts-prototypes
   (with-temp
-    (fn [dir]
-      (let [holes-dir (doto (io/file dir "holes") .mkdirs)
-            file (io/file holes-dir "futon3.devmap")
-            content "@multiarg f3/devmap\n! instantiated-by: Prototype 1 — Example [🍒/好]\n"]
-        (spit file content)
-        (let [devmaps (ingest/parse-devmaps dir)]
-          (is (= #{"f3/p1"} (set (keys devmaps)))))))))
+   (fn [dir]
+     (let [holes-dir (doto (io/file dir "holes") .mkdirs)
+           file (io/file holes-dir "futon3.devmap")
+           content "@multiarg f3/devmap\n! instantiated-by: Prototype 1 — Example [🍒/好]\n"]
+       (spit file content)
+       (let [devmaps (#'ingest/parse-devmaps dir)]
+         (is (= #{"f3/p1"} (set (keys devmaps)))))))))

@@ -77,6 +77,11 @@
 (defn runner
   [line ts state {:keys [xtdb-node conn env default-profile] :as ctx}]
   (let [profile (or default-profile (stores/default-profile))
+        profile-name (stores/profile-name profile)
+        actor-name (if (= profile-name (some-> profile str))
+                     "Me"
+                     profile-name)
+        actor {:id :me :name actor-name :type :person}
         req     {:headers {"x-profile" profile}
                  :query-params {}
                  :ctx (merge {:default-profile profile
@@ -85,7 +90,7 @@
                               :env env}
                              ctx)}
         protocol-id (or (:protocol ctx) turns/default-protocol)
-        body    {:text line :ts ts :protocol protocol-id}
+        body    {:text line :ts ts :protocol protocol-id :actor actor}
         out     (turns/process-turn! req body)]
     {:message            (format "ok — %d entities, %d relations"
                                  (count (:entities out)) (count (:relations out)))

@@ -1,4 +1,4 @@
-(ns scripts.baseline-snapshot
+(ns baseline-snapshot
   "Generate or refresh the Willie/Jane deterministic snapshot used by FUTON1 tests."
   (:require [app.xt :as xt]
             [clojure.edn :as edn]

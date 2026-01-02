@@ -38,7 +38,7 @@ focus header or the persistence layer causes an immediate regression.
 
    ```bash
    clojure -Sdeps '{:deps {client/client {:local/root "apps/client"}}}' \\
-     -M -m scripts.baseline-snapshot --write resources/baseline/demo_session.edn
+     -M -m baseline-snapshot --write resources/baseline/demo_session.edn
    ```
 
    or, using the alias added in `deps.edn`:

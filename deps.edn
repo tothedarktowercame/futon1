@@ -59,4 +59,4 @@
 
   :baseline/snapshot
   {:deps {client/client {:local/root "apps/client"}}
-   :main-opts ["-m" "scripts.baseline-snapshot"]}}}
+   :main-opts ["-m" "baseline-snapshot"]}}}

@@ -1,5 +1,6 @@
 (ns api.routes
-  (:require [api.handlers.diag :as diag]
+  (:require [api.handlers.affect :as affect]
+            [api.handlers.diag :as diag]
             [api.handlers.graph :as graph]
             [api.handlers.me :as me]
             [api.handlers.model :as model]
@@ -29,6 +30,9 @@
    ["/entity" {:post graph/ensure-entity-handler}]
    ["/entity/:id" {:get graph/fetch-entity!}]
    ["/entities/latest" {:get graph/entity-latest!}]
+   ["/affect" {:get affect/affect-deprecated-handler}]
+   ["/affect-labels" {:get affect/affect-labels-handler}]
+   ["/affect-transitions" {:get affect/affect-transitions-handler}]
    ["/entities/history/:id" {:get graph/entity-history!}]
    ["/relation" {:post graph/upsert-relation-handler}]
    ["/trails" {:post trails/record-trail-handler

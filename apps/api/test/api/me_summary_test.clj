@@ -138,8 +138,13 @@
           response   (me/summary {:ctx base-ctx :headers headers :query-params {}})
           api-text   (:body response)
 
+          normalize-line (fn [line]
+                           (-> line
+                               (str/replace #"last seen [0-9T:\\.-]+Z" "last seen <ts>")
+                               (str/replace #"last [0-9T:\\.-]+Z" "last <ts>")))
           drop-meta  (fn [lines]
                        (->> lines
+                            (map normalize-line)
                             (remove #(or (str/starts-with? % "Profile:")
                                          (str/starts-with? % "Generated at:")
                                          (str/starts-with? % "Generated:")

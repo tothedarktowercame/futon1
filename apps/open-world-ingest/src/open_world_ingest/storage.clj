@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [graph-memory.types-registry :as types]
+            [open-world-ingest.affect-candidates :as affect-candidates]
             [open-world-ingest.util :as util]
             [xtdb.api :as xt])
   (:import (java.util UUID)))
@@ -180,6 +181,13 @@
                 (conj [::xt/put utterance-doc]))
         tx (xt/submit-tx node ops)]
     (xt/await-tx node tx)
+    (affect-candidates/record-utterance-async!
+     {:node node
+      :text text
+      :ts now
+      :utterance-id utterance-id
+      :actor-id (or actor-id ego-id)
+      :entities entities})
     {:utterance/id utterance-id
      :entities (map (fn [{:keys [entity new?]}]
                       {:id (:entity/id entity)

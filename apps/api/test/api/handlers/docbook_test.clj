@@ -3,14 +3,21 @@
   (:require
    [api.handlers.docbook :as handler]
    [app.docbook :as docbook]
+   [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]))
+
+(defn- body->json [response]
+  (let [body (:body response)]
+    (if (string? body)
+      (json/parse-string body true)
+      body)))
 
 (deftest delete-handler-rejects-missing-doc-id
   (let [response (handler/delete-handler {:path-params {:book "futon4"}})]
     (is (= 400 (:status response)))
     (is (= {:error "doc-id required"
             :book "futon4"}
-           (:body response)))))
+           (body->json response)))))
 
 (deftest delete-handler-respects-default-book
   (let [seen (atom nil)]
@@ -31,7 +38,7 @@
               :doc-id "doc-1"
               :deleted 0
               :error "Doc not found"}
-             (:body response))))))
+             (body->json response))))))
 
 (deftest delete-handler-returns-success-on-delete
   (with-redefs [docbook/delete-doc! (fn [book doc-id]
@@ -42,7 +49,7 @@
       (is (= {:book "futon4"
               :doc-id "doc-1"
               :deleted 2}
-             (:body response))))))
+             (body->json response))))))
 
 (deftest delete-toc-handler-respects-cascade
   (let [seen (atom nil)]
@@ -65,7 +72,7 @@
               :doc-id "doc-1"
               :deleted 0
               :error "Doc not found"}
-             (:body response))))))
+             (body->json response))))))
 
 (deftest update-contents-order-rejects-missing-order
   (let [response (handler/update-contents-order-handler {:path-params {:book "futon4"}
@@ -73,7 +80,7 @@
     (is (= 400 (:status response)))
     (is (= {:error "order must be a list of doc-ids"
             :book "futon4"}
-           (:body response)))))
+           (body->json response)))))
 
 (deftest update-contents-order-accepts-list
   (let [seen (atom nil)]
@@ -91,7 +98,7 @@
         (is (= {:status "ok"
                 :book "futon4"
                 :count 2}
-               (:body response)))
+               (select-keys (body->json response) [:status :book :count])))
         (is (= ["futon4" {:order ["doc-1" "doc-2"]
                           :source "client"
                           :timestamp "2025-01-01T00:00:00Z"}]
@@ -116,4 +123,4 @@
       (is (= {:book "futon4"
               :headings [{:doc/id "doc-1"
                           :doc/title "Title"}]}
-             (:body response))))))
+             (body->json response))))))

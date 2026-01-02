@@ -9,6 +9,7 @@
          metosin/reitit-ring {:mvn/version "0.7.0"}
          ;; local modules (these replace any ../ in :paths)
          graph-memory/graph-memory {:local/root "../graph-memory"}
+         nlp-interface/nlp-interface {:local/root "../nlp-interface"}
          open-world-ingest/open-world-ingest {:local/root "../open-world-ingest"}
          protocols/protocols {:local/root "../../protocols"}
          common/common {:local/root "../common"}}

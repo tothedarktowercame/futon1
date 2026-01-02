@@ -77,6 +77,19 @@
         (st/print-stack-trace e)
         (add-api-version (json-response {:error "internal error"} 500))))))
 
+(defn- wrap-force-json [handler]
+  (fn [request]
+    (let [resp (handler request)]
+      (if (and (map? resp)
+               (contains? resp :body)
+               (let [body (:body resp)]
+                 (or (map? body)
+                     (sequential? body))))
+        (-> resp
+            (update :headers #(assoc (or % {}) "Content-Type" "application/json"))
+            (update :body json/generate-string))
+        resp))))
+
 (defn app [ctx]
   (-> #'dispatch
       wrap-json-response
@@ -86,6 +99,7 @@
       wrap-penholder
       wrap-query-ctx
       wrap-exceptions
+      wrap-force-json
       wrap-api-version))
 
 (defn app-dev [ctx]

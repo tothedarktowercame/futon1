@@ -12,13 +12,13 @@
 
 (defn- usage []
   (str/join \newline
-            ["Usage: clojure -M:scripts/ingest-futon3 [--root PATH] [--profile NAME]"
+            ["Usage: clojure -M:scripts/ingest-futon3 [--root PATH] [--profile NAME] [--pattern NAME]"
              "Environment variables:"
              "  FUTON3_ROOT   Override the Futon3 checkout root (default ../futon3)"
              "  ALPHA_PROFILE Futon1 profile to ingest into (defaults to configured profile)"]))
 
 (defn- parse-cli [args]
-  (loop [opts {:root nil :profile nil :help? false}
+  (loop [opts {:root nil :profile nil :pattern nil :help? false}
          remaining args]
     (if-let [arg (first remaining)]
       (cond
@@ -34,6 +34,11 @@
         (if-let [value (second remaining)]
           (recur (assoc opts :profile value) (nnext remaining))
           (throw (ex-info "Missing value for --profile" {})))
+
+        (#{"--pattern"} arg)
+        (if-let [value (second remaining)]
+          (recur (assoc opts :pattern value) (nnext remaining))
+          (throw (ex-info "Missing value for --pattern" {})))
 
         :else
         (throw (ex-info (str "Unknown argument " arg) {:arg arg})))
@@ -76,6 +81,10 @@
            str/trim
            not-empty))
 
+(defn- starts-arg-line? [line]
+  (or (str/starts-with? line "@arg ")
+      (str/starts-with? line "@flexiarg ")))
+
 (defn- split-arg-blocks [text]
   (let [lines (str/split-lines text)]
     (loop [remaining lines
@@ -84,7 +93,7 @@
            blocks []]
       (if-let [line (first remaining)]
         (let [rest-lines (rest remaining)
-              starts-arg? (str/starts-with? line "@arg ")]
+              starts-arg? (starts-arg-line? line)]
           (cond
             (and starts-arg? has-arg?)
             (recur rest-lines
@@ -128,11 +137,26 @@
 (def component-line-re
   (re-pattern "^(\\s*)([!+])\\s+([A-Za-z0-9/+-]+):\\s*(.*)$"))
 
+(defn- slurp-utf8 [file]
+  (slurp file :encoding "UTF-8"))
+
+(defn- finalize-component [entry]
+  (let [lines (or (:lines entry) [])
+        text (->> lines
+                  (remove str/blank?)
+                  (map str/trim)
+                  (str/join "\n")
+                  str/trim)]
+    (-> entry
+        (dissoc :lines)
+        (assoc :text text))))
+
 (defn- parse-component-lines [block]
   (let [lines (str/split-lines block)]
     (loop [remaining lines
            order 0
            level-map {}
+           current nil
            acc []]
       (if-let [line (first remaining)]
         (if-let [[_ indent _raw-marker label text] (re-matches component-line-re line)]
@@ -141,25 +165,34 @@
                 trimmed-levels (into {}
                                      (remove (fn [[lvl _]] (> lvl level)) level-map))
                 parent (get trimmed-levels (dec level))
+                acc (if current (conj acc (finalize-component current)) acc)
                 entry {:order order
                        :label label
                        :kind (normalize-kind label)
-                       :text trimmed-text
+                       :lines (cond-> []
+                                (not (str/blank? trimmed-text))
+                                (conj trimmed-text))
                        :level level
                        :parent-index parent}]
             (recur (rest remaining)
                    (inc order)
                    (assoc trimmed-levels level order)
-                   (conj acc entry)))
-          (recur (rest remaining) order level-map acc))
-        acc))))
+                   entry
+                   acc))
+          (let [current (if current
+                            (update current :lines conj line)
+                          current)]
+            (recur (rest remaining) order level-map current acc)))
+        (cond-> acc
+          current (conj (finalize-component current)))))))
 
 (defn- parse-patterns [root]
   (for [file (pattern-files root)
-        :let [text (slurp file)]
+        :let [text (slurp-utf8 file)]
         block (split-arg-blocks text)
         :let [title (extract-meta block "title")
-              arg (extract-meta block "arg")
+              arg (or (extract-meta block "arg")
+                      (extract-meta block "flexiarg"))
               sigils-meta (normalize-sigils-block (extract-meta block "sigils"))
               matches (re-seq clause-re block)
               components (vec (parse-component-lines block))]
@@ -186,7 +219,7 @@
 
 (defn- parse-devmaps [root]
   (reduce (fn [acc file]
-            (let [text (slurp file)
+            (let [text (slurp-utf8 file)
                   futon (futon-number (.getName file))]
               (reduce (fn [acc' [_ idx sigils-block]]
                         (let [proto (format "%s/p%s" futon idx)
@@ -342,9 +375,15 @@
     (ensure-prototype! conn opts {:id proto :sigils sigils}))
   (println "Devmaps ingested."))
 
+(defn- pattern-match? [entry needle]
+  (when (and entry needle)
+    (let [candidate (or (:id entry) (:title entry))]
+      (and candidate
+           (= candidate needle)))))
+
 (defn -main [& args]
   (try
-    (let [{:keys [root profile help?]} (parse-cli args)]
+    (let [{:keys [root profile pattern help?]} (parse-cli args)]
       (when help?
         (println (usage))
         (System/exit 0))
@@ -357,9 +396,15 @@
             conn (store-manager/conn profile-id)
             env (assoc (store-manager/env profile-id) :now (now-ms))
             patterns (vec (parse-patterns resolved-root))
-            devmaps (parse-devmaps resolved-root)]
+            patterns (if pattern
+                       (vec (filter #(pattern-match? % pattern) patterns))
+                       patterns)
+            devmaps (when-not pattern (parse-devmaps resolved-root))]
+        (when (and pattern (empty? patterns))
+          (throw (ex-info (str "No patterns matched " pattern) {:pattern pattern})))
         (ingest-patterns! conn env patterns)
-        (ingest-devmaps! conn env devmaps)
+        (when devmaps
+          (ingest-devmaps! conn env devmaps))
         (store-manager/shutdown!)))
     (catch Exception ex
       (binding [*out* *err*]

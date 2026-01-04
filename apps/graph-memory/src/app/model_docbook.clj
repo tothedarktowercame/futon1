@@ -209,14 +209,27 @@
 (defn- check-entry-body-required [db]
   (let [failures (vec
                   (keep (fn [entry]
-                          (let [status (:doc/status entry)]
-                            (when (and (not= :removed status)
-                                       (missing? (:doc/body entry)))
+                          (let [status (:doc/status entry)
+                                body (:doc/body entry)
+                                placeholder? (and (string? body)
+                                                  (str/includes?
+                                                   (str/lower-case body)
+                                                   "no summary yet"))]
+                            (cond
+                              (and (not= :removed status)
+                                   (missing? body))
                               {:doc-id (:doc/id entry)
                                :entry-id (:doc/entry-id entry)
                                :book (:doc/book entry)
                                :status status
-                               :issue :missing-body})))
+                               :issue :missing-body}
+
+                              (and (not= :removed status) placeholder?)
+                              {:doc-id (:doc/id entry)
+                               :entry-id (:doc/entry-id entry)
+                               :book (:doc/book entry)
+                               :status status
+                               :issue :placeholder-body})))
                         (entry-entities db)))]
     (invariant-result :docbook/entry-body-required failures)))
 

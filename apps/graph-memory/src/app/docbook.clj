@@ -21,11 +21,20 @@
     (string? value) (keyword value)
     :else :active))
 
+(defn- normalize-outline [value]
+  (cond
+    (vector? value) value
+    (sequential? value) (vec value)
+    (string? value) (->> (str/split value #"\s*/\s*")
+                         (remove str/blank?)
+                         vec)
+    :else nil))
+
 (defn- heading-doc [m]
   (let [doc-id (or (:doc_id m) (:doc/id m))
-        outline (or (:doc/outline_path m) (:outline_path m))
+        outline (normalize-outline (or (:doc/outline_path m) (:outline_path m)))
         path-str (or (:doc/path_string m) (:path_string m))
-        level (or (:doc/level m) (:level m))
+        level (or (:doc/level m) (:level m) (some-> outline count))
         supersedes (or (:doc/supersedes m) (:supersedes m))
         title (or (:doc/title m) (:title m))]
     (cond-> {:xt/id doc-id
@@ -202,7 +211,12 @@
 (defn- entry-doc [book m]
   (let [doc-id (or (:doc_id m) (:doc/id m))
         entry-id (or (:doc/entry-id m) (:doc_entry_id m) (:doc/entry_id m) (:entry_id m) (:run_id m))
-        body (or (:doc/body m) (:doc/context m) (:body m) (:context m))]
+        body (or (:doc/body m)
+                 (:doc/context m)
+                 (:body m)
+                 (:context m)
+                 (:agent_summary m)
+                 (:summary m))]
     (when (and doc-id entry-id)
       (let [status (normalize-status (or (:doc/status m) (:status m)))]
         (cond-> {:xt/id entry-id
@@ -234,18 +248,20 @@
 
 (defn- normalize-entry-payload
   [book payload]
-  (let [outline (or (:doc/outline_path payload) (:outline_path payload))
+  (let [outline (normalize-outline (or (:doc/outline_path payload) (:outline_path payload)))
         path-str (or (:doc/path_string payload) (:path_string payload)
                      (when (seq outline) (str/join " / " outline)))
         title (or (:doc/title payload) (:title payload)
                   (when (seq outline) (last outline)))
+        level (or (:doc/level payload) (:level payload) (some-> outline count))
         doc-id (or (:doc/id payload) (:doc_id payload)
                    (derive-doc-id book outline))]
     (cond-> (assoc payload :doc/book book)
       doc-id (assoc :doc/id doc-id)
       outline (assoc :doc/outline_path outline)
       path-str (assoc :doc/path_string path-str)
-      title (assoc :doc/title title))))
+      title (assoc :doc/title title)
+      level (assoc :doc/level level))))
 
 (defn upsert-entry!
   "Upsert a single docbook heading + entry (idempotent by entry-id)."
@@ -307,6 +323,75 @@
   (with-open [r (io/reader path)]
     (json/read r :key-fn keyword)))
 
+(defn- docbook-log-base [root book]
+  (let [root (or root ".")
+        data-base (io/file root "data" "logs" "books" book)
+        dev-base (io/file root "dev" "logs" "books" book)]
+    (cond
+      (.exists data-base) data-base
+      (.exists dev-base) dev-base
+      :else data-base)))
+
+(defn- read-stub-meta [path]
+  (when (and path (.exists (io/file path)))
+    (let [text (slurp path)
+          lines (vec (str/split-lines text))
+          title (some (fn [line]
+                        (when (str/starts-with? line "#+TITLE:")
+                          (str/trim (subs line (count "#+TITLE:")))))
+                      lines)
+          props (loop [remaining lines
+                       in-props? false
+                       acc {}]
+                  (if-let [line (first remaining)]
+                    (cond
+                      (= line ":PROPERTIES:")
+                      (recur (rest remaining) true acc)
+
+                      (= line ":END:")
+                      (recur (rest remaining) false acc)
+
+                      in-props?
+                      (if-let [[_ key value] (re-find #"^:([A-Z0-9_]+):\s*(.*)$" line)]
+                        (recur (rest remaining) true (assoc acc key (str/trim value)))
+                        (recur (rest remaining) true acc))
+
+                      :else
+                      (recur (rest remaining) false acc))
+                    acc))
+          outline (some-> (get props "OUTLINE_PATH") normalize-outline)
+          path-str (get props "PATH_STRING")
+          body-start (or (first (keep-indexed (fn [idx line]
+                                                (when (str/starts-with? line "*")
+                                                  idx))
+                                              lines))
+                         0)
+          body (->> (subvec lines body-start)
+                    (str/join "\n")
+                    str/trim)]
+      (cond-> {:doc/body body}
+        title (assoc :doc/title title)
+        outline (assoc :doc/outline_path outline)
+        path-str (assoc :doc/path_string path-str)))))
+
+(defn- merge-stub-into-payload [payload stub]
+  (if stub
+    (-> payload
+        (cond-> (and (not (:doc/body payload))
+                     (not (:doc/context payload))
+                     (not (:context payload))
+                     (not (:body payload))
+                     (not (:agent_summary payload))
+                     (not (:summary payload)))
+          (assoc :doc/body (:doc/body stub)))
+        (cond-> (and (not (:doc/title payload)) (:doc/title stub))
+          (assoc :doc/title (:doc/title stub)))
+        (cond-> (and (not (:doc/outline_path payload)) (not (:outline_path payload)) (:doc/outline_path stub))
+          (assoc :doc/outline_path (:doc/outline_path stub)))
+        (cond-> (and (not (:doc/path_string payload)) (not (:path_string payload)) (:doc/path_string stub))
+          (assoc :doc/path_string (:doc/path_string stub))))
+    payload))
+
 (defn- entry-files [root]
   (->> (file-seq (io/file root))
        (filter #(.isFile ^java.io.File %))
@@ -318,17 +403,24 @@
   (ensure-xt-node!)
   (let [book (or book "futon4")
         root (or root ".")
-        base (io/file root "dev/logs/books" book)
+        base (docbook-log-base root book)
         raw-dir (io/file base "raw")
         toc (io/file base "toc.json")
         txs-acc (transient [])]
     (when (.exists toc)
-      (doseq [h (read-json toc)]
-        (conj! txs-acc [::xtdb/put (heading-doc h)])))
+      (let [payload (read-json toc)]
+        (when (sequential? payload)
+          (doseq [h payload]
+            (conj! txs-acc [::xtdb/put (heading-doc h)])))))
     (doseq [f (entry-files raw-dir)]
-      (let [payload (read-json f)
-            heading (heading-doc payload)
-            entry (entry-doc book payload)]
+      (let* [payload (normalize-entry-payload book (read-json f))
+             doc-id (:doc/id payload)
+             stub (when doc-id
+                    (read-stub-meta (io/file root "docs" "docbook" book
+                                             (format "%s.org" doc-id))))
+             payload (merge-stub-into-payload payload stub)
+             heading (heading-doc payload)
+             entry (entry-doc book payload)]
         (when heading
           (conj! txs-acc [::xtdb/put heading]))
         (when entry

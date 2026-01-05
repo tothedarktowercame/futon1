@@ -9,6 +9,7 @@
             [api.handlers.turns :as turns]
             [api.handlers.types :as types]
             [api.handlers.patterns :as patterns]
+            [api.handlers.lab :as lab]
             [api.handlers.docbook :as docbook]
             [reitit.ring :as ring]))
 
@@ -35,6 +36,7 @@
    ["/affect-transitions" {:get affect/affect-transitions-handler}]
    ["/entities/history/:id" {:get graph/entity-history!}]
    ["/relation" {:post graph/upsert-relation-handler}]
+   ["/relations/batch" {:post graph/upsert-relations-batch-handler}]
    ["/trails" {:post trails/record-trail-handler
                :get trails/recent-trails-handler}]
    ["/meta/model" {:get model/describe-handler}]
@@ -62,7 +64,10 @@
    ["/docs/:book/heading/:doc-id" {:get docbook/heading-handler}]
    ["/docs/:book/recent" {:get docbook/recent-handler}]
    ["/docs/:book/doc/:doc-id" {:delete docbook/delete-handler}]
-   ["/docs/:book/toc/:doc-id" {:delete docbook/delete-toc-handler}]])
+   ["/docs/:book/toc/:doc-id" {:delete docbook/delete-toc-handler}]
+   ["/lab/session" {:post lab/ingest-handler}]
+   ["/lab/session/:id" {:get lab/fetch-handler}]
+   ["/lab/sessions" {:get lab/list-handler}]])
 
 (def ^:private versioned-prefixes
   ["/api/α"

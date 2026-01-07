@@ -1163,6 +1163,7 @@
      (ensure-dir! data-dir)
      (ensure-xt-node! xtdb-opts data-dir)
      (let [conn (d/create-conn schema)
+           _ (println "[store] Hydrating from XTDB...")
            xt-result (when (and (xt-enabled? xtdb-opts) (xt/started?))
                        (hydrate-from-xtdb! conn))
            xt-count  (when xt-result
@@ -1170,10 +1171,12 @@
                           (:relation-count xt-result 0)))]
        (if (pos? (or xt-count 0))
          (do
+           (println (str "[store] Hydrated " xt-count " entities from XTDB"))
            (swap! !event-count assoc data-dir 0)
            (register-types-from-db! conn))
          (let [legacy (hydrate-from-legacy! conn data-dir)]
-      (swap! !event-count assoc data-dir (:event-count legacy 0))
+           (println (str "[store] Hydrated from legacy (events: " (:event-count legacy 0) ")"))
+           (swap! !event-count assoc data-dir (:event-count legacy 0))
            (when (and (xt-enabled? xtdb-opts) (:has-data? legacy))
              (sync-to-xtdb! conn))))
        (when (:entity/id me-doc)

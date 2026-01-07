@@ -229,7 +229,16 @@
                 penholder (assoc :penholder penholder)
                 (invariants/verify-on-write?)
                 (assoc :verify-fn invariants/verify-event))
+        _ (println "[store] Checking model invariants...")
         _ (invariants/ensure-descriptors! conn env')
+        inv-result (invariants/verify-core conn)
+        _ (if (:ok? inv-result)
+            (println "[store] Invariants OK")
+            (println (str "[store] WARNING: Invariants failed for: "
+                          (->> (:results inv-result)
+                               (filter #(not (:ok? (second %))))
+                               (map first)
+                               (clojure.string/join ", ")))))
         node  (when (xt/started?) (xt/node))
         arxana-store (alpha-store/alpha-store {:conn conn :env env'})
         state {:profile      profile

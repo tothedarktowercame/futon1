@@ -143,8 +143,9 @@
   :stopped)
 
 (defn -main [& _]
+  (println "[server] Starting...")
   (let [port-env (or (some-> (System/getenv "ALPHA_PORT") safe-int) 8080)
         profile (or (System/getenv "ALPHA_PROFILE") "default")
         {:keys [port]} (start! {:port port-env :default-profile profile})]
-    (println (format "headless API listening on %d" port))
+    (println (format "[server] Listening on port %d" port))
     @(promise)))

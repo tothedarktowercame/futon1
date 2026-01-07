@@ -505,7 +505,8 @@
 (defn- ordered-headings [db book]
   (let [headings (->> (xt/q db '{:find [(pull ?h [*])]
                                  :in [?book]
-                                 :where [[?h :doc/book ?book]]}
+                                 :where [[?h :doc/book ?book]
+                                         (not [?h :doc/toc-order _])]}
                             book)
                       (map first)
                       (remove :doc/entry-id))
@@ -565,19 +566,26 @@
         known-order (filter heading-ids order*)
         ignored (remove heading-ids order*)
         stored-order (fetch-toc-order db book)
-        existing-order (if (seq stored-order)
-                         (merge-order (filter heading-ids stored-order)
+        stored-order* (->> stored-order
+                           (map #(some-> % str str/trim not-empty))
+                           (remove nil?))
+        existing-order (if (seq stored-order*)
+                         (merge-order (filter heading-ids stored-order*)
                                       default-order)
                          default-order)
-        final-order (merge-order known-order existing-order)
+        final-order (->> (merge-order known-order existing-order)
+                         (remove nil?)
+                         vec)
         doc {:xt/id (toc-order-id book)
              :doc/book book
              :doc/toc-order final-order
              :doc/toc-source source
              :doc/toc-updated-at timestamp}]
+    ;; Async submit avoids blocking API callers if XTDB indexing stalls.
     (xt/submit! [[::xtdb/put (cond-> doc
                                (nil? source) (dissoc :doc/toc-source)
-                               (nil? timestamp) (dissoc :doc/toc-updated-at))]])
+                               (nil? timestamp) (dissoc :doc/toc-updated-at))]]
+                {:await? false})
     (cond-> {:status "ok"
              :book book
              :count (count final-order)}

@@ -29,7 +29,7 @@
 
 (defn- stub-intent [text]
   (if (re-find #"happy" text)
-    {:type :positive-affect :conf 0.9}
+    {:type :joy :conf 0.9}
     {:type :unknown :conf 0.1}))
 
 (deftest affect-transitions-yield-capacity-terms
@@ -41,7 +41,7 @@
           transitions (:transitions result)
           transition (first transitions)]
       (is (= 1 (count transitions)))
-      (is (= "positive-affect" (get-in transition [:affect_token :id])))
+      (is (= "joy" (get-in transition [:affect_token :id])))
       (is (= "affect->consequence" (:direction transition)))
       (is (= 2 (count (:capacity_tokens transition))))
       (is (= #{"biosemiotic" "sign"}

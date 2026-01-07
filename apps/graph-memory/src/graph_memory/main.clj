@@ -55,6 +55,7 @@
    :relation/src    {:db/valueType :db.type/ref}
    :relation/dst    {:db/valueType :db.type/ref}
    :relation/provenance {}
+   :relation/props  {}
    :relation/confidence {}
    :relation/last-seen {:db/index true}
    :entity.version/id {:db/unique :db.unique/identity}
@@ -262,29 +263,33 @@
   "Return entities directly connected to entity-id, along with relation metadata."
   [conn-or-db entity-id]
   (let [db (conn->db conn-or-db)
-        outgoing (d/q '[:find ?rel (pull ?dst [:entity/id :entity/name :entity/type])
+        outgoing (d/q '[:find ?rel ?props (pull ?dst [:entity/id :entity/name :entity/type])
                         :in $ ?id
                         :where
                         [?src :entity/id ?id]
                         [?r :relation/src ?src]
                         [?r :relation/dst ?dst]
-                        [?r :relation/type ?rel]]
+                        [?r :relation/type ?rel]
+                        [(get-else $ ?r :relation/props {}) ?props]]
                       db entity-id)
-        incoming (d/q '[:find ?rel (pull ?src [:entity/id :entity/name :entity/type])
+        incoming (d/q '[:find ?rel ?props (pull ?src [:entity/id :entity/name :entity/type])
                         :in $ ?id
                         :where
                         [?dst :entity/id ?id]
                         [?r :relation/dst ?dst]
                         [?r :relation/src ?src]
-                        [?r :relation/type ?rel]]
+                        [?r :relation/type ?rel]
+                        [(get-else $ ?r :relation/props {}) ?props]]
                       db entity-id)]
-    (vec (concat (map (fn [[rel other]]
+    (vec (concat (map (fn [[rel props other]]
                         {:relation rel
+                         :props props
                          :direction :out
                          :entity other})
                       outgoing)
-                 (map (fn [[rel other]]
+                 (map (fn [[rel props other]]
                         {:relation rel
+                         :props props
                          :direction :in
                          :entity other})
                       incoming)))))

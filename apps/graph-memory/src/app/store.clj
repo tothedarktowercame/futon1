@@ -639,6 +639,7 @@
      :confidence (:relation/confidence m)
      :last-seen (:relation/last-seen m)
      :provenance (:relation/provenance m)
+     :props (:relation/props m)
      :db/eid (:db/id m)}))
 
 (defn- version-by-id [conn vid]
@@ -947,7 +948,7 @@
 (defmethod apply-event! :relation/upsert
   [conn {:keys [relation]}]
   (trace-relation "store.apply.input" relation)
-  (let [{:keys [type src dst provenance id]} relation
+  (let [{:keys [type src dst provenance id props]} relation
         rel-type (normalize-type type)]
     (when-not rel-type
       (throw (ex-info "Relation type required" {:relation relation})))
@@ -967,6 +968,7 @@
           now (or (coerce-long (:last-seen relation))
                   (coerce-long (:relation/last-seen relation))
                   (System/currentTimeMillis))
+          props (or props (:relation/props relation))
           base-rel {:id relation-id
                     :type rel-type
                     :src (select-keys src-entity [:id :name :type])
@@ -974,21 +976,26 @@
                     :confidence conf
                     :last-seen now}
           event-rel (cond-> base-rel
-                      prov (assoc :provenance prov))]
+                      prov (assoc :provenance prov)
+                      props (assoc :props props))]
       (trace-relation "store.apply.base" base-rel)
       (if existing
         (do
           (when prov
             (d/transact! conn [[:db/add (:db/id existing) :relation/provenance prov]]))
+          (when props
+            (d/transact! conn [[:db/add (:db/id existing) :relation/props props]]))
           (d/transact! conn (->> [[:db/add (:db/id existing) :relation/confidence conf]
                                   [:db/add (:db/id existing) :relation/last-seen now]]
                                  (remove nil?)))
           (trace-relation "store.apply.result" (assoc event-rel :db/eid (:db/id existing)))
           {:event {:type :relation/upsert
                    :relation (cond-> base-rel
-                               prov (assoc :provenance prov))}
+                               prov (assoc :provenance prov)
+                               props (assoc :props props))}
            :result (assoc event-rel
                           :provenance (or prov (:relation/provenance existing))
+                          :props (or props (:relation/props existing))
                           :confidence conf
                           :last-seen now
                           :db/eid (:db/id existing))})
@@ -999,6 +1006,7 @@
                           :relation/dst [:entity/id (:id dst-entity)]
                           :relation/confidence conf
                           :relation/last-seen now}
+                   props (assoc :relation/props props)
                    prov (assoc :relation/provenance prov))
               {:keys [db-after tempids]} (d/transact! conn [tx])
               eid (d/resolve-tempid db-after tempids -1)]
@@ -1329,10 +1337,11 @@
 (defn upsert-relation!
   "Upsert a relation edge between two entities using the event log.
    relation-spec expects {:type keyword :src {...} :dst {...}}.
-   Optionally include :provenance map, :confidence double, :last-seen ms, and :id (UUID or string)."
+   Optionally include :provenance map, :confidence double, :last-seen ms, :props map,
+   and :id (UUID or string)."
   [conn opts relation-spec]
   (trace-relation "store.upsert.spec" relation-spec)
-  (let [{:keys [type src dst provenance id confidence last-seen]} relation-spec
+  (let [{:keys [type src dst provenance id confidence last-seen props]} relation-spec
         rel-type (normalize-type type)]
     (when-not rel-type
       (throw (ex-info "Relation type required" {:relation relation-spec})))
@@ -1348,6 +1357,7 @@
                            :last-seen now
                            :confidence conf}
                     prov (assoc :provenance prov)
+                    props (assoc :props props)
                     id (assoc :id (coerce-uuid id)))]
       (trace-relation "store.upsert.payload" payload)
       (let [result (tx! conn opts {:type :relation/upsert

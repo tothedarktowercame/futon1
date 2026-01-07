@@ -380,7 +380,11 @@
     (throw (ex-info "Relation payload must be an object" {:status 400})))
   (let [type (some-> (:type relation-spec) keyword)
         src-spec (normalize-entity (:src relation-spec))
-        dst-spec (normalize-entity (:dst relation-spec))]
+        dst-spec (normalize-entity (:dst relation-spec))
+        props (:props relation-spec)
+        provenance (:provenance relation-spec)
+        confidence (:confidence relation-spec)
+        last-seen (:last-seen relation-spec)]
     (trace-relation "commands.spec" relation-spec)
     (when-not type
       (throw (ex-info "Relation type required" {:status 400})))
@@ -390,14 +394,18 @@
           src-entity (:entity (ensure-entity! ctx src-spec))
           dst-entity (:entity (ensure-entity! ctx dst-spec))
           relation (store/upsert-relation! conn env-now
-                                           {:type type
-                                            :src (select-keys src-entity [:id :name :type])
-                                            :dst (select-keys dst-entity [:id :name :type])})
+                                           (cond-> {:type type
+                                                    :src (select-keys src-entity [:id :name :type])
+                                                    :dst (select-keys dst-entity [:id :name :type])}
+                                             props (assoc :props props)
+                                             provenance (assoc :provenance provenance)
+                                             confidence (assoc :confidence confidence)
+                                             last-seen (assoc :last-seen last-seen)))
           anchors [src-entity dst-entity]]
       (trace-relation "commands.result" relation)
       (when record-anchors!
         (record-anchors! anchors))
-      {:relation (select-keys relation [:id :type :src :dst :confidence :last-seen])
+      {:relation (select-keys relation [:id :type :src :dst :confidence :last-seen :props])
        :anchors anchors})))
 
 ;; -- Profile helpers ---------------------------------------------------------

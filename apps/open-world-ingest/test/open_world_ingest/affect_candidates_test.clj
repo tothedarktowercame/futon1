@@ -21,7 +21,7 @@
 
 (defn- stub-intent [text]
   (if (re-find #"happy" text)
-    {:type :positive-affect :conf 0.9}
+    {:type :joy :conf 0.9}
     {:type :unknown :conf 0.1}))
 
 (deftest candidates-track-affect-and-consequence

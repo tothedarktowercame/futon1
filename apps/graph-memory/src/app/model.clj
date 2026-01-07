@@ -140,8 +140,8 @@
          (filter (fn [doc]
                    (= note (get-in doc [:relation/provenance :note])))))))
 
-(defn- relations-by-types [db src-type dst-type]
-  (let [pattern '[:relation/id :relation/type :relation/provenance
+(defn- relations-by-types-with-rel [db rel-type src-type dst-type]
+  (let [pattern '[:relation/id :relation/type :relation/provenance :relation/props
                   {:relation/src [:entity/id :entity/name :entity/type :entity/external-id]}
                   {:relation/dst [:entity/id :entity/name :entity/type :entity/external-id]}]]
     (->> (d/q '[:find (pull ?r pattern)
@@ -152,8 +152,11 @@
                 [?r :relation/dst ?dst]
                 [?src :entity/type ?src-type]
                 [?dst :entity/type ?dst-type]]
-              db pattern relation-type src-type dst-type)
+              db pattern rel-type src-type dst-type)
          (map first))))
+
+(defn- relations-by-types [db src-type dst-type]
+  (relations-by-types-with-rel db relation-type src-type dst-type))
 
 (defn- entities-by-type [db etype]
   (d/q '[:find ?id ?name ?source
@@ -254,11 +257,13 @@
           stripped (-> raw
                        (str/replace #"^[^a-z0-9]+" "")
                        (str/replace #"[^a-z0-9]+" "-")
-                       (str/replace #"^-+|-+$" ""))]
+                       (str/replace #"^-+|-+$" "")
+                       (str/replace #"^\d+-" ""))]
       (get core-aliases stripped stripped))))
 
 (defn- component-order [relation]
-  (let [order (get-in relation [:relation/provenance :order])]
+  (let [order (or (get-in relation [:relation/props :pattern/component-order])
+                  (get-in relation [:relation/provenance :order]))]
     (cond
       (number? order) (long order)
       (string? order) (try (Long/parseLong order) (catch Exception _ nil))
@@ -269,8 +274,7 @@
     (try (Long/parseLong digits) (catch Exception _ nil))))
 
 (defn- component-label [component]
-  (or (normalize-label (get component :entity/external-id))
-      (normalize-label (second (re-find #"/\\d{2,}-([^/]+)$" (str (:entity/name component)))))
+  (or (normalize-label (second (re-find #"/\\d{2,}-([^/]+)$" (str (:entity/name component)))))
       (normalize-label (last (str/split (str (:entity/name component)) #"/")))))
 
 (defn- check-pattern-core-components [conn]
@@ -279,7 +283,7 @@
         patterns (->> (entities-by-type db :pattern/library)
                       (filter (fn [[pattern-id _ _]]
                                 (contains? scoped-ids pattern-id))))
-        relations (relations-by-types db :pattern/library :pattern/component)
+        relations (relations-by-types-with-rel db :pattern/includes :pattern/library :pattern/component)
         grouped (group-by #(get-in % [:relation/src :entity/id]) relations)
         failures (vec
                   (mapcat
@@ -287,7 +291,8 @@
                      (let [rels (get grouped pattern-id)
                            components (map (fn [rel]
                                              (let [dst (:relation/dst rel)
-                                                   label (component-label dst)
+                                                   label (or (get-in rel [:relation/props :pattern/component-label])
+                                                             (component-label dst))
                                                    order (or (component-order rel)
                                                              (name-order (:entity/name dst)))]
                                                {:label label

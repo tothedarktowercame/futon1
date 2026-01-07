@@ -53,14 +53,33 @@
 (defn ensure-entity-handler [request]
   (let [body (:body request)
         debug? (some-> (get-in request [:query-params "debug"]) str (= "1"))
-        payload (ensure-entity! request body)
-        verification (invariants/maybe-verify-core (:profile payload))]
-    (if (and verification (not (:ok? verification)))
+        result (try
+                 {:ok? true
+                  :payload (ensure-entity! request body)}
+                 (catch clojure.lang.ExceptionInfo ex
+                   (let [data (ex-data ex)]
+                     (if (= 400 (:status data))
+                       {:ok? false
+                        :error (merge {:error (.getMessage ex)}
+                                      data)}
+                       (throw ex)))))
+        payload (:payload result)
+        verification (when (:ok? result)
+                       (invariants/maybe-verify-core (:profile payload)))]
+    (cond
+      (not (:ok? result))
+      (http/ok-json (cond-> (:error result)
+                      debug? (assoc :debug {:body body}))
+                    400)
+
+      (and verification (not (:ok? verification)))
       (http/ok-json {:error "Model invariants failed"
                      :profile (:profile payload)
                      :invariants verification
                      :result payload}
                     409)
+
+      :else
       (http/ok-json (cond-> (if debug?
                               (assoc payload :debug {:body body})
                               payload)
@@ -161,3 +180,54 @@
                     409)
       (http/ok-json (cond-> payload
                       verification (assoc :invariants verification))))))
+
+(defn- batch-relations [body]
+  (cond
+    (and (map? body) (sequential? (:relations body))) (:relations body)
+    (sequential? body) body
+    :else nil))
+
+(defn- upsert-relation-safe! [ctx relation]
+  (try
+    {:ok? true
+     :relation (:relation (commands/upsert-relation! ctx relation))}
+    (catch clojure.lang.ExceptionInfo ex
+      {:ok? false
+       :error (.getMessage ex)
+       :data (ex-data ex)
+       :relation relation})
+    (catch Throwable ex
+      {:ok? false
+       :error (.getMessage ex)
+       :relation relation})))
+
+(defn upsert-relations-batch-handler [request]
+  (let [body (:body request)
+        relations (batch-relations body)]
+    (when-not (seq relations)
+      (throw (ex-info "Missing relations array" {:status 400})))
+    (let [profile (request-profile request)
+          ctx {:conn (store-manager/conn profile)
+               :env (request-env request profile)
+               :record-anchors! (fn [anchors]
+                                  (store-manager/record-anchors! profile anchors))}
+          results (mapv (fn [rel]
+                          (let [spec (merge rel (maybe-infer-relation-type rel))]
+                            (upsert-relation-safe! ctx spec)))
+                        relations)
+          ok (filterv :ok? results)
+          errors (filterv #(not (:ok? %)) results)
+          payload {:profile profile
+                   :relation-count (count ok)
+                   :error-count (count errors)
+                   :relations (mapv :relation ok)
+                   :errors (mapv #(dissoc % :ok?) errors)}
+          verification (invariants/maybe-verify-core profile)]
+      (if (and verification (not (:ok? verification)))
+        (http/ok-json {:error "Model invariants failed"
+                       :profile profile
+                       :invariants verification
+                       :result payload}
+                      409)
+        (http/ok-json (cond-> payload
+                        verification (assoc :invariants verification)))))))

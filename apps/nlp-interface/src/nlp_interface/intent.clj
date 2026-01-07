@@ -199,23 +199,59 @@
                                   "moral" "ought" "principle" "proper"
                                   "responsibility" "right" "upright"
                                   "virtue"}}
-   :positive-affect {:keywords #{"amuse" "celebrate" "cheer" "delight"
-                                  "enjoy" "excite" "funny" "glad" "happy"
-                                  "joy" "laugh" "merry" "pleasure" "smile"
-                                  "thrill" "upbeat"}}
-   :anxiety {:keywords #{"afraid" "alarm" "anguish" "anxious" "dread"
-                         "fear" "nervous" "panic" "scared" "terrify"
-                         "uneasy" "worry"}}
-   :sadness {:keywords #{"alas" "depress" "despair" "disappoint" "dismal"
-                         "grief" "hopeless" "lament" "lonely" "miserable"
-                         "mourn" "regret" "sad" "sorrow" "weep"}
-             :confidence {:start 0.6 :step 0.07 :max 0.92}}
-   :affection {:keywords #{"adore" "affection" "beloved" "cherish" "dear"
-                           "embrace" "fond" "friend" "kind" "love"
-                           "romance" "sweetheart" "sympathy" "welcome"}}
-   :aggression {:keywords #{"abuse" "anger" "argu" "attack" "battle" "beat"
-                            "blame" "destroy" "fight" "hate" "kill" "rage"
-                            "revenge" "stab" "violence" "war"}}
+   :activation {:keywords #{"agitat" "amp" "anger" "angry" "annoy" "driv"
+                            "determ" "fire" "furious" "irritat" "livid"
+                            "mad" "motivat" "pressur" "rile" "resolv"
+                            "resolut" "urgent" "urgency"}
+                :phrases #{"amped up" "fed up" "fired up" "pissed off"
+                           "riled up" "under pressure" "worked up"}
+                :priority 0.2}
+   :attraction {:keywords #{"appeal" "attract" "captivat" "compel" "curios"
+                            "draw" "engag" "fascinat" "interest" "intrigu"
+                            "magnet" "pull" "tempt"}
+                :priority 0.2}
+   :joy {:keywords #{"alive" "cheer" "content" "delight" "ease" "energise"
+                     "energiz" "glad" "happy" "joy" "light" "play"
+                     "pleas" "relax" "satisf" "uplift"}
+         :phrases #{"open hearted" "open-hearted"}
+         :priority 0.2}
+   :fatigue {:keywords #{"drain" "dull" "exhaust" "fatigu" "flat" "heavy"
+                         "overload" "overwhelm" "sleepy" "sluggish" "spent"
+                         "tired" "weary" "worn"}
+             :phrases #{"burned out" "burnt out" "worn out"}
+             :priority 0.2}
+   :anxiety {:keywords #{"afraid" "anxiety" "anxious" "apprehens" "concern"
+                         "fear" "nervous" "panic" "pressur" "scared"
+                         "stress" "tense" "uneasy" "worr"}
+             :phrases #{"on edge"}
+             :priority 0.2}
+   :withdrawal {:keywords #{"avoid" "block" "closed" "frozen" "guard"
+                            "hesitat" "reluct" "reserved" "stuck" "withdraw"}
+                :phrases #{"holding back" "shut down"}
+                :priority 0.2}
+   :frustration {:keywords #{"annoy" "conflict" "exasperat" "frustrat"
+                             "impatient" "irritat" "resent" "stymi"
+                             "thwart" "torn"}
+                 :priority 0.2}
+   :sadness {:keywords #{"blue" "depress" "deflat" "disappoint" "discourag"
+                         "down" "empty" "heavy" "hollow" "low" "sad"}
+             :phrases #{"heavy-hearted"}
+             :priority 0.2}
+   :numbness {:keywords #{"apathe" "blank" "detach" "disconnect" "indifferent"
+                          "numb" "unmoved"}
+              :phrases #{"blanked out" "checked out" "dead inside" "shut off"}
+              :priority 0.2}
+   :orientation {:keywords #{"alert" "attentive" "aware" "certainty" "clarity"
+                             "clear" "confus" "distract" "doubt" "focused"
+                             "lost" "skeptic" "surpris" "uncertain" "unclear"}
+                 :priority 0.2}
+   :social {:keywords #{"accept" "appreciat" "belong" "connect" "dismiss"
+                        "exclud" "ignored" "insecure" "lonely" "reject"
+                        "seen" "secure" "support" "unseen" "valued"}
+            :priority 0.2}
+   :regulation {:keywords #{"agitat" "balance" "calm" "equanim" "ground"
+                            "overstimul" "restless" "settled" "unbalance"}
+                :priority 0.2}
    :expressive-behavior {:keywords #{"art" "dance" "laugh" "music" "paint"
                                      "poem" "sing" "song" "theater" "yell"
                                      "perform"}}

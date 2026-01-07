@@ -6,12 +6,18 @@
   (:import (java.time Instant)))
 
 (def ^:private affect-intents
-  #{:positive-affect
+  #{:activation
+    :attraction
+    :joy
+    :fatigue
     :anxiety
+    :withdrawal
+    :frustration
     :sadness
-    :affection
-    :aggression
-    :passivity})
+    :numbness
+    :orientation
+    :social
+    :regulation})
 
 (def ^:private default-opts
   {:lookahead-minutes 10

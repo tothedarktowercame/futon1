@@ -9,12 +9,12 @@
 
 (defn- usage []
   (str/join \newline
-            ["Usage: clojure -M -m scripts.docbook-backfill-history [--book BOOK] [--dry-run]"
+            ["Usage: clojure -M -m scripts.docbook-backfill-history [--book BOOK] [--root PATH] [--dry-run]"
              "Defaults:"
              "  BOOK=futon4"]))
 
 (defn- parse-args [args]
-  (loop [opts {:book "futon4" :dry-run? false :help? false}
+  (loop [opts {:book "futon4" :out-root nil :dry-run? false :help? false}
          remaining args]
     (if-let [arg (first remaining)]
       (cond
@@ -25,6 +25,11 @@
         (if-let [value (second remaining)]
           (recur (assoc opts :book value) (nnext remaining))
           (throw (ex-info "Missing value for --book" {})))
+
+        (#{"-r" "--root"} arg)
+        (if-let [value (second remaining)]
+          (recur (assoc opts :out-root value) (nnext remaining))
+          (throw (ex-info "Missing value for --root" {})))
 
         (#{"--dry-run"} arg)
         (recur (assoc opts :dry-run? true) (rest remaining))
@@ -104,6 +109,7 @@
     (if (:help? opts)
       (println (usage))
       (let [root (find-repo-root)
+            out-root (or (:out-root opts) root)
             _ (when (and root
                          (nil? (System/getenv "FUTON_CONFIG"))
                          (nil? (System/getProperty "futon.config")))
@@ -117,6 +123,7 @@
         (println (format "Using XTDB config: %s (exists=%s)" cfg-path (.exists (java.io.File. cfg-path))))
         (println (format "Using data dir: %s" data-dir))
         (println (format "Book: %s (dry-run=%s)" (:book opts) dry-run?))
+        (println (format "Output root: %s" out-root))
         (xt/start! cfg-path {:data-dir (when data-dir (str (java.io.File. data-dir "xtdb")))
                              :xt/created-by "scripts.docbook-backfill-history"})
         (try
@@ -129,7 +136,7 @@
             (doseq [entry placeholder-entries]
               (let [doc-id (:doc/id entry)
                     entry-id (:doc/entry-id entry)
-                    raw (raw-path root (:book opts) doc-id)
+                    raw (raw-path out-root (:book opts) doc-id)
                     hist-doc (history-body db entry-id)]
                 (if-not hist-doc
                   (println (format "No history body for %s" doc-id))

@@ -54,6 +54,11 @@
                       {:path (.getAbsolutePath dir)})))
     (.getAbsolutePath dir)))
 
+(defn resolve-root*
+  "Public wrapper for resolving FUTON3_ROOT."
+  [explicit]
+  (resolve-root explicit))
+
 ;; --- Parsing helpers --------------------------------------------------------
 
 (def ^:private clause-re
@@ -206,6 +211,11 @@
      :sigils (vec (split-sigils (or sigils-block "")))
      :components components}))
 
+(defn parse-patterns*
+  "Public wrapper for parsing FUTON3 pattern definitions."
+  [root]
+  (parse-patterns root))
+
 (defn- devmap-files [root]
   (filter (fn [^java.io.File f]
             (and (.isFile f)
@@ -316,7 +326,7 @@
                    (component-preview summary)))
   (let [entity (store/ensure-entity! conn opts {:name (or id title)
                                                 :type :pattern/library
-                                                :external-id (or title id)
+                                                :external-id id
                                                 :source summary})]
     (verify-entity-roundtrip! conn entity)
     (doseq [sigil sigils
@@ -368,6 +378,11 @@
   (doseq [entry patterns]
     (ensure-pattern! conn opts entry))
   (println "Patterns ingested."))
+
+(defn ingest-patterns*
+  "Public wrapper for ingesting FUTON3 pattern definitions."
+  [conn opts patterns]
+  (ingest-patterns! conn opts patterns))
 
 (defn- ingest-devmaps! [conn opts devmaps]
   (println (format "Persisting %d devmap prototypes…" (count devmaps)))

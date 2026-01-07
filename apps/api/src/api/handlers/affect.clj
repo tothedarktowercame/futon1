@@ -7,12 +7,18 @@
   (:import (java.time Instant)))
 
 (def ^:private affect-intents
-  {:positive-affect "positive-affect"
+  {:activation "activation"
+   :attraction "attraction"
+   :joy "joy"
+   :fatigue "fatigue"
    :anxiety "anxiety"
+   :withdrawal "withdrawal"
+   :frustration "frustration"
    :sadness "sadness"
-   :affection "affection"
-   :aggression "aggression"
-   :passivity "passivity"})
+   :numbness "numbness"
+   :orientation "orientation"
+   :social "social"
+   :regulation "regulation"})
 
 (defn- parse-long-param [value]
   (when (some? value)

@@ -244,7 +244,7 @@
                         :where
                         [?e :entity/type :model/penholder]]
                       db)
-                  (map first))]
+                 (map first))]
     (map #(d/pull db [:entity/id :entity/name :entity/source] %) ids)))
 
 (defn- penholder-registry [conn]
@@ -310,7 +310,7 @@
       :relation/upsert
       (let [rel (:relation event)
             models (->> [(model-from-relation-type (or (:type rel)
-                                                      (:relation/type rel)))
+                                                       (:relation/type rel)))
                          (model-from-entity-type (get-in rel [:src :type]))
                          (model-from-entity-type (get-in rel [:dst :type]))]
                         (remove nil?)

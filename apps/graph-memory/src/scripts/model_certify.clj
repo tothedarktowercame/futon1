@@ -8,6 +8,7 @@
             [app.model-open-world :as model-open-world]
             [app.model-penholder :as model-penholder]
             [app.store-manager :as store-manager]
+            [app.xt :as xt]
             [clojure.string :as str]))
 
 (def ^:private model-registry
@@ -67,8 +68,11 @@
           certificate {:penholder penholder
                        :issued-at (now-ms)}
           profile (store-manager/default-profile)
+          ;; store-manager/conn initializes XTDB via store/restore! -> ensure-xt-node!
           conn (store-manager/conn profile)
           env (store-manager/env profile)]
+      (when-not (xt/started?)
+        (println "WARNING: XTDB not started - updates may not persist"))
       (try
         (doseq [model-key models]
           (if-let [template-fn (get model-registry model-key)]
@@ -81,6 +85,10 @@
                 :docbook (model-docbook/upsert-descriptor! conn env descriptor)
                 :penholder (model-penholder/upsert-descriptor! conn env descriptor)))
             (throw (ex-info "Unknown model key" {:model model-key}))))
+        ;; Sync XTDB to ensure all async writes are committed
+        (when (xt/started?)
+          (xt/sync-node!)
+          (println "XTDB synced."))
         (println "Model certificates updated.")
         (finally
           (store-manager/shutdown!))))))

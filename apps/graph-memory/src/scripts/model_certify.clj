@@ -71,8 +71,9 @@
           ;; store-manager/conn initializes XTDB via store/restore! -> ensure-xt-node!
           conn (store-manager/conn profile)
           env (store-manager/env profile)]
-      (when-not (xt/started?)
-        (println "WARNING: XTDB not started - updates may not persist"))
+      (when (and (get-in env [:xtdb :enabled?] true)
+                 (not (xt/started?)))
+        (println "WARNING: XTDB enabled but not started - updates may not persist"))
       (try
         (doseq [model-key models]
           (if-let [template-fn (get model-registry model-key)]

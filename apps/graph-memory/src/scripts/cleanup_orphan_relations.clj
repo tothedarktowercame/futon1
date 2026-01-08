@@ -41,11 +41,22 @@
   (let [src (:relation/src rel-doc)
         dst (:relation/dst rel-doc)
         src-doc (when src (xtdb/entity db src))
-        dst-doc (when dst (xtdb/entity db dst))]
+        dst-doc (when dst (xtdb/entity db dst))
+        hydratable? (fn [doc]
+                      (when doc
+                        (or (some? (:entity/name doc))
+                            (some? (:entity/type doc))
+                            (some? (:entity/last-seen doc))
+                            (some? (:entity/seen-count doc))
+                            (contains? doc :entity/pinned?)
+                            (some? (:entity/external-id doc))
+                            (some? (:entity/source doc)))))]
     (or (nil? src)
         (nil? dst)
         (nil? src-doc)
-        (nil? dst-doc))))
+        (nil? dst-doc)
+        (not (hydratable? src-doc))
+        (not (hydratable? dst-doc)))))
 
 (defn- find-by-relation-id
   [db rid]

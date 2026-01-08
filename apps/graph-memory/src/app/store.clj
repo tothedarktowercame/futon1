@@ -141,15 +141,17 @@
           last-seen (:entity/last-seen doc)
           seen-count (:entity/seen-count doc)
           pinned? (contains? doc :entity/pinned?)
-          external-id (:entity/external-id doc)
-          source (:entity/source doc)]
+        external-id (:entity/external-id doc)
+        source (:entity/source doc)
+        sha (:media/sha256 doc)]
       (when (or (some? name)
                 (some? type)
                 (some? last-seen)
                 (some? seen-count)
                 pinned?
                 (some? external-id)
-                (some? source))
+                (some? source)
+                (some? sha))
         (cond-> {:entity/id id}
           (some? name) (assoc :entity/name name)
           (some? type) (assoc :entity/type type)
@@ -157,14 +159,16 @@
           (some? seen-count) (assoc :entity/seen-count seen-count)
           pinned? (assoc :entity/pinned? (:entity/pinned? doc))
           (some? external-id) (assoc :entity/external-id external-id)
-          (some? source) (assoc :entity/source source))))))
+          (some? source) (assoc :entity/source source)
+          (some? sha) (assoc :media/sha256 sha))))))
 
 (defn- xt-relation->tx
   [doc]
   (let [id (:relation/id doc)
         src (:relation/src doc)
         dst (:relation/dst doc)
-        prov (:relation/provenance doc)]
+        prov (:relation/provenance doc)
+        props (:relation/props doc)]
     (when (and id src dst)
       (let [src-ref [:entity/id src]
             dst-ref [:entity/id dst]]
@@ -173,6 +177,7 @@
                  :relation/src src-ref
                  :relation/dst dst-ref}
           prov (assoc :relation/provenance prov)
+          props (assoc :relation/props props)
           (:relation/last-seen doc) (assoc :relation/last-seen (:relation/last-seen doc))
           (:relation/confidence doc) (assoc :relation/confidence (:relation/confidence doc)))))))
 
@@ -218,21 +223,30 @@
               (swap! known-ids conj eid)
               (swap! stubbed! conj eid)
               (swap! entity-count inc))))))
-    (letfn [(present? [eid]
+        (letfn [(present? [eid]
               (when eid
-                (or (@known-ids eid)
-                    (let [found? (some? (d/pull @conn [:entity/id] [:entity/id eid]))]
-                      (when found?
-                        (swap! known-ids conj eid))
-                      found?))))
+                (if (@known-ids eid)
+                  (if (some? (d/pull @conn [:entity/id] [:entity/id eid]))
+                    true
+                    (do
+                      (swap! known-ids disj eid)
+                      false))
+                  (let [found? (some? (d/pull @conn [:entity/id] [:entity/id eid]))]
+                    (when found?
+                      (swap! known-ids conj eid))
+                    found?))))
             (ensure-entity! [eid]
               (when (and eid (not (present? eid)))
                 (when-let [doc (xt/entity eid)]
-                  (when-let [tx (xt-entity->tx doc)]
-                    (d/transact! conn [(cond-> tx
-                                         (nil? (:entity/name tx)) (dissoc :entity/name))])
-                    (when-let [id (:entity/id tx)]
-                      (swap! known-ids conj id))))))]
+                  (let [tx (or (xt-entity->tx doc) {:entity/id eid})
+                        tx-data (cond-> tx
+                                  (nil? (:entity/name tx)) (dissoc :entity/name))]
+                    (try
+                      (d/transact! conn [tx-data])
+                      (catch Exception _
+                        ;; Fall back to a minimal stub to keep relation hydration stable.
+                        (d/transact! conn [{:entity/id eid}]))))
+                  (swap! known-ids conj eid))))]
       (let [relation-count (atom 0)
             skipped (atom [])]
         (doseq [doc rel-docs]
@@ -243,9 +257,15 @@
             (if (and (present? src)
                      (present? dst))
               (if-let [tx (xt-relation->tx doc)]
-                (do
+                (try
                   (d/transact! conn [tx])
-                  (swap! relation-count inc))
+                  (swap! relation-count inc)
+                  (catch Exception err
+                    (swap! skipped conj (:relation/id doc))
+                    (binding [*out* *err*]
+                      (println (format "[store] skipped relation %s (%s)"
+                                       (:relation/id doc)
+                                       (ex-message err))))))
                 (swap! skipped conj (:relation/id doc)))
               (swap! skipped conj (:relation/id doc)))))
         (let [missing (remove nil? @skipped)
@@ -290,6 +310,7 @@
                                     {:relation/src [:entity/id]}
                                     {:relation/dst [:entity/id]}
                                     :relation/provenance
+                                    :relation/props
                                     :relation/last-seen
                                     :relation/confidence])
                     :where
@@ -315,7 +336,8 @@
   (let [id (:relation/id relation)
         src-id (get-in relation [:relation/src :entity/id])
         dst-id (get-in relation [:relation/dst :entity/id])
-        prov (:relation/provenance relation)]
+        prov (:relation/provenance relation)
+        props (:relation/props relation)]
     (when (and id src-id dst-id)
       (cond-> {:xt/id id
                :relation/id id
@@ -323,6 +345,7 @@
                :relation/src src-id
                :relation/dst dst-id}
         prov (assoc :relation/provenance prov)
+        props (assoc :relation/props props)
         (:relation/last-seen relation) (assoc :relation/last-seen (:relation/last-seen relation))
         (:relation/confidence relation) (assoc :relation/confidence (:relation/confidence relation))))))
 
@@ -366,6 +389,7 @@
         src-id (or (:entity/id src) (:id src))
         dst-id (or (:entity/id dst) (:id dst))
         provenance (or (:relation/provenance relation) (:provenance relation))
+        props (or (:relation/props relation) (:props relation))
         confidence (or (coerce-double (:relation/confidence relation))
                        (coerce-double (:confidence relation)))
         last-seen (or (coerce-long (:relation/last-seen relation))
@@ -377,6 +401,7 @@
                :relation/src src-id
                :relation/dst dst-id}
         provenance (assoc :relation/provenance provenance)
+        props (assoc :relation/props props)
         last-seen (assoc :relation/last-seen last-seen)
         confidence (assoc :relation/confidence confidence)))))
 
@@ -707,9 +732,12 @@
           (when raw-name (entity-by-name conn raw-name))))
     :else nil))
 
-(defn- meaningful-source? [value]
-  (let [clean (clean-string value)]
-    (and clean (not= clean "external"))))
+(defn- normalize-source-value [value]
+  (cond
+    (map? value) value
+    :else (let [clean (clean-string value)]
+            (when (and clean (not= clean "external"))
+              clean))))
 
 (defn- normalize-entity-spec [spec]
   (cond
@@ -739,8 +767,7 @@
           entity-id (:entity/id id-info)
           external-id (or (clean-string raw-external)
                           (:entity/external-id id-info))
-          source (when (meaningful-source? raw-source)
-                   (clean-string raw-source))
+          source (normalize-source-value raw-source)
           sha256 (clean-string raw-sha)
           base (cond-> {:name name}
                  entity-id (assoc :id entity-id)
@@ -808,8 +835,7 @@
                         (if existing (inc (long (or current-count 0))) 1))
         pinned-flag (if (contains? spec :pinned?) (boolean pinned?) (:entity/pinned? existing))
         ext-id (clean-string external-id)
-        src (when (meaningful-source? source)
-              (clean-string source))
+        src (normalize-source-value source)
         sha (clean-string (:media/sha256 spec))
         entity-id (or (:entity/id existing) id (UUID/randomUUID))]
     (if existing
@@ -1171,7 +1197,8 @@
      (ensure-dir! data-dir)
      (ensure-xt-node! xtdb-opts data-dir)
      (let [conn (d/create-conn schema)
-           _ (println "[store] Hydrating from XTDB...")
+           _ (when (and (xt-enabled? xtdb-opts) (xt/started?))
+               (println "[store] Hydrating from XTDB..."))
            xt-result (when (and (xt-enabled? xtdb-opts) (xt/started?))
                        (hydrate-from-xtdb! conn))
            xt-count  (when xt-result

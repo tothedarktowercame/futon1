@@ -5,6 +5,9 @@
             [app.config :as cfg]
             [app.store-manager :as store-manager]
             [app.store :as store]
+            [app.invariants :as invariants]
+            [app.model :as model]
+            [datascript.core :as d]
             [clojure.stacktrace :as stack])
   (:import (java.time Instant)))
 
@@ -13,12 +16,14 @@
 (defn- usage []
   (str/join \newline
             ["Usage: clojure -M:scripts/ingest-futon3 [--root PATH] [--profile NAME] [--pattern NAME]"
+             "       clojure -M:scripts/ingest-futon3 [--no-verify]"
              "Environment variables:"
              "  FUTON3_ROOT   Override the Futon3 checkout root (default ../futon3)"
+             "  BASIC_CHAT_DATA_DIR Override the Futon1 data root"
              "  ALPHA_PROFILE Futon1 profile to ingest into (defaults to configured profile)"]))
 
 (defn- parse-cli [args]
-  (loop [opts {:root nil :profile nil :pattern nil :help? false}
+  (loop [opts {:root nil :profile nil :pattern nil :help? false :verify? true}
          remaining args]
     (if-let [arg (first remaining)]
       (cond
@@ -40,6 +45,9 @@
           (recur (assoc opts :pattern value) (nnext remaining))
           (throw (ex-info "Missing value for --pattern" {})))
 
+        (#{"--no-verify"} arg)
+        (recur (assoc opts :verify? false) (rest remaining))
+
         :else
         (throw (ex-info (str "Unknown argument " arg) {:arg arg})))
       opts)))
@@ -58,6 +66,26 @@
   "Public wrapper for resolving FUTON3_ROOT."
   [explicit]
   (resolve-root explicit))
+
+;; --- Config resolution -----------------------------------------------------
+
+(defn- repo-root []
+  (loop [dir (io/file (System/getProperty "user.dir"))]
+    (when dir
+      (if (.exists (io/file dir "AGENTS.md"))
+        (.getAbsolutePath dir)
+        (recur (.getParentFile dir))))))
+
+(defn- resolve-data-root [app-cfg]
+  (let [env-root (some-> (System/getenv "BASIC_CHAT_DATA_DIR") str/trim not-empty)
+        raw-root (or env-root (:app/data-dir app-cfg))]
+    (when raw-root
+      (let [file (io/file raw-root)]
+        (if (.isAbsolute file)
+          (.getAbsolutePath file)
+          (if-let [base (repo-root)]
+            (.getAbsolutePath (io/file base raw-root))
+            (.getAbsolutePath file)))))))
 
 ;; --- Parsing helpers --------------------------------------------------------
 
@@ -294,6 +322,7 @@
 (defn- ensure-pattern-component! [conn opts pattern {:keys [kind label text order level]}]
   (let [base-name (:name pattern)
         component-name (format "%s/%02d-%s" base-name order (or kind "section"))
+        label* (or kind (normalize-kind label))
         component (store/ensure-entity! conn opts {:name component-name
                                                    :type :pattern/component
                                                    :external-id (str (:id pattern) "::" kind "::" order)
@@ -307,7 +336,7 @@
                                              :name (:name component)
                                              :type :pattern/component}
                                        :props {:pattern/component-kind kind
-                                               :pattern/component-label label
+                                               :pattern/component-label label*
                                                :pattern/component-order order
                                                :pattern/component-level level}})
     component))
@@ -329,6 +358,16 @@
                                                 :external-id id
                                                 :source summary})]
     (verify-entity-roundtrip! conn entity)
+    (let [rels (d/q '[:find ?rel-id
+                      :in $ ?type ?src-id
+                      :where
+                      [?r :relation/type ?type]
+                      [?r :relation/id ?rel-id]
+                      [?r :relation/src ?src]
+                      [?src :entity/id ?src-id]]
+                    @conn :pattern/includes (:id entity))]
+      (doseq [[rel-id] rels]
+        (store/delete-relation! conn opts rel-id)))
     (doseq [sigil sigils
             :when (seq (remove nil? (vals sigil)))]
       (let [sig-entity (ensure-sigil! conn opts sigil)]
@@ -339,8 +378,12 @@
                                            :dst {:id (:id sig-entity)
                                                  :name (:name sig-entity)
                                                  :type :sigil}})))
-    (let [component-entities (mapv (fn [component]
-                                     (ensure-pattern-component! conn opts entity component))
+    (let [component-entities (mapv (fn [idx component]
+                                     (ensure-pattern-component! conn opts entity
+                                                               (cond-> component
+                                                                 (nil? (:order component))
+                                                                 (assoc :order idx))))
+                                   (range)
                                    (or (seq components) []))]
       (doseq [component component-entities]
         (verify-entity-roundtrip! conn component))
@@ -370,13 +413,60 @@
                                                  :type :devmap/prototype}
                                            :dst {:id (:id sig-entity)
                                                  :name (:name sig-entity)
-                                                 :type :sigil}})))
+                                           :type :sigil}})))
     entity))
+
+(defn- summarize-pattern-failures [entries]
+  (->> entries
+       (map (fn [{:keys [key failures]}]
+              {:key key
+               :count (count failures)
+               :sample (vec (take 5 failures))}))
+       vec))
+
+(defn- print-pattern-failures! [pattern-id entries]
+  (when-let [entry (first entries)]
+    (when-let [failure (first (:failures entry))]
+      (let [pid (or (:pattern-id failure) pattern-id)
+            pname (:pattern-name failure)]
+        (println (format "Pattern invariant failure: %s pattern=%s%s details=%s"
+                         (:key entry)
+                         (or pid "?")
+                         (if pname (format " (%s)" pname) "")
+                         (pr-str (dissoc failure :pattern-name :pattern-id))))))))
+
+(defn- filter-pattern-failures [model-result pattern-id]
+  (->> (:results model-result)
+       (map (fn [entry]
+              (let [failures (filter (fn [failure]
+                                       (let [name (:pattern-name failure)
+                                             pid (:pattern-id failure)]
+                                         (or (= name pattern-id)
+                                             (= pid pattern-id))))
+                                     (:failures entry))]
+                (assoc entry :failures (vec failures)))))
+       (filter (comp seq :failures))
+       vec))
+
+(defn- verify-patterns-or-throw! [conn env {:keys [pattern-id]}]
+  (invariants/ensure-descriptors! conn env [:patterns])
+  (let [result (model/verify conn)]
+    (when-let [pattern-failures (seq (filter-pattern-failures result pattern-id))]
+      (print-pattern-failures! pattern-id pattern-failures)
+      (throw (ex-info (format "Pattern invariants failed after ingesting %s"
+                              (or pattern-id "?"))
+                      {:pattern-id pattern-id
+                       :failures (summarize-pattern-failures pattern-failures)})))))
 
 (defn- ingest-patterns! [conn opts patterns]
   (println (format "Persisting %d Futon3 patterns…" (count patterns)))
-  (doseq [entry patterns]
-    (ensure-pattern! conn opts entry))
+  (let [opts* (if (:verify? opts)
+                (dissoc opts :verify-fn)
+                opts)]
+    (doseq [entry patterns]
+      (ensure-pattern! conn opts* entry)
+      (when (:verify? opts*)
+        (verify-patterns-or-throw! conn opts* {:pattern-id (:id entry)}))))
   (println "Patterns ingested."))
 
 (defn ingest-patterns*
@@ -398,23 +488,29 @@
 
 (defn -main [& args]
   (try
-    (let [{:keys [root profile pattern help?]} (parse-cli args)]
+    (let [{:keys [root profile pattern help? verify?]} (parse-cli args)]
       (when help?
         (println (usage))
         (System/exit 0))
       (let [resolved-root (resolve-root root)
             ;; Respect FUTON_CONFIG / config.edn for data-dir
             app-cfg (cfg/config)
+            data-root (resolve-data-root app-cfg)
             sm-cfg (store-manager/configure!
-                    {:data-root (:app/data-dir app-cfg)})
+                    (cond-> {}
+                      data-root (assoc :data-root data-root)))
             profile-id (or profile (:default-profile sm-cfg))
             conn (store-manager/conn profile-id)
-            env (assoc (store-manager/env profile-id) :now (now-ms))
+            env (assoc (store-manager/env profile-id)
+                       :now (now-ms)
+                       :verify? verify?)
             patterns (vec (parse-patterns resolved-root))
             patterns (if pattern
                        (vec (filter #(pattern-match? % pattern) patterns))
                        patterns)
             devmaps (when-not pattern (parse-devmaps resolved-root))]
+        (when data-root
+          (println (format "Using data root: %s" data-root)))
         (when (and pattern (empty? patterns))
           (throw (ex-info (str "No patterns matched " pattern) {:pattern pattern})))
         (ingest-patterns! conn env patterns)

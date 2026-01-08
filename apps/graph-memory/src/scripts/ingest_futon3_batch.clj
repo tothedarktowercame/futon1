@@ -37,6 +37,13 @@
     (io/make-parents path)
     (spit path (pr-str payload))))
 
+(defn- ingest-one [conn env pattern]
+  (try
+    (ingest/ingest-patterns* conn env [pattern])
+    {:ok? true}
+    (catch Exception ex
+      {:ok? false :ex ex})))
+
 (defn -main [& args]
   (let [{:keys [root checkpoint resume? limit]} (parse-args args)
         ckpt-path (or checkpoint
@@ -54,36 +61,44 @@
         profile (or (:default-profile sm-cfg)
                     (store-manager/default-profile))
         conn (store-manager/conn profile)
-        env (store-manager/env profile)]
+        env (assoc (store-manager/env profile) :verify? true)
+        remaining* (atom pending)
+        processed* (atom (vec (or (:processed ckpt) [])))
+        skipped* (atom (vec (or (:skipped ckpt) [])))]
     (try
       (println (format "Ingesting %d patterns (profile %s)" (count pending) profile))
-      (loop [remaining pending
-             processed (vec (or (:processed ckpt) []))
-             skipped (vec (or (:skipped ckpt) []))]
-        (if-let [slug (first remaining)]
+      (while (seq @remaining*)
+        (let [slug (first @remaining*)
+              rest-remaining (vec (rest @remaining*))]
           (if-let [pattern (get pattern-by-id slug)]
+            (let [{:keys [ok? ex]} (ingest-one conn env pattern)]
+              (if ok?
+                (do
+                  (swap! processed* conj slug)
+                  (reset! remaining* rest-remaining)
+                  (write-checkpoint ckpt-path {:pending @remaining*
+                                               :processed @processed*
+                                               :skipped @skipped*
+                                               :updated-at (System/currentTimeMillis)}))
+                (do
+                  (println (format "Ingest halted on %s. Resume with --resume once fixed." slug))
+                  (write-checkpoint ckpt-path {:pending @remaining*
+                                               :processed @processed*
+                                               :skipped @skipped*
+                                               :updated-at (System/currentTimeMillis)})
+                  (throw ex))))
             (do
-              (ingest/ingest-patterns* conn env [pattern])
-              (let [processed' (conj processed slug)
-                    remaining' (vec (rest remaining))]
-                (write-checkpoint ckpt-path {:pending remaining'
-                                             :processed processed'
-                                             :skipped skipped
-                                             :updated-at (System/currentTimeMillis)})
-                (recur remaining' processed' skipped)))
-            (let [skipped' (conj skipped slug)
-                  remaining' (vec (rest remaining))]
               (println (format "  %s: missing in Futon3 sources" slug))
-              (write-checkpoint ckpt-path {:pending remaining'
-                                           :processed processed
-                                           :skipped skipped'
-                                           :updated-at (System/currentTimeMillis)})
-              (recur remaining' processed skipped')))
-          (do
-            (println "Ingest complete.")
-            (write-checkpoint ckpt-path {:pending []
-                                         :processed processed
-                                         :skipped skipped
-                                         :updated-at (System/currentTimeMillis)}))))
+              (swap! skipped* conj slug)
+              (reset! remaining* rest-remaining)
+              (write-checkpoint ckpt-path {:pending @remaining*
+                                           :processed @processed*
+                                           :skipped @skipped*
+                                           :updated-at (System/currentTimeMillis)})))))
+      (println "Ingest complete.")
+      (write-checkpoint ckpt-path {:pending []
+                                   :processed @processed*
+                                   :skipped @skipped*
+                                   :updated-at (System/currentTimeMillis)})
       (finally
         (store-manager/shutdown!)))))

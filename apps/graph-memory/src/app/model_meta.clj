@@ -122,7 +122,7 @@
                           [?e :entity/type ?dtype]
                           [?e :entity/id ?id]
                           [?e :entity/name ?name]
-                          [(get $ ?e :entity/source) ?source]]
+                          [(get-else $ ?e :entity/source :missing-source) ?source]]
                         db descriptor-type)
                    (map (fn [[id name source]]
                           {:id id :name name :source source})))

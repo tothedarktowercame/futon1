@@ -21,13 +21,30 @@
 
 (defn- pattern-components [db pattern-db-id]
   (map first
-       (d/q '[:find (pull ?dst [:entity/id :entity/name :entity/source])
+       (d/q '[:find (pull ?rel [:relation/id :relation/props
+                                {:relation/dst [:entity/id :entity/name :entity/source]}])
               :in $ ?pattern
               :where
               [?rel :relation/src ?pattern]
               [?rel :relation/type :pattern/includes]
               [?rel :relation/dst ?dst]]
             db pattern-db-id)))
+
+(defn- normalize-label [value]
+  (when value
+    (let [raw (-> (str value)
+                  str/lower-case
+                  str/trim)
+          stripped (-> raw
+                       (str/replace #"^[^a-z0-9]+" "")
+                       (str/replace #"[^a-z0-9]+" "-")
+                       (str/replace #"^-+|-+$" "")
+                       (str/replace #"^\d+-" ""))]
+      stripped)))
+
+(defn- component-label-from-name [component]
+  (or (normalize-label (second (re-find #"/\\d{2,}-([^/]+)$" (str (:entity/name component)))))
+      (normalize-label (last (str/split (str (:entity/name component)) #"/")))))
 
 (defn -main [& [slug]]
   (if (nil? slug)
@@ -43,11 +60,17 @@
                 (println (format "[%s] %s (%s)" profile (:entity/name pattern) (:entity/id pattern)))
                 (println (format "  summary: %s" (preview (:entity/source pattern))))
                 (if (seq components)
-                    (doseq [component (sort-by :entity/name components)]
-                      (println (format "  - %s (%s): %s"
-                                       (:entity/name component)
-                                       (:entity/id component)
-                                       (preview (:entity/source component)))))
+                    (doseq [rel (sort-by (comp :entity/name :relation/dst) components)]
+                      (let [component (:relation/dst rel)
+                            label-prop (get-in rel [:relation/props :pattern/component-label])
+                            label-name (component-label-from-name component)]
+                        (println (format "  - %s (%s): %s"
+                                         (:entity/name component)
+                                         (:entity/id component)
+                                         (preview (:entity/source component))))
+                        (println (format "      label-prop=%s label-name=%s"
+                                         (or label-prop "nil")
+                                         (or label-name "nil")))))
                     (println "  (no components)")))
               (println (format "Pattern %s not found in profile %s" slug profile)))
           (finally

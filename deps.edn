@@ -57,6 +57,9 @@
   {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}
    :main-opts ["-m" "scripts.inspect-pattern"]}
 
+  :scripts/graph-memory
+  {:extra-deps {graph-memory/graph-memory {:local/root "apps/graph-memory"}}}
+
   :baseline/snapshot
   {:deps {client/client {:local/root "apps/client"}}
    :main-opts ["-m" "baseline-snapshot"]}}}

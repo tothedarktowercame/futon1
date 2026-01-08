@@ -14,6 +14,9 @@
            (java.time Instant)
            (java.util UUID)))
 
+(defmethod print-dup Instant [^Instant inst ^java.io.Writer w]
+  (.write w (str "#inst \"" (.toString inst) "\"")))
+
 (def schema
   "Datascript schema used by the runtime store."
   gm/schema)

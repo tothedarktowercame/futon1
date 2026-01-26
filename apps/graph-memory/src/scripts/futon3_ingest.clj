@@ -259,13 +259,19 @@
   (reduce (fn [acc file]
             (let [text (slurp-utf8 file)
                   futon (futon-number (.getName file))]
-              (reduce (fn [acc' [_ idx sigils-block]]
-                        (let [proto (format "%s/p%s" futon idx)
+              (reduce (fn [acc' [_ proto-part sigils-block]]
+                        (let [proto-id (if (re-matches #"\d+" proto-part)
+                                         (format "%s/p%s" futon proto-part)
+                                         (format "%s/%s" futon (-> proto-part
+                                                                   str/lower-case
+                                                                   (str/replace #"[^a-z0-9]+" "-")
+                                                                   (str/replace #"^-" "")
+                                                                   (str/replace #"-$" ""))))
                               sigils (vec (split-sigils sigils-block))]
-                          (assoc acc' proto sigils)))
+                          (assoc acc' proto-id sigils)))
                       acc
                       (re-seq (re-pattern
-                               "!\\s+instantiated-by: Prototype\\s+(\\d+) — .*?\\[(.*?)\\]")
+                               "!\\s+instantiated-by:\\s*(?:Prototype\\s+)?(\\S+) — .*?\\[(.*?)\\]")
                               text))))
           {}
           (devmap-files root)))

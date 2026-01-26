@@ -45,3 +45,18 @@
        (spit file content)
        (let [devmaps (#'ingest/parse-devmaps dir)]
          (is (= #{"f3/p1"} (set (keys devmaps)))))))))
+
+(deftest parse-devmaps-handles-named-entries
+  (testing "Named entries like 'Completion' are parsed with kebab-case IDs"
+    (with-temp
+     (fn [dir]
+       (let [holes-dir (doto (io/file dir "holes") .mkdirs)
+             file (io/file holes-dir "futon0.devmap")
+             content (str "@multiarg f0/devmap\n"
+                          "! instantiated-by: Prototype 0 — Core [🙇/亏]\n"
+                          "! instantiated-by: Completion — Full Integration [🔚/结]\n")]
+         (spit file content)
+         (let [devmaps (#'ingest/parse-devmaps dir)]
+           (is (= #{"f0/p0" "f0/completion"} (set (keys devmaps))))
+           (is (= [{:emoji "🙇" :hanzi "亏"}] (get devmaps "f0/p0")))
+           (is (= [{:emoji "🔚" :hanzi "结"}] (get devmaps "f0/completion")))))))))

@@ -1,5 +1,6 @@
 (ns open-world-ingest.adapters.interface
-  (:require [open-world-ingest.nlp :as nlp]
+  (:require [charon.core :as charon]
+            [open-world-ingest.nlp :as nlp]
             [open-world-ingest.storage :as storage]))
 
 (defn process-text
@@ -20,6 +21,7 @@
         analysis (nlp/analyze text {:now instant
                                     :trace-openie trace-openie})
         storage-result (storage/store-analysis! text analysis)]
+    (charon/ensure-ok storage-result)
     {:text text
      :time instant
      :entities (:entities analysis)

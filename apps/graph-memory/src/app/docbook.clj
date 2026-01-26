@@ -2,6 +2,7 @@
   "Docbook ingest/query utilities for XTDB."
   (:require [app.config :as config]
             [app.xt :as xt]
+            [charon.core :as charon]
             [clojure.data.json :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -29,6 +30,26 @@
                          (remove str/blank?)
                          vec)
     :else nil))
+
+(defn- blank->nil [value]
+  (when-not (and (string? value) (str/blank? value))
+    value))
+
+(defn- missing? [value]
+  (cond
+    (nil? value) true
+    (string? value) (str/blank? value)
+    (sequential? value) (empty? value)
+    :else false))
+
+(defn- missing-fields [m fields]
+  (->> fields (filter #(missing? (get m %))) vec))
+
+(def ^:private heading-required
+  [:doc/id :doc/book :doc/title :doc/outline_path :doc/path_string :doc/level])
+
+(def ^:private entry-required
+  [:doc/id :doc/entry-id :doc/book])
 
 (defn- heading-doc [m]
   (let [doc-id (or (:doc_id m) (:doc/id m))
@@ -128,6 +149,8 @@
   (when-let [m (re-find #"`([^`]+)`" (or title ""))]
     (second m)))
 
+(declare heading-error entry-error)
+
 (defn- function-index [root]
   (let [root (io/file root "dev")]
     (if-not (.exists root)
@@ -170,13 +193,13 @@
         files (org-doc-files root)
         fn-index (function-index root)]
     (reduce
-     (fn [{:keys [txs stats]} file]
+     (fn [{:keys [txs stats errors]} file]
        (let [rel-path (str/replace (.getCanonicalPath (io/file file))
                                    (str root-path "/")
                                    "")
              sections (org-sections file)]
-         (reduce
-          (fn [{:keys [txs stats]} {:keys [outline level title body]}]
+        (reduce
+          (fn [{:keys [txs stats errors]} {:keys [outline level title body]}]
             (let [path-str (str/join " / " outline)
                   outline-key (str/join "/" outline)
                   doc-id (str book "-" (short-hash (format "%s::%s" book outline-key)))
@@ -195,28 +218,41 @@
                                         :doc/function-anchor anchor
                                         :doc/source-path source-path
                                         :doc/source-doc rel-path})
+                  heading-err (heading-error heading)
+                  entry-err (entry-error entry)
                   stats (-> stats
                             (update :total (fnil inc 0))
                             (update-in [:levels level] (fnil inc 0))
                             (cond-> function-name
-                              (update :functions (fnil inc 0))))
-                  txs (into txs [[::xtdb/put heading]
-                                 [::xtdb/put entry]])]
-              {:txs txs :stats stats}))
-          {:txs txs :stats stats}
+                              (update :functions (fnil inc 0))))]
+              (if (or heading-err entry-err)
+                {:txs txs
+                 :stats (update stats :skipped (fnil inc 0))
+                 :errors (conj (or errors [])
+                               {:error "Invalid org docbook entry"
+                                :doc-id doc-id
+                                :entry-id entry-id
+                                :heading-error heading-err
+                                :entry-error entry-err
+                                :source-doc rel-path})}
+                {:txs (into txs [[::xtdb/put heading]
+                                 [::xtdb/put entry]])
+                 :stats stats
+                 :errors errors})))
+          {:txs txs :stats stats :errors errors}
           sections)))
-     {:txs [] :stats {:total 0 :levels {} :functions 0 :files (count files)}}
+     {:txs [] :stats {:total 0 :levels {} :functions 0 :files (count files)} :errors []}
      files)))
 
 (defn- entry-doc [book m]
   (let [doc-id (or (:doc_id m) (:doc/id m))
         entry-id (or (:doc/entry-id m) (:doc_entry_id m) (:doc/entry_id m) (:entry_id m) (:run_id m))
-        body (or (:doc/body m)
-                 (:doc/context m)
-                 (:body m)
-                 (:context m)
-                 (:agent_summary m)
-                 (:summary m))]
+        body (blank->nil (or (:doc/body m)
+                             (:doc/context m)
+                             (:body m)
+                             (:context m)
+                             (:agent_summary m)
+                             (:summary m)))]
     (when (and doc-id entry-id)
       (let [status (normalize-status (or (:doc/status m) (:status m)))]
         (cond-> {:xt/id entry-id
@@ -248,8 +284,11 @@
 
 (defn- normalize-entry-payload
   [book payload]
-  (let [outline (normalize-outline (or (:doc/outline_path payload) (:outline_path payload)))
-        path-str (or (:doc/path_string payload) (:path_string payload)
+  (let [outline-raw (or (:doc/outline_path payload) (:outline_path payload))
+        path-str-raw (or (:doc/path_string payload) (:path_string payload))
+        outline (or (normalize-outline outline-raw)
+                    (normalize-outline path-str-raw))
+        path-str (or path-str-raw
                      (when (seq outline) (str/join " / " outline)))
         title (or (:doc/title payload) (:title payload)
                   (when (seq outline) (last outline)))
@@ -263,6 +302,22 @@
       title (assoc :doc/title title)
       level (assoc :doc/level level))))
 
+(defn- heading-error [heading]
+  (when-let [missing (seq (missing-fields heading heading-required))]
+    {:issue :missing-fields
+     :missing (vec missing)}))
+
+(defn- entry-error [entry]
+  (let [missing (seq (missing-fields entry entry-required))
+        status (:doc/status entry)
+        body (:doc/body entry)]
+    (cond
+      missing {:issue :missing-fields
+               :missing (vec missing)}
+      (and (not= :removed status) (missing? body))
+      {:issue :missing-body}
+      :else nil)))
+
 (defn upsert-entry!
   "Upsert a single docbook heading + entry (idempotent by entry-id)."
   [book payload]
@@ -270,11 +325,31 @@
   (let [book (or book "futon4")
         payload (normalize-entry-payload book payload)
         heading (heading-doc payload)
-        entry (entry-doc book payload)]
-    (if-not (and heading entry)
+        entry (entry-doc book payload)
+        heading-err (when heading (heading-error heading))
+        entry-err (when entry (entry-error entry))]
+    (cond
+      (not (and heading entry))
       {:ok? false
        :error "doc_id + entry_id required (or outline_path to derive doc_id)"
        :book book}
+
+      heading-err
+      {:ok? false
+       :error "Invalid docbook heading payload"
+       :book book
+       :doc-id (:doc/id heading)
+       :details heading-err}
+
+      entry-err
+      {:ok? false
+       :error "Invalid docbook entry payload"
+       :book book
+       :doc-id (:doc/id entry)
+       :entry-id (:doc/entry-id entry)
+       :details entry-err}
+
+      :else
       (do
         (xt/submit! [[::xtdb/put heading]
                      [::xtdb/put entry]])
@@ -293,16 +368,24 @@
         prepared (map (fn [payload]
                         (let [payload (normalize-entry-payload book payload)
                               heading (heading-doc payload)
-                              entry (entry-doc book payload)]
+                              entry (entry-doc book payload)
+                              heading-err (when heading (heading-error heading))
+                              entry-err (when entry (entry-error entry))]
                           {:payload payload
                            :heading heading
                            :entry entry
-                           :ok? (and heading entry)}))
+                           :heading-err heading-err
+                           :entry-err entry-err
+                           :ok? (and heading entry (not heading-err) (not entry-err))}))
                       entries)
         errors (->> prepared
                     (remove :ok?)
-                    (map (fn [{:keys [payload]}]
-                           {:error "doc_id + entry_id required (or outline_path to derive doc_id)"
+                    (map (fn [{:keys [payload heading entry heading-err entry-err]}]
+                           {:error "Invalid docbook payload"
+                            :doc-id (or (:doc/id heading) (:doc/id entry))
+                            :entry-id (:doc/entry-id entry)
+                            :heading-error heading-err
+                            :entry-error entry-err
                             :payload payload}))
                     vec)
         txs (->> prepared
@@ -406,12 +489,20 @@
         base (docbook-log-base root book)
         raw-dir (io/file base "raw")
         toc (io/file base "toc.json")
-        txs-acc (transient [])]
+        txs-acc (transient [])
+        errors-acc (transient [])]
     (when (.exists toc)
       (let [payload (read-json toc)]
         (when (sequential? payload)
           (doseq [h payload]
-            (conj! txs-acc [::xtdb/put (heading-doc h)])))))
+            (let [heading (heading-doc h)
+                  heading-err (when heading (heading-error heading))]
+              (if heading-err
+                (conj! errors-acc
+                       {:error "Invalid docbook toc heading"
+                        :doc-id (:doc/id heading)
+                        :heading-error heading-err})
+                (conj! txs-acc [::xtdb/put heading])))))))
     (doseq [f (entry-files raw-dir)]
       (let* [payload (normalize-entry-payload book (read-json f))
              doc-id (:doc/id payload)
@@ -420,14 +511,27 @@
                                              (format "%s.org" doc-id))))
              payload (merge-stub-into-payload payload stub)
              heading (heading-doc payload)
-             entry (entry-doc book payload)]
-        (when heading
-          (conj! txs-acc [::xtdb/put heading]))
-        (when entry
-          (conj! txs-acc [::xtdb/put entry]))))
-    (let [{:keys [txs stats]} (org-doc-txs root book)]
+             entry (entry-doc book payload)
+             heading-err (when heading (heading-error heading))
+             entry-err (when entry (entry-error entry))]
+        (if (or heading-err entry-err)
+          (conj! errors-acc
+                 {:error "Invalid docbook entry"
+                  :doc-id (:doc/id heading)
+                  :entry-id (:doc/entry-id entry)
+                  :source (.getName f)
+                  :heading-error heading-err
+                  :entry-error entry-err})
+          (do
+            (when heading
+              (conj! txs-acc [::xtdb/put heading]))
+            (when entry
+              (conj! txs-acc [::xtdb/put entry]))))))
+    (let [{:keys [txs stats errors]} (org-doc-txs root book)]
       (doseq [tx txs]
         (conj! txs-acc tx))
+      (doseq [err errors]
+        (conj! errors-acc err))
       (let [levels (:levels stats)
             level-str (if (seq levels)
                         (->> levels
@@ -443,9 +547,17 @@
     (let [txs* (persistent! txs-acc)]
       (when (seq txs*)
         (xt/submit! txs*)))
-    {:book book
-     :headings (when (.exists toc) (count (read-json toc)))
-     :entries (count (entry-files raw-dir))}))
+    (let [errors (persistent! errors-acc)
+          result {:book book
+                  :headings (when (.exists toc) (count (read-json toc)))
+                  :entries (count (entry-files raw-dir))
+                  :errors errors}]
+      (if (empty? errors)
+        (charon/ok :docbook/ingest result)
+        (charon/reject :docbook/ingest
+                       :docbook/invalid-entry
+                       result
+                       "Docbook ingest rejected invalid entries.")))))
 
 (defn- latest-entry [entries]
   (->> entries

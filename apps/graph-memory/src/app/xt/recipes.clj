@@ -89,7 +89,7 @@
             rel-id (:id rel)]
         (if (or (nil? rel-id) (seen rel-id))
           (recur seen acc (rest remaining))
-          (recur (conj seen rel-id) (conj acc rel) (rest remaining))))))
+          (recur (conj seen rel-id) (conj acc rel) (rest remaining)))))))
 
 (defn list-entities
   "Return entity summaries sorted for REPL use.

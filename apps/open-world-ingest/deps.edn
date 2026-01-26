@@ -9,7 +9,8 @@
         edu.stanford.nlp/stanford-corenlp$models {:mvn/version "4.5.4"}
         edu.stanford.nlp/stanford-corenlp$models-english {:mvn/version "4.5.4"}
         graph-memory/graph-memory        {:local/root "../graph-memory"}
-        nlp-interface/nlp-interface      {:local/root "../nlp-interface"}}
+        nlp-interface/nlp-interface      {:local/root "../nlp-interface"}
+        charon/charon                    {:local/root "../charon"}}
 
  :mvn/repos {"central"   {:url "https://repo.maven.apache.org/maven2/"}
              "central-1" {:url "https://repo1.maven.org/maven2/"}

@@ -189,7 +189,8 @@
            {:keys [state entry]} turn-ctx
            handler   (:handle entry)
            conn      (store-manager/conn profile)
-           env-now   (assoc (:env ctx) :now ts)
+           env-now   (assoc (merge (store-manager/env profile) (:env ctx))
+                            :now ts)
            options   (context-options request)
            xt-node   (:xtdb-node ctx)
            ;; --- TAKE ONE SNAPSHOT SAFELY AND REUSE IT ---
@@ -205,17 +206,17 @@
                                       (count (:relations result))))
            ensured   (ensure-entities! conn env-now (:entities result) actor-ref)
            rels      (persist-relations! conn env-now ensured (:relations result) actor-ref)
-           _         (when (and (open-world-ingest-enabled?)
+           open-world-result (when (and (open-world-ingest-enabled?)
+                                        xt-node
+                                        (map? (:open-world result)))
+                               (open-world/store-analysis-with-node!
                                 xt-node
-                                (map? (:open-world result)))
-                       (open-world/store-analysis-with-node!
-                        xt-node
-                        text
-                        (assoc (:open-world result)
-                               :ego-id (:id actor-ref)
-                               :actor-id (:id actor-ref)
-                               :actor-name (:name actor-ref)
-                               :actor-type (:type actor-ref))))
+                                text
+                                (assoc (:open-world result)
+                                       :ego-id (:id actor-ref)
+                                       :actor-id (:id actor-ref)
+                                       :actor-name (:name actor-ref)
+                                       :actor-type (:type actor-ref))))
            anchors   (->> ensured vals (remove nil?) vec)
            _         (store-manager/record-anchors! profile anchors)
 
@@ -246,10 +247,11 @@
                 :focus-limit 10
                 :conn conn})]
        {:turn_id ts
-        :entities  (->> ensured vals (map #(select-keys % [:id :name :type :seen-count :last-seen :pinned?])) vec)
-        :relations (mapv #(select-keys % [:id :type :src :dst :confidence :last-seen]) rels)
-        :intent    (:intent result)
-        :focus_header fh
+       :entities  (->> ensured vals (map #(select-keys % [:id :name :type :seen-count :last-seen :pinned?])) vec)
+       :relations (mapv #(select-keys % [:id :type :src :dst :confidence :last-seen]) rels)
+       :intent    (:intent result)
+        :open-world-ingest open-world-result
+       :focus_header fh
         :focus_header_debug focus-debug
         :context   context-lines}))))
 
@@ -309,15 +311,26 @@
               elapsed (/ (- (System/nanoTime) start) 1e6)
               entity-count (count (:entities resp))
               relation-count (count (:relations resp))
-              verification (invariants/maybe-verify-core profile)]
+              verification (invariants/maybe-verify-core profile)
+              open-world (get resp :open-world-ingest)]
           (println (format "TURN POST ok profile=%s %.1fms entities=%d relations=%d"
                            profile elapsed entity-count relation-count))
-          (if (and verification (not (:ok? verification)))
+          (cond
+            (and verification (not (:ok? verification)))
             (http/ok-json {:error "Model invariants failed"
                            :profile profile
                            :invariants verification
                            :result resp}
                           409)
+
+            (and open-world (false? (:ok? open-world)))
+            (http/ok-json {:error "Open-world ingest failed"
+                           :profile profile
+                           :open-world open-world
+                           :result resp}
+                          409)
+
+            :else
             (http/ok-json (cond-> resp
                             verification (assoc :invariants verification)))))
         (catch Throwable ex

@@ -169,6 +169,13 @@
    :entity/external-id
    :entity/source])
 
+(def ^:private open-world-entity-attrs
+  [:entity/label
+   :entity/lower-label
+   :entity/kind
+   :entity/first-seen
+   :entity/updated-at])
+
 (defn- open-world-entity-ids []
   (let [mention-ids (->> (xt/q '{:find [?eid]
                                  :where [[?m :mention/text _]
@@ -268,8 +275,9 @@
         failures (vec
                   (keep (fn [eid]
                           (when-let [doc (xt/entity eid)]
-                            (let [present (some #(contains? doc %) stub-attrs)]
-                              (when-not present
+                            (let [stub-present? (some #(contains? doc %) stub-attrs)
+                                  open-world-present? (some #(contains? doc %) open-world-entity-attrs)]
+                              (when (and stub-present? (not open-world-present?))
                                 {:entity-id eid
                                  :issue :dangling-stub}))))
                         ids))]

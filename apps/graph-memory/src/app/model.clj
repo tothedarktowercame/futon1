@@ -1,6 +1,7 @@
 (ns app.model
   "Model descriptor + invariant checks for patterns."
   (:require [app.store :as store]
+            [app.sigil-allowlist :as sigil-allowlist]
             [clojure.edn :as edn]
             [clojure.string :as str]
             [datascript.core :as d])
@@ -15,6 +16,7 @@
 (def ^:private language-includes ":pattern-language/includes")
 (def ^:private pattern-includes ":pattern/includes")
 (def ^:private futon3-source-token "/futon3/library/")
+(def ^:private futon3-sigil-source "futon3/sigil")
 
 (def ^:private default-descriptor
   {:model/scope :patterns
@@ -38,10 +40,11 @@
    :migrations {}
    :invariants
    [:patterns/language-has-source
-    :patterns/language-has-status
-    :patterns/language-in-catalog
-    :patterns/language-has-includes
-    :patterns/pattern-core-components]})
+   :patterns/language-has-status
+   :patterns/language-in-catalog
+   :patterns/language-has-includes
+   :patterns/sigils-allowlisted
+   :patterns/pattern-core-components]})
 
 (defn descriptor-template []
   default-descriptor)
@@ -168,6 +171,31 @@
          [(get-else $ ?e :entity/source "") ?source]]
        db etype))
 
+(defn- sigil-entities [db]
+  (d/q '[:find ?id ?name ?external ?source
+         :where
+         [?e :entity/type :sigil]
+         [?e :entity/id ?id]
+         [?e :entity/name ?name]
+         [(get-else $ ?e :entity/external-id "") ?external]
+         [(get-else $ ?e :entity/source "") ?source]]
+       db))
+
+(defn- normalize-sigil-part [value]
+  (let [raw (some-> value str/trim)]
+    (when (and (seq raw) (not= raw "?"))
+      raw)))
+
+(defn- parse-sigil-parts [name external]
+  (let [from-external (when (seq external) (str/split external #"\|" 2))
+        from-name (when (seq name) (str/split name #"/" 2))
+        [emoji hanzi] (cond
+                        (and from-external (= 2 (count from-external))) from-external
+                        (and from-name (= 2 (count from-name))) from-name
+                        :else [nil nil])]
+    {:emoji (normalize-sigil-part emoji)
+     :hanzi (normalize-sigil-part hanzi)}))
+
 (defn- scoped-languages [db]
   (->> (entities-by-type db :pattern/language)
        (filter (fn [[_ _ source]]
@@ -239,6 +267,34 @@
                                (contains? has-include? lang-id)))
                      vec)]
     (invariant-result :patterns/language-has-includes missing)))
+
+(defn- check-sigils-allowlisted [conn]
+  (let [db @conn
+        allowlist-result (try
+                           {:allowlist (sigil-allowlist/allowlist-from-root)}
+                           (catch Exception ex
+                             {:error ex}))]
+    (if-let [ex (:error allowlist-result)]
+      (invariant-result :patterns/sigils-allowlisted
+                        [{:issue :sigil/allowlist-missing
+                          :error (.getMessage ex)
+                          :data (ex-data ex)}])
+      (let [allowlist (:allowlist allowlist-result)
+            sigils (->> (sigil-entities db)
+                        (filter (fn [[_ _ _ source]]
+                                  (= source futon3-sigil-source))))
+            failures (->> sigils
+                          (keep (fn [[id name external _source]]
+                                  (let [sigil (parse-sigil-parts name external)]
+                                    (when-not (sigil-allowlist/sigil-allowed? allowlist sigil)
+                                      {:sigil-id id
+                                       :sigil-name name
+                                       :sigil-external external
+                                       :emoji (:emoji sigil)
+                                       :hanzi (:hanzi sigil)
+                                       :issue :sigil/not-allowlisted}))))
+                          vec)]
+        (invariant-result :patterns/sigils-allowlisted failures)))))
 
 (def ^:private core-components
   ["context" "if" "however" "then" "because" "next-steps"])
@@ -351,6 +407,7 @@
    :patterns/language-has-status check-language-has-status
    :patterns/language-in-catalog check-language-in-catalog
    :patterns/language-has-includes check-language-has-includes
+   :patterns/sigils-allowlisted check-sigils-allowlisted
    :patterns/pattern-core-components check-pattern-core-components})
 
 (defn verify

@@ -45,3 +45,12 @@
        (spit file content)
        (let [devmaps (#'ingest/parse-devmaps dir)]
          (is (= #{"f3/p1"} (set (keys devmaps)))))))))
+
+(deftest ingest-patterns-rejects-on-invariants
+  (with-redefs [ingest/ingest-patterns! (fn [& _]
+                                          (throw (ex-info "bad pattern" {:pattern-id "bad"})))]
+    (let [result (ingest/ingest-patterns* nil {} [{:id "bad"}])]
+      (is (false? (:ok? result)))
+      (is (= :charon/reject (:error result)))
+      (is (= :patterns/ingest (:surface result)))
+      (is (= :patterns/ingest-failed (:reason result))))))

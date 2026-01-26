@@ -92,6 +92,6 @@
                                            :id id
                                            :src {:id catalog-id}
                                            :dst {:id dst-id}
-                                           :provenance prov})))))))
+                                           :provenance prov}))))))
         (finally
           (store-manager/shutdown!))))))

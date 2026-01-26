@@ -1,14 +1,17 @@
 (ns scripts.futon3-ingest
   "Ingest Futon3 devmaps + pattern library definitions into Futon1."
-  (:require [clojure.java.io :as io]
+  (:require [charon.core :as charon]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [app.config :as cfg]
             [app.store-manager :as store-manager]
             [app.store :as store]
             [app.invariants :as invariants]
             [app.model :as model]
+            [app.sigil-allowlist :as sigil-allowlist]
             [datascript.core :as d]
-            [clojure.stacktrace :as stack])
+            [clojure.stacktrace :as stack]
+            [scripts.rehydrate :as rehydrate])
   (:import (java.time Instant)))
 
 ;; --- CLI parsing ------------------------------------------------------------
@@ -17,13 +20,16 @@
   (str/join \newline
             ["Usage: clojure -M:scripts/ingest-futon3 [--root PATH] [--profile NAME] [--pattern NAME]"
              "       clojure -M:scripts/ingest-futon3 [--no-verify]"
+             "       clojure -M:scripts/ingest-futon3 [--rehydrate] [--rehydrate-url URL]"
              "Environment variables:"
              "  FUTON3_ROOT   Override the Futon3 checkout root (default ../futon3)"
              "  BASIC_CHAT_DATA_DIR Override the Futon1 data root"
-             "  ALPHA_PROFILE Futon1 profile to ingest into (defaults to configured profile)"]))
+             "  ALPHA_PROFILE Futon1 profile to ingest into (defaults to configured profile)"
+             "  FUTON1_REHYDRATE_URL Optional URL to POST for live rehydrate"]))
 
 (defn- parse-cli [args]
-  (loop [opts {:root nil :profile nil :pattern nil :help? false :verify? true}
+  (loop [opts {:root nil :profile nil :pattern nil :help? false :verify? true
+               :rehydrate? nil :rehydrate-url nil}
          remaining args]
     (if-let [arg (first remaining)]
       (cond
@@ -47,6 +53,14 @@
 
         (#{"--no-verify"} arg)
         (recur (assoc opts :verify? false) (rest remaining))
+
+        (#{"--rehydrate"} arg)
+        (recur (assoc opts :rehydrate? true) (rest remaining))
+
+        (#{"--rehydrate-url"} arg)
+        (if-let [value (second remaining)]
+          (recur (assoc opts :rehydrate-url value :rehydrate? true) (nnext remaining))
+          (throw (ex-info "Missing value for --rehydrate-url" {})))
 
         :else
         (throw (ex-info (str "Unknown argument " arg) {:arg arg})))
@@ -279,7 +293,19 @@
        (when hanzi
          (str " / " hanzi))))
 
+(defn- sigil-token [{:keys [emoji hanzi]}]
+  (str (or emoji "?") "/" (or hanzi "?")))
+
+(defn- ensure-sigil-allowlisted! [opts sigil]
+  (when-let [allowlist (:sigil-allowlist opts)]
+    (when-not (sigil-allowlist/sigil-allowed? allowlist sigil)
+      (throw (ex-info "Sigil not allowlisted"
+                      {:sigil sigil
+                       :token (sigil-token sigil)
+                       :root (:root allowlist)})))))
+
 (defn- ensure-sigil! [conn opts sigil]
+  (ensure-sigil-allowlisted! opts sigil)
   (let [name (sigil-name sigil)
         external (str (or (:emoji sigil) "?") "|" (or (:hanzi sigil) "?"))]
     (store/ensure-entity! conn opts {:name name
@@ -472,7 +498,15 @@
 (defn ingest-patterns*
   "Public wrapper for ingesting FUTON3 pattern definitions."
   [conn opts patterns]
-  (ingest-patterns! conn opts patterns))
+  (try
+    (ingest-patterns! conn opts patterns)
+    (charon/ok :patterns/ingest {:count (count patterns)})
+    (catch Exception ex
+      (charon/reject :patterns/ingest
+                     :patterns/ingest-failed
+                     {:error (.getMessage ex)
+                      :data (ex-data ex)}
+                     "Pattern ingest failed; fix invariants and retry."))))
 
 (defn- ingest-devmaps! [conn opts devmaps]
   (println (format "Persisting %d devmap prototypes…" (count devmaps)))
@@ -488,11 +522,12 @@
 
 (defn -main [& args]
   (try
-    (let [{:keys [root profile pattern help? verify?]} (parse-cli args)]
+    (let [{:keys [root profile pattern help? verify? rehydrate? rehydrate-url]} (parse-cli args)]
       (when help?
         (println (usage))
         (System/exit 0))
       (let [resolved-root (resolve-root root)
+            sigil-allowlist (sigil-allowlist/allowlist-from-root resolved-root)
             ;; Respect FUTON_CONFIG / config.edn for data-dir
             app-cfg (cfg/config)
             data-root (resolve-data-root app-cfg)
@@ -503,7 +538,9 @@
             conn (store-manager/conn profile-id)
             env (assoc (store-manager/env profile-id)
                        :now (now-ms)
-                       :verify? verify?)
+                       :verify? verify?
+                       :sigil-allowlist sigil-allowlist
+                       :penholder "charon")
             patterns (vec (parse-patterns resolved-root))
             patterns (if pattern
                        (vec (filter #(pattern-match? % pattern) patterns))
@@ -513,9 +550,16 @@
           (println (format "Using data root: %s" data-root)))
         (when (and pattern (empty? patterns))
           (throw (ex-info (str "No patterns matched " pattern) {:pattern pattern})))
-        (ingest-patterns! conn env patterns)
+        (let [result (ingest-patterns* conn env patterns)]
+          (when (false? (:ok? result))
+            (binding [*out* *err*]
+              (println "Pattern ingest rejected.")
+              (println (pr-str result)))
+            (System/exit 1)))
         (when devmaps
           (ingest-devmaps! conn env devmaps))
+        (rehydrate/maybe-rehydrate! {:rehydrate? rehydrate?
+                                     :rehydrate-url rehydrate-url})
         (store-manager/shutdown!)))
     (catch Exception ex
       (binding [*out* *err*]

@@ -1,5 +1,6 @@
 (ns open-world-ingest.storage
-  (:require [clojure.edn :as edn]
+  (:require [charon.core :as charon]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.walk :as walk]
@@ -157,53 +158,80 @@
                                  :occurrences occurrences}))
                             grouped)
         distinct-relations (distinct relations)
-        _ (run! register-relation-type! distinct-relations)
-        relation-docs' (relation-docs utterance-id now distinct-relations)
-        mention-docs' (mapcat (fn [{:keys [id occurrences]}]
-                                (mention-docs utterance-id now id occurrences))
-                              entity-results)
-        utterance-doc (cond-> {:xt/id utterance-id
-                               :utterance/id utterance-id
-                               :utterance/text text
-                               :utterance/ts now
-                               :utterance/entity-count (count grouped)
-                               :utterance/relation-count (count distinct-relations)}
-                        actor-id (assoc :utterance/actor-id actor-id)
-                        actor-name (assoc :utterance/actor-name actor-name)
-                        actor-type (assoc :utterance/actor-type actor-type))
-        ops (-> []
-                (into (map (fn [{:keys [doc]}]
-                             [::xt/put (canonical-ego-doc ego-id doc)]) entity-results))
-                (into (map (fn [doc]
-                             [::xt/put (canonical-ego-doc ego-id doc)]) mention-docs'))
-                (into (map (fn [doc]
-                             [::xt/put (canonical-ego-doc ego-id doc)]) relation-docs'))
-                (conj [::xt/put utterance-doc]))
-        tx (xt/submit-tx node ops)]
-    (xt/await-tx node tx)
-    (affect-candidates/record-utterance-async!
-     {:node node
-      :text text
-      :ts now
-      :utterance-id utterance-id
-      :actor-id (or actor-id ego-id)
-      :entities entities})
-    {:utterance/id utterance-id
-     :entities (map (fn [{:keys [entity new?]}]
-                      {:id (:entity/id entity)
-                       :label (:entity/label entity)
-                       :kind (:entity/kind entity)
-                       :new? new?})
-                    entity-results)
-     :relations (map (fn [{:relation/keys [subject object label polarity confidence time loc]}]
-                       (cond-> {:subject subject
-                                :object object
-                                :relation label
-                                :polarity polarity
-                                :confidence confidence}
-                         time (assoc :time time)
-                         loc (assoc :loc loc)))
-                     distinct-relations)}))
+        entity-ids (set (map :id entity-results))
+        relation-dropped (atom [])
+        valid-relations (->> distinct-relations
+                             (filter (fn [{:relation/keys [src dst] :as rel}]
+                                       (let [src-id (canonical-ego-id ego-id src)
+                                             dst-id (canonical-ego-id ego-id dst)
+                                             src-ok (or (contains? entity-ids src-id)
+                                                        (some? (xt/entity db src-id)))
+                                             dst-ok (or (contains? entity-ids dst-id)
+                                                        (some? (xt/entity db dst-id)))]
+                                         (when-not (and src-ok dst-ok)
+                                           (swap! relation-dropped conj
+                                                  {:relation rel
+                                                   :missing (cond-> []
+                                                              (not src-ok) (conj {:issue :missing-src :entity-id src-id})
+                                                              (not dst-ok) (conj {:issue :missing-dst :entity-id dst-id}))}))
+                                         (and src-ok dst-ok))))
+                             vec)
+        _ (run! register-relation-type! distinct-relations)]
+    (if (seq @relation-dropped)
+      (charon/reject :open-world/ingest
+                     :open-world/missing-relation-endpoints
+                     {:errors (vec @relation-dropped)
+                      :entities entities
+                      :relations distinct-relations}
+                     "Ensure entities exist for relation endpoints before ingest.")
+      (let [relation-docs' (relation-docs utterance-id now valid-relations)
+            mention-docs' (mapcat (fn [{:keys [id occurrences]}]
+                                    (mention-docs utterance-id now id occurrences))
+                                  entity-results)
+            utterance-doc (cond-> {:xt/id utterance-id
+                                   :utterance/id utterance-id
+                                   :utterance/text text
+                                   :utterance/ts now
+                                   :utterance/entity-count (count grouped)
+                                   :utterance/relation-count (count distinct-relations)}
+                            actor-id (assoc :utterance/actor-id actor-id)
+                            actor-name (assoc :utterance/actor-name actor-name)
+                            actor-type (assoc :utterance/actor-type actor-type))
+            ops (-> []
+                    (into (map (fn [{:keys [doc]}]
+                                 [::xt/put (canonical-ego-doc ego-id doc)]) entity-results))
+                    (into (map (fn [doc]
+                                 [::xt/put (canonical-ego-doc ego-id doc)]) mention-docs'))
+                    (into (map (fn [doc]
+                                 [::xt/put (canonical-ego-doc ego-id doc)]) relation-docs'))
+                    (conj [::xt/put utterance-doc]))
+            tx (xt/submit-tx node ops)]
+        (xt/await-tx node tx)
+        (affect-candidates/record-utterance-async!
+         {:node node
+          :text text
+          :ts now
+          :utterance-id utterance-id
+          :actor-id (or actor-id ego-id)
+          :entities entities})
+        (charon/ok
+         :open-world/ingest
+         {:utterance/id utterance-id
+          :entities (map (fn [{:keys [entity new?]}]
+                           {:id (:entity/id entity)
+                            :label (:entity/label entity)
+                            :kind (:entity/kind entity)
+                            :new? new?})
+                         entity-results)
+          :relations (map (fn [{:relation/keys [subject object label polarity confidence time loc]}]
+                            (cond-> {:subject subject
+                                     :object object
+                                     :relation label
+                                     :polarity polarity
+                                     :confidence confidence}
+                              time (assoc :time time)
+                              loc (assoc :loc loc)))
+                          distinct-relations)})))))
 
 (defn store-analysis!
   [text {:keys [entities relations] :as analysis}]

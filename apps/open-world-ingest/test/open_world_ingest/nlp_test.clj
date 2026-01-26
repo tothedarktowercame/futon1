@@ -197,7 +197,9 @@
                    :negated? false}]
         derived (#'open-world-ingest.nlp/derive-additional-records records)
         now (Instant/parse "2025-01-01T00:00:00Z")
-        entities {"long term aim" {:entity/id :aim :entity/kind :goal}}]
+        entities {"long term aim" {:entity/id :aim :entity/kind :goal}
+                  "translate good faith into working structure" {:entity/id :structure :entity/kind :proper}
+                  "iterative design" {:entity/id :design :entity/kind :proper}}]
     (is (= 2 (count derived)))
     (let [complement (first derived)
           method (second derived)

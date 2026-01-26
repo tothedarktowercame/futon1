@@ -1379,25 +1379,52 @@
     (when-not rel-type
       (throw (ex-info "Relation type required" {:relation relation-spec})))
     (types/ensure! :relation rel-type)
-    (let [src-spec (normalize-entity-spec src)
-          dst-spec (normalize-entity-spec dst)
-          prov (normalize-provenance provenance)
-          now (or (coerce-long last-seen) (:now opts) (System/currentTimeMillis))
-          conf (or (coerce-double confidence) 1.0)
-          payload (cond-> {:type rel-type
-                           :src src-spec
-                           :dst dst-spec
-                           :last-seen now
-                           :confidence conf}
-                    prov (assoc :provenance prov)
-                    props (assoc :props props)
-                    id (assoc :id (coerce-uuid id)))]
-      (trace-relation "store.upsert.payload" payload)
-      (let [result (tx! conn opts {:type :relation/upsert
-                                   :relation payload})]
-        (trace-relation "store.upsert.result" result)
-        (maybe-mirror-relation! opts result conn)
-        result))))
+    (letfn [(normalize-endpoint [endpoint]
+              (cond
+                (map? endpoint)
+                (let [raw-name (or (:name endpoint)
+                                   (:label endpoint)
+                                   (:entity/name endpoint))]
+                  (if (and raw-name (not (str/blank? (str raw-name))))
+                    (normalize-entity-spec endpoint)
+                    endpoint))
+                :else
+                (normalize-entity-spec endpoint)))]
+      (let [src-spec (normalize-endpoint src)
+            dst-spec (normalize-endpoint dst)
+            src-entity (resolve-entity-ref conn src-spec)
+            dst-entity (resolve-entity-ref conn dst-spec)
+            prov (normalize-provenance provenance)
+            now (or (coerce-long last-seen) (:now opts) (System/currentTimeMillis))
+            conf (or (coerce-double confidence) 1.0)]
+        (when-not src-entity
+          (throw (ex-info "Relation src not found"
+                          {:status 400
+                           :endpoint :src
+                           :spec src-spec
+                           :relation relation-spec})))
+        (when-not dst-entity
+          (throw (ex-info "Relation dst not found"
+                          {:status 400
+                           :endpoint :dst
+                           :spec dst-spec
+                           :relation relation-spec})))
+        (let [src-payload (select-keys (entity->public src-entity) [:id :name :type])
+              dst-payload (select-keys (entity->public dst-entity) [:id :name :type])
+              payload (cond-> {:type rel-type
+                               :src src-payload
+                               :dst dst-payload
+                               :last-seen now
+                               :confidence conf}
+                        prov (assoc :provenance prov)
+                        props (assoc :props props)
+                        id (assoc :id (coerce-uuid id)))]
+          (trace-relation "store.upsert.payload" payload)
+          (let [result (tx! conn opts {:type :relation/upsert
+                                       :relation payload})]
+            (trace-relation "store.upsert.result" result)
+            (maybe-mirror-relation! opts result conn)
+            result))))))
 
 (defn delete-relation!
   "Remove the relation identified by relation-ref (UUID/map) from the store.

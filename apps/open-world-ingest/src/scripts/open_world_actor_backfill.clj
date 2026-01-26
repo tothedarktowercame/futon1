@@ -4,6 +4,7 @@
             [app.store :as store]
             [app.store-manager :as store-manager]
             [app.xt :as xt]
+            [charon.core :as charon]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [datascript.core :as d]
@@ -97,14 +98,15 @@
     (doseq [{:keys [text ts]} utterances
             :when (seq (str text))]
       (let [analysis (nlp/analyze text {:now (java.time.Instant/ofEpochMilli (long ts))})]
-        (ow/store-analysis-with-node!
-         node
-         text
-         (assoc analysis
-                :ego-id actor-id
-                :actor-id actor-id
-                :actor-name actor-name
-                :actor-type actor-type))))))
+        (let [result (ow/store-analysis-with-node!
+                      node
+                      text
+                      (assoc analysis
+                             :ego-id actor-id
+                             :actor-id actor-id
+                             :actor-name actor-name
+                             :actor-type actor-type))]
+          (charon/ensure-ok result))))))
 
 (defn -main [& args]
   (let [{:keys [actor-name profile ingest-ds?]} (parse-args args)

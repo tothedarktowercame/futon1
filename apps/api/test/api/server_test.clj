@@ -179,3 +179,36 @@
     (is (= {:status "ok"
             :capabilities default-caps}
            (json/parse-string (:body resp) true)))))
+
+(deftest rehydrate-endpoint-roundtrips-xtdb
+  (let [data-dir (str (temp-dir))
+        profile "rehydrate-test"
+        client (http-client)]
+    (store-manager/shutdown!)
+    (try
+      (let [{:keys [port]} (server/start! {:port 0
+                                           :data-root data-dir
+                                           :default-profile profile})
+            entity-resp (json-request client "POST" (format "http://localhost:%d/api/α/entity" port)
+                                      {:name "Rehydrate Check"
+                                       :type "test/rehydrate"})
+            entity-id (get-in entity-resp [:json :entity :id])]
+        (is (= 200 (:status entity-resp)))
+        (is (string? entity-id))
+        (testing "rehydrate preserves ingested entity"
+          (let [rehydrate-resp (json-request client "POST"
+                                             (format "http://localhost:%d/api/α/__diag/rehydrate" port)
+                                             {})
+                fetch-resp (get-request client
+                                        (format "http://localhost:%d/api/α/entity/%s" port entity-id))
+                fetched (json/parse-string (:body fetch-resp) true)]
+            (is (= 200 (:status rehydrate-resp)))
+            (is (= true (get-in rehydrate-resp [:json :ok])))
+            (is (= 200 (:status fetch-resp)))
+            (is (= "Rehydrate Check" (get-in fetched [:entity :name])))
+            (is (= "test/rehydrate" (get-in fetched [:entity :type])))))
+        (finally
+          (server/stop!))))
+      (catch java.net.SocketException _
+        (testing "server sandbox restrictions"
+          (is true "Skipping server socket tests in restricted environment"))))))

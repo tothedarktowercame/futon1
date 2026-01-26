@@ -413,6 +413,12 @@
 
      (state->ctx st))))
 
+(defn rehydrate!
+  "Rebuild the in-memory store(s) from XTDB/legacy sources for the active config."
+  ([] (rehydrate! {}))
+  ([opts]
+   (start! opts)))
+
 (defn diag []
   (let [{:keys [data-dir config profile profile-dir]} (current)]
     {:ok true

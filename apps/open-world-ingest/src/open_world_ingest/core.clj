@@ -60,7 +60,14 @@
   [line nlp-opts]
   (let [analysis (nlp/analyze line nlp-opts)
         summary (storage/store-analysis! line analysis)]
-    (print-ingest-summary summary)))
+    (if (false? (:ok? summary))
+      (let [details (get-in summary [:details :errors])]
+        (binding [*out* *err*]
+          (println "Open-world ingest rejected.")
+          (doseq [entry (take 5 details)]
+            (println "  " (select-keys entry [:missing :relation]))))
+        (throw (ex-info "Open-world ingest rejected" summary)))
+      (print-ingest-summary summary))))
 
 (defn -main
   [& args]

@@ -7,6 +7,8 @@ DATA_DIR_DEFAULT="${ROOT}/data"
 PROFILE_DEFAULT="default"
 PORT_DEFAULT="8080"
 
+FUTON3_ROOT=/home/joe/code/futon3
+
 PENHOLDER="${MODEL_PENHOLDER:-${USER:-}}"
 if [ -z "${PENHOLDER}" ]; then
   PENHOLDER="$(id -un 2>/dev/null || true)"

@@ -5,6 +5,12 @@
 (defn ctx-snapshot [_request]
   (http/ok-json (store-manager/diag)))
 
+(defn rehydrate! [_request]
+  (let [ctx (store-manager/rehydrate!)]
+    (http/ok-json {:ok true
+                   :profile (:profile ctx)
+                   :data-dir (some-> ctx :env :data-dir str)})))
+
 (defn healthz [request]
   (let [caps (or (get-in request [:ctx :capabilities])
                  (store-manager/default-capabilities))]

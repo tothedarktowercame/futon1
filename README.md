@@ -134,6 +134,8 @@ Set these when running multiple instances in parallel (tests, tooling, CLI):
   `xtdb.edn`).
 - `BASIC_CHAT_XTDB_ENABLED` – disable XT hydration/mirroring when set to a
   falsy string (`false`, `0`, `off`, `no`).
+- `FUTON3_ROOT` – path to the Futon3 repo so sigil allowlist invariants can
+  load (required when starting Futon1 from nested app directories).
 
 ## Baseline snapshot and determinism
 

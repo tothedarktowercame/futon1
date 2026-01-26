@@ -173,6 +173,16 @@
       last-seen (assoc :last-seen last-seen)
       provenance (assoc :provenance provenance))))
 
+(defn- ensure-relation-endpoints!
+  [conn opts relation-spec]
+  (let [src-spec (:src relation-spec)
+        dst-spec (:dst relation-spec)
+        src-entity (store/ensure-entity! conn opts src-spec)
+        dst-entity (store/ensure-entity! conn opts dst-spec)]
+    (-> relation-spec
+        (assoc :src (select-keys src-entity [:id :name :type]))
+        (assoc :dst (select-keys dst-entity [:id :name :type])))))
+
 (defn- ensure-hx-id [hx]
   (if (:hx/id hx)
     hx
@@ -456,9 +466,11 @@
 
       (add-event! [_ hx-map]
         (let [hx (-> hx-map stamp-hx ensure-hx-id)
-              compat-spec (compat-relation-spec (assoc hx :id (:hx/id hx)))
+              opts (store-opts env)
+              compat-spec (some-> (compat-relation-spec (assoc hx :id (:hx/id hx)))
+                                  (ensure-relation-endpoints! conn opts))
               relation (when compat-spec
-                         (store/upsert-relation! conn (store-opts env) compat-spec))
+                         (store/upsert-relation! conn opts compat-spec))
               stored (cond-> hx
                         relation (assoc :compat/relation-id (:id relation)))]
           (d/transact! hx-conn [(assoc stored :hx/id (:hx/id hx))])
@@ -496,8 +508,9 @@
             [])))
       (add-link! [this {:keys [types] :as payload}]
         (let [hx (link-payload->hx payload)
-              relation-spec (hx->relation-spec hx)
-              relation (store/upsert-relation! conn (store-opts env) relation-spec)
+              opts (store-opts env)
+              relation-spec (ensure-relation-endpoints! conn opts (hx->relation-spec hx))
+              relation (store/upsert-relation! conn opts relation-spec)
               stored (relation->hx relation)]
           (or (:hx/id stored)
               (:id relation))))

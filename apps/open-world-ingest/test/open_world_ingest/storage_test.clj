@@ -95,6 +95,35 @@
         (is (= [[:relation :works-at {:parent :relation/works/*}]] @ensured))
         (is (= [[:relation :works-at [:work-at]]] @merged))))))
 
+(deftest store-analysis-rejects-missing-relation-endpoints
+  (let [alice-id (UUID/fromString "203b7f1a-3bcb-41b2-9e8a-2d02f6b2af78")
+        acme-id (UUID/fromString "b486b2c9-05d5-4cf4-95a8-5df8f5e3a9d5")
+        analysis {:entities []
+                  :relations [{:relation/src alice-id
+                               :relation/dst acme-id
+                               :relation/label :works-at
+                               :relation/type :works-at
+                               :relation/subject "Alice"
+                               :relation/object "Acme"
+                               :relation/polarity :asserted
+                               :relation/confidence 1.0
+                               :relation/sentence 0}]}]
+    (with-redefs [storage/node (constantly ::node)
+                  xt/db (fn [node]
+                          (is (= ::node node))
+                          ::db)
+                  xt/entity (fn [_db _eid] nil)
+                  xt/submit-tx (fn [& _]
+                                 (throw (ex-info "submit-tx should not be called" {})))
+                  util/now (constantly (Instant/ofEpochMilli 1))
+                  types/ensure! (fn [& _] nil)
+                  types/merge! (fn [& _] nil)]
+      (let [summary (storage/store-analysis! "Alice works at Acme." analysis)]
+        (is (false? (:ok? summary)))
+        (is (= :charon/reject (:error summary)))
+        (is (= :open-world/ingest (:surface summary)))
+        (is (= :open-world/missing-relation-endpoints (:reason summary)))))))
+
 (deftest relation-queries-return-recent-and-related-data
   (let [inst1 (Instant/ofEpochMilli 1)
         inst2 (Instant/ofEpochMilli 2)

@@ -2,6 +2,7 @@
 
 This guide explains how clients and tools should use Futon1 as a deterministic
 storage substrate. For hydration details and internals, see `README-storage.md`.
+For ingest gatekeeping contracts, see `apps/charon/README.md`.
 
 ## Quick start
 
@@ -51,6 +52,16 @@ entity types that are not yet covered by a model descriptor.
 ```bash
 curl -s http://localhost:8080/api/alpha/meta/model/registry
 curl -s http://localhost:8080/api/alpha/meta/model/queue
+```
+
+## Charon penholder
+
+Charon is the ingest gatekeeper. Register it as a strict penholder so ingest
+paths that pass through Charon remain enforced:
+
+```bash
+cd /home/joe/code/futon1/apps/graph-memory
+clojure -M -m scripts.charon-penholder-bootstrap
 ```
 
 ## Future work: agent certs

@@ -15,6 +15,7 @@
 
 (def ^:private shared-routes
   [["/__diag" {:get diag/ctx-snapshot}]
+   ["/__diag/rehydrate" {:post diag/rehydrate!}]
    ["/help" {:get slash/help}]
    ["/tail" {:get slash/tail}]
    ["/ego" {:get slash/ego}]

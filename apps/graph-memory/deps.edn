@@ -6,6 +6,7 @@
         cheshire/cheshire {:mvn/version "5.11.0"}
         org.clojure/data.json {:mvn/version "2.5.0"}
         common/common {:local/root "../common"}
+        charon/charon {:local/root "../charon"}
         org.slf4j/slf4j-api {:mvn/version "2.0.12"}
         org.slf4j/slf4j-nop {:mvn/version "2.0.12"}}
 

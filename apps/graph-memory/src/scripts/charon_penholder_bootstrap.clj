@@ -14,8 +14,20 @@
    "model/descriptor/docbook"
    "model/descriptor/penholder"])
 
+(defn- env-user []
+  (normalize-penholder (or (System/getenv "USER")
+                           (System/getenv "LOGNAME"))))
+
 (def ^:private default-penholders
-  ["api" "joe" "cli"])
+  (->> ["api" "cli" (env-user)]
+       (remove nil?)
+       vec))
+
+(defn- default-penholder []
+  (or (System/getenv "MODEL_PENHOLDER")
+      (System/getenv "BASIC_CHAT_PENHOLDER")
+      (env-user)
+      "cli"))
 
 (defn- normalize-penholder [value]
   (when-let [raw (cond
@@ -56,9 +68,7 @@
   (let [profile (store-manager/default-profile)
         conn (store-manager/conn profile)
         env (assoc (store-manager/env profile)
-                   :penholder (or (System/getenv "MODEL_PENHOLDER")
-                                  (System/getenv "BASIC_CHAT_PENHOLDER")
-                                  "cli"))
+                   :penholder (default-penholder))
         now (System/currentTimeMillis)
         certificate {:penholder (:penholder env)
                      :issued-at now}

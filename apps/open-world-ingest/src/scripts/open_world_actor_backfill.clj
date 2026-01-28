@@ -38,6 +38,8 @@
   (or (:penholder env)
       (System/getenv "MODEL_PENHOLDER")
       (System/getenv "BASIC_CHAT_PENHOLDER")
+      (System/getenv "USER")
+      (System/getenv "LOGNAME")
       "cli"))
 
 (defn- ensure-xt-node! []

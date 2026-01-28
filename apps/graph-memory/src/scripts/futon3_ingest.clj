@@ -546,7 +546,7 @@
                        :now (now-ms)
                        :verify? verify?
                        :sigil-allowlist sigil-allowlist
-                       :penholder "charon")
+                       :penholder "cli")
             patterns (vec (parse-patterns resolved-root))
             patterns (if pattern
                        (vec (filter #(pattern-match? % pattern) patterns))

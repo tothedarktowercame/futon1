@@ -345,6 +345,10 @@
         holder (normalize-penholder penholder)
         bad-values (bad-strings event)
         models (or models [])
+        registry-empty? (empty? registry)
+        event-type (:type event)
+        event-entity-type (model-from-entity-type (or (get-in event [:entity :type])
+                                                     (get-in event [:entity :entity/type]))))
         failures (vec
                   (concat
                    (when (seq bad-values)
@@ -355,8 +359,8 @@
                      (assoc err :issue :invalid-penholder-entry))
                    (keep (fn [model]
                            (when-let [descriptor (get model-descriptors model)]
-                             (when-let [{:keys [penholders strict? name certificate]}
-                                        (get registry descriptor)]
+                             (if-let [{:keys [penholders strict? name certificate]}
+                                      (get registry descriptor)]
                                (when strict?
                                  (cond
                                    (nil? holder)
@@ -378,7 +382,14 @@
                                     :entry name
                                     :issue :penholder/missing-certificate}
 
-                                   :else nil)))))
+                                   :else nil))
+                               (when-not (and (= model :penholder)
+                                              registry-empty?
+                                              (= event-type :entity/upsert)
+                                              (= event-entity-type :penholder))
+                                 {:model model
+                                  :descriptor descriptor
+                                  :issue :penholder/missing-entry})))))
                          models)))]
     {:ok? (empty? failures)
      :event-type (:type event)

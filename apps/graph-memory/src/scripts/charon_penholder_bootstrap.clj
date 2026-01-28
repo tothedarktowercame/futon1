@@ -1,6 +1,6 @@
 ;; apps/graph-memory/src/scripts/charon_penholder_bootstrap.clj
 (ns scripts.charon-penholder-bootstrap
-  "Ensure Charon is a strict penholder for ingest descriptors."
+  "Ensure standard penholders are registered for ingest descriptors."
   (:require [app.store :as store]
             [app.store-manager :as store-manager]
             [clojure.string :as str]
@@ -13,6 +13,9 @@
    "model/descriptor/open-world-ingest"
    "model/descriptor/docbook"
    "model/descriptor/penholder"])
+
+(def ^:private default-penholders
+  ["api" "joe" "cli"])
 
 (defn- normalize-penholder [value]
   (when-let [raw (cond
@@ -52,9 +55,12 @@
 (defn -main [& _args]
   (let [profile (store-manager/default-profile)
         conn (store-manager/conn profile)
-        env (assoc (store-manager/env profile) :penholder "charon")
+        env (assoc (store-manager/env profile)
+                   :penholder (or (System/getenv "MODEL_PENHOLDER")
+                                  (System/getenv "BASIC_CHAT_PENHOLDER")
+                                  "cli"))
         now (System/currentTimeMillis)
-        certificate {:penholder "charon"
+        certificate {:penholder (:penholder env)
                      :issued-at now}
         entries (existing-entries @conn)
         by-descriptor (entry-by-descriptor entries)]
@@ -66,9 +72,9 @@
                          (map normalize-penholder)
                          (remove nil?)
                          vec)
-              penholders (vec (distinct (concat prior ["charon"])))]
+              penholders (vec (distinct (concat prior default-penholders)))]
           (store/ensure-entity! conn env
                                 (penholder-entry descriptor penholders true certificate))))
-      (println "Charon penholder registry ready.")
+      (println "Penholder registry ready.")
       (finally
         (store-manager/shutdown!)))))

@@ -34,6 +34,12 @@
             (println (usage))
             (System/exit 1)))))))
 
+(defn- cli-penholder [env]
+  (or (:penholder env)
+      (System/getenv "MODEL_PENHOLDER")
+      (System/getenv "BASIC_CHAT_PENHOLDER")
+      "cli"))
+
 (defn- ensure-xt-node! []
   (when-not (xt/started?)
     (let [cfg (config/config)
@@ -122,7 +128,8 @@
     (println "Updated open-world utterances:" (:updated backfill-result))
     (when ingest-ds?
       (let [conn (store-manager/conn profile)
-            env (store-manager/env profile)
+            env (let [base (store-manager/env profile)]
+                  (assoc base :penholder (cli-penholder base)))
             _ (charon-guard/guard-models! conn [:open-world-ingest] env :open-world/ingest)
             utts (ds-utterances conn)]
         (println "Re-ingesting DS utterances:" (count utts))

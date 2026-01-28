@@ -20,6 +20,12 @@
       (.getAbsolutePath (io/file override))
       (.getAbsolutePath (io/file "target" "salience-demo")))))
 
+(defn- cli-penholder [env]
+  (or (:penholder env)
+      (System/getenv "MODEL_PENHOLDER")
+      (System/getenv "BASIC_CHAT_PENHOLDER")
+      "cli"))
+
 (defn- summarize [doc]
   (some-> doc
           (select-keys [:entity/id :entity/name :entity/type :entity/seen-count :entity/last-seen :entity/pinned?])))
@@ -62,7 +68,8 @@
 (defn -main [& _args]
   (let [profile (store-manager/default-profile)
         conn (store-manager/conn profile)
-        env (store-manager/env profile)
+        env (let [base (store-manager/env profile)]
+              (assoc base :penholder (cli-penholder base)))
         models [:patterns :media :meta-model :open-world-ingest :docbook :penholder]
         _ (charon-guard/guard-models! conn models env :salience/demo)
         dir (data-dir)]

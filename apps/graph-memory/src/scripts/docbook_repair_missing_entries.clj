@@ -31,6 +31,12 @@
 (defn- xtdb-config-path []
   (some-> (io/resource "xtdb.edn") io/file .getAbsolutePath))
 
+(defn- cli-penholder [env]
+  (or (:penholder env)
+      (System/getenv "MODEL_PENHOLDER")
+      (System/getenv "BASIC_CHAT_PENHOLDER")
+      "cli"))
+
 (defn- data-dir []
   (let [root (:app/data-dir (config/config))
         base (if (and root (not (.isAbsolute (io/file root))))
@@ -96,7 +102,8 @@
   (let [{:keys [apply?]} (parse-args args)
         profile (store-manager/default-profile)
         conn (store-manager/conn profile)
-        env (store-manager/env profile)
+        env (let [base (store-manager/env profile)]
+              (assoc base :penholder (cli-penholder base)))
         cfg (xtdb-config-path)
         dir (data-dir)]
     (when-not cfg

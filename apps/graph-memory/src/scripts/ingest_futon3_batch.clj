@@ -68,7 +68,7 @@
         conn (store-manager/conn profile)
         env (assoc (store-manager/env profile)
                    :verify? true
-                   :penholder "charon")
+                   :penholder "cli")
         remaining* (atom pending)
         processed* (atom (vec (or (:processed ckpt) [])))
         skipped* (atom (vec (or (:skipped ckpt) [])))]

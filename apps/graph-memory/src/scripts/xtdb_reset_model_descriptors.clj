@@ -51,6 +51,12 @@
                 (when (.exists alt)
                   (.getAbsolutePath alt)))))))
 
+(defn- cli-penholder [env]
+  (or (:penholder env)
+      (System/getenv "MODEL_PENHOLDER")
+      (System/getenv "BASIC_CHAT_PENHOLDER")
+      "cli"))
+
 (defn- profile-data-dir []
   (let [{:keys [data-root]} (store-manager/config)
         profile (store-manager/default-profile)
@@ -79,7 +85,8 @@
   (let [{:keys [apply? limit]} (parse-args args)
         profile (store-manager/default-profile)
         conn (store-manager/conn profile)
-        env (store-manager/env profile)]
+        env (let [base (store-manager/env profile)]
+              (assoc base :penholder (cli-penholder base)))]
     (start-xt!)
     (try
       (charon-guard/guard-models! conn [:meta-model] env :model/reset)

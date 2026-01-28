@@ -73,6 +73,12 @@
         profile-id (if (= :me profile) (store-manager/default-profile) profile)]
     (str (io/file data-root (str profile-id)))))
 
+(defn- cli-penholder [env]
+  (or (:penholder env)
+      (System/getenv "MODEL_PENHOLDER")
+      (System/getenv "BASIC_CHAT_PENHOLDER")
+      "cli"))
+
 (defn- start-xt! []
   (let [{:keys [xtdb]} (store-manager/config)
         cfg-path (or (resolve-config-path (:config-path xtdb "apps/graph-memory/resources/xtdb.edn"))
@@ -213,7 +219,8 @@
   (let [{:keys [apply? delete-orphans? delete-with-links? limit out]} (parse-args args)
         _ (start-xt!)
         conn (store-manager/conn (store-manager/default-profile))
-        env (store-manager/env (store-manager/default-profile))
+        env (let [base (store-manager/env (store-manager/default-profile))]
+              (assoc base :penholder (cli-penholder base)))
         _ (charon-guard/guard-models! conn [:open-world-ingest] env :open-world/repair)
         now (Instant/now)]
     (try

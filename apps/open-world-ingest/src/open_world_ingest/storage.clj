@@ -229,7 +229,7 @@
       (update :relation/dst #(canonical-ego-id ego-id %))))
 
 (defn- store-analysis*
-  [node text {:keys [entities relations ego-id actor-name actor-id actor-type conn]}]
+  [node text {:keys [entities relations ego-id actor-name actor-id actor-type conn guard-opts]}]
   (let [now (util/now)
         utterance-id (str (UUID/randomUUID))
         actor-name (some-> actor-name str str/trim not-empty)
@@ -329,7 +329,8 @@
         (let [guard-result (when conn
                              (charon/guard {:surface :open-world/ingest
                                             :conn conn
-                                            :models [:open-world-ingest]}))]
+                                            :models [:open-world-ingest]
+                                            :opts guard-opts}))]
           (if (and (map? guard-result) (false? (:ok? guard-result)))
             guard-result
             (charon/ok
@@ -359,7 +360,7 @@
   "Store open-world analysis using an existing XTDB node.
    Optional :ego-id, :actor-id, :actor-name, :actor-type annotate the utterance.
    Optional :conn triggers Charon invariant guarding."
-  [node text {:keys [entities relations ego-id conn] :as analysis}]
+  [node text {:keys [entities relations ego-id conn guard-opts] :as analysis}]
   (store-analysis* node text analysis))
 
 (defn entity-by-name

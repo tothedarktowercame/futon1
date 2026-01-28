@@ -1,7 +1,8 @@
 ;; scripts/model_descriptor_cleanup.clj
 (ns scripts.model-descriptor-cleanup
   "Remove model/descriptor entities missing required source metadata."
-  (:require [app.store-manager :as store-manager]
+  (:require [app.charon-guard :as charon-guard]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -92,9 +93,13 @@
                       (missing-descriptor-source? (:entity/source doc)))))))
 
 (defn -main [& args]
-  (let [{:keys [apply? limit]} (parse-args args)]
+  (let [{:keys [apply? limit]} (parse-args args)
+        profile (store-manager/default-profile)
+        conn (store-manager/conn profile)
+        env (store-manager/env profile)]
     (start-xt!)
     (try
+      (charon-guard/guard-models! conn [:meta-model] env :model/cleanup)
       (let [db (xt/db)
             docs (vec (legacy-descriptor-docs db))]
         (println "Legacy descriptor docs:" (count docs))

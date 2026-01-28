@@ -24,20 +24,30 @@
 
 (defn guard-models
   "Guard one or more models directly (e.g. open-world ingest writes)."
-  [conn models & [surface]]
-  (let [surface (or surface :charon/guard)
-        result (invariants/verify-models conn models nil)]
-    (if (:ok? result)
-      (charon/ok surface {:models models
-                          :result result})
-      (reject surface :model/invariants-failed
-              {:models models
-               :result result}))))
+  ([conn models] (guard-models conn models {} nil))
+  ([conn models opts] (guard-models conn models opts nil))
+  ([conn models opts surface]
+   (let [surface (or surface :charon/guard)
+         result (invariants/verify-models-with-penholder conn models opts)]
+     (if (:ok? result)
+       (charon/ok surface {:models models
+                           :result result})
+       (reject surface :model/invariants-failed
+               {:models models
+                :result result})))))
+
+(defn guard-models!
+  "Throw on any guard failure."
+  ([conn models] (guard-models! conn models {} nil))
+  ([conn models opts] (guard-models! conn models opts nil))
+  ([conn models opts surface]
+   (charon/ensure-ok (guard-models conn models opts surface))
+   true))
 
 (defn guardian
   "Guardian entrypoint used by charon.core/guard."
   [{:keys [conn event models surface opts]}]
   (cond
     (and conn event) (guard-event conn event (assoc (or opts {}) :surface surface))
-    (and conn models) (guard-models conn models surface)
+    (and conn models) (guard-models conn models (or opts {}) surface)
     :else (charon/ok (or surface :charon/guard) {:note :charon/no-guard})))

@@ -1,7 +1,8 @@
 ;; scripts/open_world_backfill_entity_meta_xtdb.clj
 (ns scripts.open-world-backfill-entity-meta-xtdb
   "Backfill minimal metadata on open-world entities missing stub attributes."
-  (:require [app.store-manager :as store-manager]
+  (:require [app.charon-guard :as charon-guard]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -108,9 +109,13 @@
     (assoc :entity/last-seen (or (:entity/updated-at doc) now-ms))))
 
 (defn -main [& args]
-  (let [{:keys [apply? limit]} (parse-args args)]
+  (let [{:keys [apply? limit]} (parse-args args)
+        profile (store-manager/default-profile)
+        conn (store-manager/conn profile)
+        env (store-manager/env profile)]
     (start-xt!)
     (try
+      (charon-guard/guard-models! conn [:open-world-ingest] env :open-world/backfill)
       (let [db (xt/db)
             now-ms (System/currentTimeMillis)
             docs (vec (candidate-docs db))]

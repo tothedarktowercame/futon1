@@ -1,6 +1,7 @@
 (ns scripts.open-world-actor-backfill
   "Backfill open-world utterances with actor metadata and optionally re-ingest DS utterances."
-  (:require [app.config :as config]
+  (:require [app.charon-guard :as charon-guard]
+            [app.config :as config]
             [app.store :as store]
             [app.store-manager :as store-manager]
             [app.xt :as xt]
@@ -91,7 +92,7 @@
          (map (fn [[text ts]] {:text text :ts ts})))))
 
 (defn- ingest-ds-utterances!
-  [node actor conn utterances]
+  [node actor conn env utterances]
   (let [actor-id (:entity/id actor)
         actor-name (:entity/name actor)
         actor-type (:entity/type actor)]
@@ -106,7 +107,8 @@
                              :actor-id actor-id
                              :actor-name actor-name
                              :actor-type actor-type
-                             :conn conn))]
+                             :conn conn
+                             :guard-opts env))]
           (charon/ensure-ok result))))))
 
 (defn -main [& args]
@@ -120,6 +122,8 @@
     (println "Updated open-world utterances:" (:updated backfill-result))
     (when ingest-ds?
       (let [conn (store-manager/conn profile)
+            env (store-manager/env profile)
+            _ (charon-guard/guard-models! conn [:open-world-ingest] env :open-world/ingest)
             utts (ds-utterances conn)]
         (println "Re-ingesting DS utterances:" (count utts))
-        (ingest-ds-utterances! node actor conn utts)))))
+        (ingest-ds-utterances! node actor conn env utts)))))

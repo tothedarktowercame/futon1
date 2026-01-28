@@ -1,7 +1,9 @@
 ;; apps/graph-memory/src/scripts/docbook_repair_missing_entries.clj
 (ns scripts.docbook-repair-missing-entries
   "Repair docbook headings/entries with missing required fields."
-  (:require [app.config :as config]
+  (:require [app.charon-guard :as charon-guard]
+            [app.config :as config]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -92,12 +94,16 @@
 
 (defn -main [& args]
   (let [{:keys [apply?]} (parse-args args)
+        profile (store-manager/default-profile)
+        conn (store-manager/conn profile)
+        env (store-manager/env profile)
         cfg (xtdb-config-path)
         dir (data-dir)]
     (when-not cfg
       (throw (ex-info "XTDB config not found on classpath" {})))
     (xt/start! cfg {:data-dir dir :xt/created-by "scripts.docbook-repair-missing-entries"})
     (try
+      (charon-guard/guard-models! conn [:docbook] env :docbook/repair)
       (let [db (xtdb/db (xt/node))
             headings (->> (xtdb/q db '{:find [(pull ?h [*])]
                                        :where [[?h :doc/id _]

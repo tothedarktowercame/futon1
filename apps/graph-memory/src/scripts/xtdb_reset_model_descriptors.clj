@@ -1,7 +1,8 @@
 ;; scripts/xtdb_reset_model_descriptors.clj
 (ns scripts.xtdb-reset-model-descriptors
   "Delete all model/descriptor docs from XTDB (use before re-bootstrapping)."
-  (:require [app.store-manager :as store-manager]
+  (:require [app.charon-guard :as charon-guard]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -75,9 +76,13 @@
                :entity/name name}))))
 
 (defn -main [& args]
-  (let [{:keys [apply? limit]} (parse-args args)]
+  (let [{:keys [apply? limit]} (parse-args args)
+        profile (store-manager/default-profile)
+        conn (store-manager/conn profile)
+        env (store-manager/env profile)]
     (start-xt!)
     (try
+      (charon-guard/guard-models! conn [:meta-model] env :model/reset)
       (let [db (xt/db)
             docs (vec (descriptor-docs db))]
         (println "Model descriptor docs:" (count docs))

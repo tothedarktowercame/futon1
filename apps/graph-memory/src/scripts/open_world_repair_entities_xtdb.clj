@@ -1,7 +1,8 @@
 ;; scripts/open_world_repair_entities_xtdb.clj
 (ns scripts.open-world-repair-entities-xtdb
   "Scan XTDB for open-world entities missing required fields, backfill, and optionally delete."
-  (:require [app.store-manager :as store-manager]
+  (:require [app.charon-guard :as charon-guard]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -211,6 +212,9 @@
 (defn -main [& args]
   (let [{:keys [apply? delete-orphans? delete-with-links? limit out]} (parse-args args)
         _ (start-xt!)
+        conn (store-manager/conn (store-manager/default-profile))
+        env (store-manager/env (store-manager/default-profile))
+        _ (charon-guard/guard-models! conn [:open-world-ingest] env :open-world/repair)
         now (Instant/now)]
     (try
       (let [db (xt/db)

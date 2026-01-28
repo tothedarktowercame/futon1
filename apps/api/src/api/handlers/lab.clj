@@ -1,5 +1,7 @@
 (ns api.handlers.lab
   (:require [api.util.http :as http]
+            [app.charon-guard :as charon-guard]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.string :as str]
             [xtdb.api :as xtdb]))
@@ -23,6 +25,11 @@
 (defn ingest-handler [request]
   (try
     (ensure-xtdb!)
+    (let [profile (store-manager/default-profile)
+          conn (store-manager/conn profile)
+          env (store-manager/env profile)
+          models [:patterns :media :meta-model :open-world-ingest :docbook :penholder]]
+      (charon-guard/guard-models! conn models env :lab/ingest))
     (let [payload (:body request)
           session-id (some-> (normalize-session-id payload) str/trim)]
       (if (str/blank? session-id)

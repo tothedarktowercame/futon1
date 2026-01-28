@@ -1,7 +1,8 @@
 ;; scripts/xtdb_prune_empty_entities_and_relations.clj
 (ns scripts.xtdb-prune-empty-entities-and-relations
   "Remove relations pointing at empty/missing entities and delete empty entities in XTDB."
-  (:require [app.store-manager :as store-manager]
+  (:require [app.charon-guard :as charon-guard]
+            [app.store-manager :as store-manager]
             [app.xt :as xt]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -105,9 +106,14 @@
        (map first)))
 
 (defn -main [& args]
-  (let [{:keys [apply? limit]} (parse-args args)]
+  (let [{:keys [apply? limit]} (parse-args args)
+        profile (store-manager/default-profile)
+        conn (store-manager/conn profile)
+        env (store-manager/env profile)
+        models [:patterns :media :meta-model :open-world-ingest :docbook :penholder]]
     (start-xt!)
     (try
+      (charon-guard/guard-models! conn models env :xtdb/prune)
       (let [db (xt/db)
             entities (entity-docs db)
             empty-ids (->> entities

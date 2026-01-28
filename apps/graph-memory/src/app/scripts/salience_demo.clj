@@ -1,6 +1,8 @@
 (ns app.scripts.salience-demo
   "Show that XT-backed salience survives process restarts."
-  (:require [app.xt :as xt]
+  (:require [app.charon-guard :as charon-guard]
+            [app.store-manager :as store-manager]
+            [app.xt :as xt]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint])
   (:import (java.util UUID)))
@@ -58,7 +60,12 @@
     (xt/db (xt/node)))
 
 (defn -main [& _args]
-  (let [dir (data-dir)]
+  (let [profile (store-manager/default-profile)
+        conn (store-manager/conn profile)
+        env (store-manager/env profile)
+        models [:patterns :media :meta-model :open-world-ingest :docbook :penholder]
+        _ (charon-guard/guard-models! conn models env :salience/demo)
+        dir (data-dir)]
     (.mkdirs (io/file dir))
     (println "Using data directory" dir)
     (start-node! "boot-1" dir)

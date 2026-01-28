@@ -37,6 +37,8 @@
    :docbook "model/descriptor/docbook"
    :penholder "model/descriptor/penholder"})
 
+(declare verify-penholder)
+
 (defn verify-on-write? []
   (true? (:model/verify-on-write? (config/config))))
 
@@ -76,7 +78,19 @@
          ok? (every? (fn [[_ result]] (:ok? result)) results)]
      {:ok? ok?
       :models (vec models)
-      :results results})))
+     :results results})))
+
+(defn verify-models-with-penholder
+  "Verify models and enforce penholder authorization for the requested models."
+  ([conn models]
+   (verify-models-with-penholder conn models {}))
+  ([conn models opts]
+   (let [model-result (verify-models conn models opts)
+         penholder-result (verify-penholder conn {:type :charon/guard} opts models)
+         ok? (and (:ok? model-result) (:ok? penholder-result))]
+     (-> model-result
+         (assoc :ok? ok?
+                :penholder penholder-result)))))
 
 (defn verify-core
   [conn]

@@ -348,7 +348,7 @@
         registry-empty? (empty? registry)
         event-type (:type event)
         event-entity-type (model-from-entity-type (or (get-in event [:entity :type])
-                                                     (get-in event [:entity :entity/type]))))
+                                                     (get-in event [:entity :entity/type])))
         failures (vec
                   (concat
                    (when (seq bad-values)
@@ -383,13 +383,13 @@
                                     :issue :penholder/missing-certificate}
 
                                    :else nil))
-                               (when-not (and (= model :penholder)
-                                              registry-empty?
-                                              (= event-type :entity/upsert)
-                                              (= event-entity-type :penholder))
-                                 {:model model
-                                  :descriptor descriptor
-                                  :issue :penholder/missing-entry})))))
+                                  (when-not (and (= model :penholder)
+                                                 registry-empty?
+                                                 (= event-type :entity/upsert)
+                                                 (= event-entity-type :penholder))
+                                    {:model model
+                                     :descriptor descriptor
+                                     :issue :penholder/missing-entry}))))
                          models)))]
     {:ok? (empty? failures)
      :event-type (:type event)

@@ -135,7 +135,11 @@
        :ports {:api actual-port}
        :config {:profile (:profile ctx)
                 :data-dir (get-in ctx [:env :data-dir])
-                :xtdb (get-in ctx [:env :xtdb])}})
+                :xtdb (get-in ctx [:env :xtdb])}
+       :env-overrides {"BASIC_CHAT_DATA_DIR" (get-in ctx [:env :data-dir])
+                       "ALPHA_PROFILE" (:profile ctx)
+                       "ALPHA_PORT" (str actual-port)
+                       "XTDB_CONFIG" (get-in ctx [:env :xtdb :config-path])}})
      (init!)
      (reset! !server {:server server
                       :port actual-port})

@@ -34,16 +34,22 @@
       (some #(re-find % k) redact-patterns)))
 
 (defn- env-value
-  [k]
-  (let [raw (some-> (System/getenv k) str/trim)]
+  [k overrides]
+  (let [raw (some-> (System/getenv k) str/trim)
+        override (get overrides k)]
     (cond
-      (or (nil? raw) (str/blank? raw)) "<unset>"
-      (redact? k) "<redacted>"
-      :else raw)))
+      (and raw (not (str/blank? raw)))
+      {:value (if (redact? k) "<redacted>" raw) :source :env}
+
+      (and (some? override) (not (and (string? override) (str/blank? override))))
+      {:value (if (redact? k) "<redacted>" override) :source :resolved}
+
+      :else
+      {:value "<unset>" :source :unset})))
 
 (defn- env-snapshot
-  [keys]
-  (mapv (fn [k] [k (env-value k)]) keys))
+  [keys overrides]
+  (mapv (fn [k] [k (env-value k overrides)]) keys))
 
 (defn- sh*
   [& args]
@@ -107,15 +113,15 @@
 
 (defn snapshot
   "Return a runtime census map. Accepts optional keys:
-   :app, :config, :ports, :services, :env-keys."
+   :app, :config, :ports, :services, :env-keys, :env-overrides."
   ([]
    (snapshot {}))
-  ([{:keys [app config ports services env-keys] :as _opts}]
+  ([{:keys [app config ports services env-keys env-overrides] :as _opts}]
    {:ts (java.time.Instant/now)
     :app app
     :runtime (runtime-info)
     :git (git-info)
-    :env (env-snapshot (or env-keys default-env-keys))
+    :env (env-snapshot (or env-keys default-env-keys) (or env-overrides {}))
     :ports ports
     :services services
     :config config}))
@@ -126,6 +132,18 @@
        (map (fn [[k v]] (format "  %-24s %s" k v)))
        (str/join "\n")))
 
+(defn- format-env
+  [pairs]
+  (->> pairs
+       (map (fn [[k {:keys [value source]}]]
+              (let [suffix (case source
+                             :env ""
+                             :resolved " (resolved)"
+                             :unset ""
+                             "")]
+                (format "  %-24s %s%s" k value suffix))))
+       (str/join "\n")))
+
 (defn- format-map
   [m]
   (when (seq m)
@@ -133,7 +151,7 @@
 
 (defn format-banner
   [snap]
-  (let [env-lines (format-pairs (:env snap))
+  (let [env-lines (format-env (:env snap))
         runtime (:runtime snap)
         git (:git snap)
         ports-lines (format-map (:ports snap))

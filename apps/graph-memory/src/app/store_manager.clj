@@ -1,10 +1,12 @@
 (ns app.store-manager
   "Manage Datascript/XTDB resources and per-profile metadata for the headless API."
   (:require [app.config :as cfg]
+            [app.charon-guard :as charon-guard]
             [app.focus :as focus]
             [app.invariants :as invariants]
             [app.store :as store]
             [app.xt :as xt]
+            [charon.core :as charon]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -225,10 +227,12 @@
                :snapshot-every snapshot-every
                :xtdb           xtdb}
         conn  (store/restore! env me-doc)
+        _ (when (invariants/verify-on-write?)
+            (charon/set-guardian! charon-guard/guardian))
         env'  (cond-> env
                 penholder (assoc :penholder penholder)
                 (invariants/verify-on-write?)
-                (assoc :verify-fn invariants/verify-event))
+                (assoc :verify-fn charon-guard/guard-event))
         _ (println "[store] Checking model invariants...")
         _ (invariants/ensure-descriptors! conn env')
         inv-result (invariants/verify-core conn)

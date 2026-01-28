@@ -91,7 +91,7 @@
          (map (fn [[text ts]] {:text text :ts ts})))))
 
 (defn- ingest-ds-utterances!
-  [node actor utterances]
+  [node actor conn utterances]
   (let [actor-id (:entity/id actor)
         actor-name (:entity/name actor)
         actor-type (:entity/type actor)]
@@ -105,7 +105,8 @@
                              :ego-id actor-id
                              :actor-id actor-id
                              :actor-name actor-name
-                             :actor-type actor-type))]
+                             :actor-type actor-type
+                             :conn conn))]
           (charon/ensure-ok result))))))
 
 (defn -main [& args]
@@ -121,4 +122,4 @@
       (let [conn (store-manager/conn profile)
             utts (ds-utterances conn)]
         (println "Re-ingesting DS utterances:" (count utts))
-        (ingest-ds-utterances! node actor utts)))))
+        (ingest-ds-utterances! node actor conn utts)))))

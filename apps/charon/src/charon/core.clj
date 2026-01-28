@@ -4,6 +4,17 @@
   (:require [clojure.string :as str]))
 
 (def ^:private default-error :charon/reject)
+(def ^:dynamic *guardian* nil)
+
+(defn set-guardian!
+  "Install a guardian function used by `guard`. Guardian receives a payload map."
+  [f]
+  (alter-var-root #'*guardian* (constantly f)))
+
+(defn clear-guardian!
+  "Remove any installed guardian."
+  []
+  (alter-var-root #'*guardian* (constantly nil)))
 
 (defn ok
   "Wrap a successful result with the Charon envelope."
@@ -29,6 +40,20 @@
   (when (and (map? result) (false? (:ok? result)))
     (throw (ex-info "Charon rejected ingest" result)))
   result)
+
+(defn guard
+  "Invoke the installed guardian (if any). Returns a Charon-style result map."
+  [payload]
+  (if-let [guardian *guardian*]
+    (guardian payload)
+    {:ok? true
+     :surface (:surface payload)}))
+
+(defn guard!
+  "Invoke guardian and throw on rejection."
+  [payload]
+  (ensure-ok (guard payload))
+  payload)
 
 (defn -main [& _args]
   (println "charon: ingest gatekeeping helpers (no CLI)."))

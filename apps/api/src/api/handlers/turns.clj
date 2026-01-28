@@ -216,7 +216,8 @@
                                        :ego-id (:id actor-ref)
                                        :actor-id (:id actor-ref)
                                        :actor-name (:name actor-ref)
-                                       :actor-type (:type actor-ref))))
+                                       :actor-type (:type actor-ref)
+                                       :conn conn)))
            anchors   (->> ensured vals (remove nil?) vec)
            _         (store-manager/record-anchors! profile anchors)
 

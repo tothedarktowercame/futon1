@@ -229,7 +229,7 @@
       (update :relation/dst #(canonical-ego-id ego-id %))))
 
 (defn- store-analysis*
-  [node text {:keys [entities relations ego-id actor-name actor-id actor-type]}]
+  [node text {:keys [entities relations ego-id actor-name actor-id actor-type conn]}]
   (let [now (util/now)
         utterance-id (str (UUID/randomUUID))
         actor-name (some-> actor-name str str/trim not-empty)
@@ -326,24 +326,30 @@
           :utterance-id utterance-id
           :actor-id (or actor-id ego-id)
           :entities entities})
-        (charon/ok
-         :open-world/ingest
-         {:utterance/id utterance-id
-          :entities (map (fn [{:keys [entity new?]}]
-                           {:id (:entity/id entity)
-                            :label (:entity/label entity)
-                            :kind (:entity/kind entity)
-                            :new? new?})
-                         entity-results)
-          :relations (map (fn [{:relation/keys [subject object label polarity confidence time loc]}]
-                            (cond-> {:subject subject
-                                     :object object
-                                     :relation label
-                                     :polarity polarity
-                                     :confidence confidence}
-                              time (assoc :time time)
-                              loc (assoc :loc loc)))
-                          distinct-relations)})))))
+        (let [guard-result (when conn
+                             (charon/guard {:surface :open-world/ingest
+                                            :conn conn
+                                            :models [:open-world-ingest]}))]
+          (if (and (map? guard-result) (false? (:ok? guard-result)))
+            guard-result
+            (charon/ok
+             :open-world/ingest
+             {:utterance/id utterance-id
+              :entities (map (fn [{:keys [entity new?]}]
+                               {:id (:entity/id entity)
+                                :label (:entity/label entity)
+                                :kind (:entity/kind entity)
+                                :new? new?})
+                             entity-results)
+              :relations (map (fn [{:relation/keys [subject object label polarity confidence time loc]}]
+                                (cond-> {:subject subject
+                                         :object object
+                                         :relation label
+                                         :polarity polarity
+                                         :confidence confidence}
+                                  time (assoc :time time)
+                                  loc (assoc :loc loc)))
+                              distinct-relations)})))))))
 
 (defn store-analysis!
   [text {:keys [entities relations] :as analysis}]
@@ -351,8 +357,9 @@
 
 (defn store-analysis-with-node!
   "Store open-world analysis using an existing XTDB node.
-   Optional :ego-id, :actor-id, :actor-name, :actor-type annotate the utterance."
-  [node text {:keys [entities relations ego-id] :as analysis}]
+   Optional :ego-id, :actor-id, :actor-name, :actor-type annotate the utterance.
+   Optional :conn triggers Charon invariant guarding."
+  [node text {:keys [entities relations ego-id conn] :as analysis}]
   (store-analysis* node text analysis))
 
 (defn entity-by-name

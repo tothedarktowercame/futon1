@@ -218,6 +218,7 @@
                       :entities entities
                       :relations distinct-relations}
                      "Ensure entities exist for relation endpoints before ingest.")
+      :else
       (let [relation-docs' (relation-docs utterance-id now valid-relations)
             mention-docs' (mapcat (fn [{:keys [id occurrences]}]
                                     (mention-docs utterance-id now id occurrences))

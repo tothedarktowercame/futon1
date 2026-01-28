@@ -261,7 +261,7 @@
                                   (when (seq updates)
                                     (swap! backfill-docs assoc eid doc))
                                   {:ok? (empty? missing)
-                                   :missing missing}))))]
+                                   :missing missing}))))
         valid-relations (->> distinct-relations
                              (filter (fn [{:relation/keys [src dst] :as rel}]
                                        (let [src-id (canonical-ego-id ego-id src)

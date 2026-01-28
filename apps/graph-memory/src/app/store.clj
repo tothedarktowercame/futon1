@@ -27,6 +27,8 @@
 ;; Keeps track of pending event counts per data directory to trigger compaction.
 (defonce ^:private !event-count (atom {}))
 
+(declare open-world-fields prefer-existing-open-world)
+
 (def ^:private trace-relations?
   (boolean (some-> (System/getenv "TRACE_RELATIONS") str/trim not-empty)))
 
@@ -323,16 +325,18 @@
 (defn- ds-entity->xt-doc
   [entity]
   (when-let [id (:entity/id entity)]
-    (cond-> {:xt/id id
-             :entity/id id
-             :entity/name (:entity/name entity)}
-      (:entity/type entity) (assoc :entity/type (:entity/type entity))
-      (:entity/last-seen entity) (assoc :entity/last-seen (:entity/last-seen entity))
-      (:entity/seen-count entity) (assoc :entity/seen-count (:entity/seen-count entity))
-      (contains? entity :entity/pinned?) (assoc :entity/pinned? (boolean (:entity/pinned? entity)))
-      (:entity/external-id entity) (assoc :entity/external-id (:entity/external-id entity))
-      (:entity/source entity) (assoc :entity/source (:entity/source entity))
-      (:media/sha256 entity) (assoc :media/sha256 (:media/sha256 entity)))))
+    (let [open-world (open-world-fields entity)]
+      (cond-> {:xt/id id
+               :entity/id id
+               :entity/name (:entity/name entity)}
+        (:entity/type entity) (assoc :entity/type (:entity/type entity))
+        (:entity/last-seen entity) (assoc :entity/last-seen (:entity/last-seen entity))
+        (:entity/seen-count entity) (assoc :entity/seen-count (:entity/seen-count entity))
+        (contains? entity :entity/pinned?) (assoc :entity/pinned? (boolean (:entity/pinned? entity)))
+        (:entity/external-id entity) (assoc :entity/external-id (:entity/external-id entity))
+        (:entity/source entity) (assoc :entity/source (:entity/source entity))
+        (:media/sha256 entity) (assoc :media/sha256 (:media/sha256 entity))
+        (seq open-world) (merge open-world)))))
 
 (defn- ds-relation->xt-doc
   [relation]
@@ -367,7 +371,8 @@
   [entity]
   (let [id (or (:entity/id entity) (:id entity))
         name (or (:entity/name entity) (:name entity))
-        type (or (:entity/type entity) (:type entity))]
+        type (or (:entity/type entity) (:type entity))
+        open-world (open-world-fields entity)]
     (when (and id name)
       (cond-> {:xt/id id
                :entity/id id
@@ -381,7 +386,8 @@
         (:source entity) (assoc :entity/source (:source entity))
         (:entity/source entity) (assoc :entity/source (:entity/source entity))
         (:media/sha256 entity) (assoc :media/sha256 (:media/sha256 entity))
-        (:entity/media-sha256 entity) (assoc :media/sha256 (:entity/media-sha256 entity))))))
+        (:entity/media-sha256 entity) (assoc :media/sha256 (:entity/media-sha256 entity))
+        (seq open-world) (merge open-world)))))
 
 (defn- relation->xt-doc
   [relation]
@@ -419,13 +425,14 @@
   [doc]
   (if-let [eid (:entity/id doc)]
     (if-let [existing (xt/entity eid)]
-      (let [preserve? (and (seq (select-keys existing open-world-entity-attrs))
-                           (empty? (select-keys doc open-world-entity-attrs)))
-            merged (merge existing doc)]
+      (let [preserve? (seq (select-keys existing open-world-entity-attrs))
+            merged (merge existing doc)
+            preserved (prefer-existing-open-world existing)
+            merged' (if (seq preserved) (merge merged preserved) merged)]
         (when preserve?
           (binding [*out* *err*]
             (println (format "[xtdb-mirror] preserving open-world fields for %s" eid))))
-        merged)
+        merged')
       doc)
     doc))
 
@@ -568,6 +575,43 @@
                   :else (str v))
           trimmed (str/trim value)]
       (when (seq trimmed) trimmed))))
+
+(defn- missing-open-world-value? [value]
+  (cond
+    (nil? value) true
+    (string? value) (str/blank? value)
+    (sequential? value) (empty? value)
+    :else false))
+
+(defn- open-world-fields [entity]
+  (let [label (clean-string (or (:entity/label entity)
+                                (:entity/name entity)
+                                (:name entity)
+                                (:entity/external-id entity)
+                                (:external-id entity)))
+        lower-label (some-> label str/lower-case)
+        kind (normalize-type (or (:entity/kind entity)
+                                 (:entity/type entity)
+                                 (:type entity)))
+        last-seen (or (coerce-long (:entity/last-seen entity))
+                      (coerce-long (:last-seen entity)))
+        ts (or last-seen (System/currentTimeMillis))
+        instant (Instant/ofEpochMilli ts)]
+    (cond-> {}
+      label (assoc :entity/label label
+                   :entity/lower-label lower-label)
+      kind (assoc :entity/kind kind)
+      instant (assoc :entity/first-seen instant
+                     :entity/updated-at instant))))
+
+(defn- prefer-existing-open-world [existing]
+  (->> open-world-entity-attrs
+       (keep (fn [k]
+               (let [value (get existing k)]
+                 (when (and (contains? existing k)
+                            (not (missing-open-world-value? value)))
+                   [k value]))))
+       (into {})))
 
 (defn- parse-trail-ts [value]
   (cond

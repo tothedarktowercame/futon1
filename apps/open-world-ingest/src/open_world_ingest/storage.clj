@@ -55,14 +55,45 @@
 
 (defn- entity-doc
   [existing now {:entity/keys [id label lower-label kind]} alias-labels]
-  {:xt/id id
-   :entity/id id
-   :entity/label label
-   :entity/lower-label lower-label
-   :entity/kind kind
-   :entity/aliases (into (set (:entity/aliases existing)) alias-labels)
-   :entity/first-seen (or (:entity/first-seen existing) now)
-   :entity/updated-at now})
+  (let [doc {:xt/id id
+             :entity/id id
+             :entity/label label
+             :entity/lower-label lower-label
+             :entity/kind kind
+             :entity/aliases (into (set (:entity/aliases existing)) alias-labels)
+             :entity/first-seen (or (:entity/first-seen existing) now)
+             :entity/updated-at now}]
+    (merge existing doc)))
+
+(def ^:private required-entity-keys
+  [:entity/id :entity/label :entity/lower-label :entity/kind])
+
+(defn- missing-value? [value]
+  (cond
+    (nil? value) true
+    (string? value) (str/blank? value)
+    (sequential? value) (empty? value)
+    :else false))
+
+(defn- missing-entity-fields [entity]
+  (->> required-entity-keys
+       (filter #(missing-value? (get entity %)))
+       vec))
+
+(defn- reject-missing-entities [entities]
+  (let [failures (->> entities
+                      (keep (fn [entity]
+                              (when-let [missing (seq (missing-entity-fields entity))]
+                                {:entity/id (:entity/id entity)
+                                 :entity/label (:entity/label entity)
+                                 :missing missing})))
+                      vec)]
+    (when (seq failures)
+      (charon/reject :open-world/ingest
+                     :open-world/missing-entity-fields
+                     {:count (count failures)
+                      :failures failures}
+                     "Open-world entities must include id/label/lower-label/kind."))))
 
 (defn- mention-docs
   [utterance-id now entity-id occurrences]
@@ -143,6 +174,7 @@
   (let [now (util/now)
         utterance-id (str (UUID/randomUUID))
         actor-name (some-> actor-name str str/trim not-empty)
+        invalid-entities (reject-missing-entities entities)
         grouped (vals (group-by :entity/id entities))
         db (xt/db node)
         entity-results (map (fn [occurrences]
@@ -177,7 +209,9 @@
                                          (and src-ok dst-ok))))
                              vec)
         _ (run! register-relation-type! distinct-relations)]
-    (if (seq @relation-dropped)
+    (cond
+      invalid-entities invalid-entities
+      (seq @relation-dropped)
       (charon/reject :open-world/ingest
                      :open-world/missing-relation-endpoints
                      {:errors (vec @relation-dropped)

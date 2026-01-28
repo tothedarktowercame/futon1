@@ -412,13 +412,30 @@
   (binding [*out* *err*]
     (println (format "[xtdb-mirror] %s failed: %s" label (.getMessage ex)))))
 
+(def ^:private open-world-entity-attrs
+  #{:entity/label :entity/lower-label :entity/kind :entity/first-seen :entity/updated-at})
+
+(defn- merge-xt-entity
+  [doc]
+  (if-let [eid (:entity/id doc)]
+    (if-let [existing (xt/entity eid)]
+      (let [preserve? (and (seq (select-keys existing open-world-entity-attrs))
+                           (empty? (select-keys doc open-world-entity-attrs)))
+            merged (merge existing doc)]
+        (when preserve?
+          (binding [*out* *err*]
+            (println (format "[xtdb-mirror] preserving open-world fields for %s" eid))))
+        merged)
+      doc)
+    doc))
+
 (defn- maybe-mirror-entity!
   [opts entity]
   (let [xtdb-opts (:xtdb opts)]
     (when (and (xt-enabled? xtdb-opts) (xt/started?))
       (when-let [doc (entity->xt-doc entity)]
         (try
-          (xt/put-entity-async! doc)
+          (xt/put-entity-async! (merge-xt-entity doc))
           (catch Exception ex
             (log-mirror-error! "entity" ex)))))))
 

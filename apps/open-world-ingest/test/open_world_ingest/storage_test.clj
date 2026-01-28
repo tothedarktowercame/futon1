@@ -124,6 +124,32 @@
         (is (= :open-world/ingest (:surface summary)))
         (is (= :open-world/missing-relation-endpoints (:reason summary)))))))
 
+(deftest store-analysis-rejects-missing-entity-fields
+  (let [alice-id (UUID/fromString "27c26a4f-c403-4f8e-8a61-0e1a2b1f5c4b")
+        analysis {:entities [{:entity/id alice-id
+                              :entity/label nil
+                              :entity/lower-label nil
+                              :entity/kind nil
+                              :entity/sentence 0
+                              :mention/span [0 1]}]
+                  :relations []}]
+    (with-redefs [storage/node (constantly ::node)
+                  xt/db (fn [node]
+                          (is (= ::node node))
+                          ::db)
+                  xt/entity (fn [_db _eid] nil)
+                  xt/submit-tx (fn [& _]
+                                 (throw (ex-info "submit-tx should not be called" {})))
+                  util/now (constantly (Instant/ofEpochMilli 1))
+                  types/ensure! (fn [& _] nil)
+                  types/merge! (fn [& _] nil)]
+      (let [summary (storage/store-analysis! "Alice arrived." analysis)]
+        (is (false? (:ok? summary)))
+        (is (= :charon/reject (:error summary)))
+        (is (= :open-world/ingest (:surface summary)))
+        (is (= :open-world/missing-entity-fields (:reason summary)))
+        (is (pos? (count (get-in summary [:details :failures]))))))))
+
 (deftest relation-queries-return-recent-and-related-data
   (let [inst1 (Instant/ofEpochMilli 1)
         inst2 (Instant/ofEpochMilli 2)

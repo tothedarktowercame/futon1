@@ -9,6 +9,7 @@
             [app.xt :as xt]
             [cheshire.core :as json]
             [clojure.stacktrace :as st]
+            [phoebe.runtime :as phoebe]
             [ring.adapter.jetty :as jetty]
             [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
             [ring.middleware.params :refer [wrap-params]]
@@ -129,6 +130,12 @@
          ctx (build-context (select-keys opts [:data-root :snapshot-every :xtdb :default-profile]))
          server (jetty/run-jetty (app-dev ctx) {:port port :join? false})
          actual-port (-> server .getURI .getPort)]
+     (phoebe/print-banner!
+      {:app {:name "futon1-api"}
+       :ports {:api actual-port}
+       :config {:profile (:profile ctx)
+                :data-dir (get-in ctx [:env :data-dir])
+                :xtdb (get-in ctx [:env :xtdb])}})
      (init!)
      (reset! !server {:server server
                       :port actual-port})

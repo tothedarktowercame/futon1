@@ -8,7 +8,8 @@
             [open-world-ingest.affect-candidates :as affect-candidates]
             [open-world-ingest.util :as util]
             [xtdb.api :as xt])
-  (:import (java.util UUID)))
+  (:import (java.time Instant)
+           (java.util UUID)))
 
 (defonce ^:private !node (atom nil))
 
@@ -68,6 +69,9 @@
 (def ^:private required-entity-keys
   [:entity/id :entity/label :entity/lower-label :entity/kind])
 
+(def ^:private open-world-entity-keys
+  [:entity/label :entity/lower-label :entity/kind :entity/first-seen :entity/updated-at])
+
 (defn- missing-value? [value]
   (cond
     (nil? value) true
@@ -79,6 +83,61 @@
   (->> required-entity-keys
        (filter #(missing-value? (get entity %)))
        vec))
+
+(defn- missing-open-world-fields [entity]
+  (->> open-world-entity-keys
+       (filter #(missing-value? (get entity %)))
+       vec))
+
+(defn- normalize-label [value]
+  (when-not (missing-value? value)
+    (let [label (str/trim (str value))]
+      (when-not (str/blank? label)
+        label))))
+
+(defn- ->instant [value]
+  (cond
+    (nil? value) nil
+    (instance? Instant value) value
+    (integer? value) (Instant/ofEpochMilli (long value))
+    (number? value) (Instant/ofEpochMilli (long value))
+    :else nil))
+
+(defn- backfill-open-world-entity
+  [doc now]
+  (let [label (or (normalize-label (:entity/label doc))
+                  (normalize-label (:entity/name doc))
+                  (normalize-label (:entity/external-id doc)))
+        lower-label (or (:entity/lower-label doc)
+                        (some-> label str/lower-case))
+        kind-raw (or (:entity/kind doc) (:entity/type doc))
+        kind (when kind-raw (util/canonical-kind kind-raw))
+        first-seen (or (->instant (:entity/first-seen doc))
+                       (->instant (:entity/updated-at doc))
+                       (->instant (:entity/last-seen doc))
+                       now)
+        updated-at (or (->instant (:entity/updated-at doc))
+                       (->instant (:entity/last-seen doc))
+                       now)
+        updates (cond-> {}
+                  (and (missing-value? (:entity/label doc)) label)
+                  (assoc :entity/label label)
+
+                  (and (missing-value? (:entity/lower-label doc)) lower-label)
+                  (assoc :entity/lower-label lower-label)
+
+                  (and (missing-value? (:entity/kind doc)) kind)
+                  (assoc :entity/kind kind)
+
+                  (missing-value? (:entity/first-seen doc))
+                  (assoc :entity/first-seen first-seen)
+
+                  (missing-value? (:entity/updated-at doc))
+                  (assoc :entity/updated-at updated-at))
+        doc' (merge doc updates)]
+    {:doc doc'
+     :updates updates
+     :missing (missing-open-world-fields doc')}))
 
 (defn- reject-missing-entities [entities]
   (let [failures (->> entities
@@ -177,10 +236,11 @@
         invalid-entities (reject-missing-entities entities)
         grouped (vals (group-by :entity/id entities))
         db (xt/db node)
+        canonical-id (fn [entity-id] (canonical-ego-id ego-id entity-id))
         entity-results (map (fn [occurrences]
                               (let [entity (first occurrences)
                                     entity-id (:entity/id entity)
-                                    existing (xt/entity db (canonical-ego-id ego-id entity-id))
+                                    existing (xt/entity db (canonical-id entity-id))
                                     labels (set (map :entity/label occurrences))
                                     doc (entity-doc existing now entity labels)]
                                 {:doc doc
@@ -190,22 +250,36 @@
                                  :occurrences occurrences}))
                             grouped)
         distinct-relations (distinct relations)
-        entity-ids (set (map :id entity-results))
+        entity-ids (set (map (comp canonical-id :id) entity-results))
+        backfill-docs (atom {})
         relation-dropped (atom [])
+        ensure-open-world (fn [eid]
+                            (if (contains? entity-ids eid)
+                              {:ok? true}
+                              (when-let [existing (xt/entity db eid)]
+                                (let [{:keys [doc updates missing]} (backfill-open-world-entity existing now)]
+                                  (when (seq updates)
+                                    (swap! backfill-docs assoc eid doc))
+                                  {:ok? (empty? missing)
+                                   :missing missing}))))]
         valid-relations (->> distinct-relations
                              (filter (fn [{:relation/keys [src dst] :as rel}]
                                        (let [src-id (canonical-ego-id ego-id src)
                                              dst-id (canonical-ego-id ego-id dst)
-                                             src-ok (or (contains? entity-ids src-id)
-                                                        (some? (xt/entity db src-id)))
-                                             dst-ok (or (contains? entity-ids dst-id)
-                                                        (some? (xt/entity db dst-id)))]
+                                             src-state (ensure-open-world src-id)
+                                             dst-state (ensure-open-world dst-id)
+                                             src-ok (:ok? src-state)
+                                             dst-ok (:ok? dst-state)]
                                          (when-not (and src-ok dst-ok)
                                            (swap! relation-dropped conj
                                                   {:relation rel
                                                    :missing (cond-> []
-                                                              (not src-ok) (conj {:issue :missing-src :entity-id src-id})
-                                                              (not dst-ok) (conj {:issue :missing-dst :entity-id dst-id}))}))
+                                                              (not src-ok) (conj {:issue :missing-src
+                                                                                 :entity-id src-id
+                                                                                 :missing (:missing src-state)})
+                                                              (not dst-ok) (conj {:issue :missing-dst
+                                                                                 :entity-id dst-id
+                                                                                 :missing (:missing dst-state)}))}))
                                          (and src-ok dst-ok))))
                              vec)
         _ (run! register-relation-type! distinct-relations)]
@@ -235,6 +309,9 @@
             ops (-> []
                     (into (map (fn [{:keys [doc]}]
                                  [::xt/put (canonical-ego-doc ego-id doc)]) entity-results))
+                    (into (map (fn [[_ doc]]
+                                 [::xt/put (canonical-ego-doc ego-id doc)])
+                               (seq @backfill-docs)))
                     (into (map (fn [doc]
                                  [::xt/put (canonical-ego-doc ego-id doc)]) mention-docs'))
                     (into (map (fn [doc]

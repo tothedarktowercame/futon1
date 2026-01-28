@@ -33,20 +33,19 @@
     (let [cfg-file (temp-config-file {:app/server-port 5555
                                       :custom/value :file})]
       (try
-        (with-redefs-fn {#'cfg/config-path (constantly (.getAbsolutePath cfg-file))
-                         #'cfg/env-str (fn [k]
-                                         (case k
-                                           "APP_SERVER_PORT" "6000"
-                                           "XTDB_CONFIG" "env.edn"
-                                           nil))
-                         #'cfg/sysprop-str (fn [k]
-                                             (case k
-                                               "app.server.port" "7777"
-                                               nil))}
-          (fn []
-            (let [result (cfg/load-config)]
-              (is (= 7777 (:app/server-port result)) "sysprop overrides env and file")
-              (is (= "env.edn" (:xtdb/config-path result)) "env overrides file")
-              (is (= :file (:custom/value result)) "file values still merged")))))
+        (with-redefs [cfg/config-path (constantly (.getAbsolutePath cfg-file))
+                      cfg/env-str (fn [k]
+                                    (case k
+                                      "APP_SERVER_PORT" "6000"
+                                      "XTDB_CONFIG" "env.edn"
+                                      nil))
+                      cfg/sysprop-str (fn [k]
+                                        (case k
+                                          "app.server.port" "7777"
+                                          nil))]
+          (let [result (cfg/load-config)]
+            (is (= 7777 (:app/server-port result)) "sysprop overrides env and file")
+            (is (= "env.edn" (:xtdb/config-path result)) "env overrides file")
+            (is (= :file (:custom/value result)) "file values still merged")))
         (finally
           (cleanup-file cfg-file))))))

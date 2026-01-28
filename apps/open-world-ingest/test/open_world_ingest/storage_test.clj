@@ -92,7 +92,7 @@
         (is (= #{alice-id acme-id}
                (set (map :mention/entity mention-docs))))
         (is (= "Alice works at Acme Corp." (:utterance/text utterance-doc)))
-        (is (= [[:relation :works-at {:parent :relation/works/*}]] @ensured))
+        (is (= [[:relation :works-at {:parent (keyword "relation" "works/*")}]] @ensured))
         (is (= [[:relation :works-at [:work-at]]] @merged))))))
 
 (deftest store-analysis-rejects-missing-relation-endpoints

@@ -14,6 +14,15 @@
    "model/descriptor/docbook"
    "model/descriptor/penholder"])
 
+(defn- normalize-penholder [value]
+  (when-let [raw (cond
+                   (keyword? value) (name value)
+                   (string? value) value
+                   :else nil)]
+    (let [clean (str/trim raw)]
+      (when (seq clean)
+        (str/lower-case clean)))))
+
 (defn- env-user []
   (normalize-penholder (or (System/getenv "USER")
                            (System/getenv "LOGNAME"))))
@@ -28,15 +37,6 @@
       (System/getenv "BASIC_CHAT_PENHOLDER")
       (env-user)
       "cli"))
-
-(defn- normalize-penholder [value]
-  (when-let [raw (cond
-                   (keyword? value) (name value)
-                   (string? value) value
-                   :else nil)]
-    (let [clean (str/trim raw)]
-      (when (seq clean)
-        (str/lower-case clean)))))
 
 (defn- existing-entries [db]
   (let [ids (->> (d/q '[:find ?e

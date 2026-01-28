@@ -1,4 +1,4 @@
-(ns tatami.repl
+(ns contrib.tatami-repl
   (:require [app.chat :as chat]    ; <- your real ns
             [app.config :as cfg]))
 

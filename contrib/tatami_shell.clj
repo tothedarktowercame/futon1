@@ -1,11 +1,11 @@
-(ns tatami.shell
+(ns contrib.tatami-shell
   (:require [clojure.string :as str])
   (:import (java.io BufferedReader InputStreamReader OutputStreamWriter)
            (java.lang ProcessBuilder)))
 
 ;;; Docs:
 
-;; (require '[tatami.shell :as ts])
+;; (require '[contrib.tatami-shell :as ts])
 
 ;; (ts/start!)                          ; idempotent
 ;; (ts/say "I love Clojure")            ; goes to the same CLI you run in EAT

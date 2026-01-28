@@ -1,11 +1,11 @@
-{:date [#"(?i)(\d{4}-\d{2}-\d{2})"
-        #"(?i)(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
-        #"(?i)tomorrow"]
- :time [#"(?i)(\d{1,2})(?::\d{2})?\s*(am|pm)"
-        #"(?i)\b(noon|midnight)\b"]
- :version [#"(?i)\bv?\d+\.\d+(?:\.\d+)?(?:-[a-z0-9.-]+)?"
-           #"(?i)\bxtdb\s+v?\d+\b"]
- :file [#"[a-zA-Z0-9_./-]+\.[a-z0-9]+"]
- :url [#"https?://[a-z0-9./%-]+"]
- :email [#"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"]
- :issue [#"#\d+"]}
+{:date ["(?i)(\\d{4}-\\d{2}-\\d{2})"
+        "(?i)(\\d{1,2})\\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
+        "(?i)tomorrow"]
+ :time ["(?i)(\\d{1,2})(?::\\d{2})?\\s*(am|pm)"
+        "(?i)\\b(noon|midnight)\\b"]
+ :version ["(?i)\\bv?\\d+\\.\\d+(?:\\.\\d+)?(?:-[a-z0-9.-]+)?"
+           "(?i)\\bxtdb\\s+v?\\d+\\b"]
+ :file ["[a-zA-Z0-9_./-]+\\.[a-z0-9]+"]
+ :url ["https?://[a-z0-9./%-]+"]
+ :email ["[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"]
+ :issue ["#\\d+"]}

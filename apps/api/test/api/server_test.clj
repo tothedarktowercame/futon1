@@ -206,9 +206,9 @@
             (is (= true (get-in rehydrate-resp [:json :ok])))
             (is (= 200 (:status fetch-resp)))
             (is (= "Rehydrate Check" (get-in fetched [:entity :name])))
-            (is (= "test/rehydrate" (get-in fetched [:entity :type])))))
-        (finally
-          (server/stop!))))
+            (is (= "test/rehydrate" (get-in fetched [:entity :type]))))))
       (catch java.net.SocketException _
         (testing "server sandbox restrictions"
-          (is true "Skipping server socket tests in restricted environment"))))))
+          (is true "Skipping server socket tests in restricted environment")))
+      (finally
+        (server/stop!)))))

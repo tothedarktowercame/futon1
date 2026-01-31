@@ -1,7 +1,8 @@
 (ns phoebe.runtime
   "Runtime census and startup banner."
   (:require [clojure.java.shell :as sh]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import (java.net Socket InetSocketAddress)))
 
 (def ^:private default-env-keys
   ["BASIC_CHAT_DATA_DIR"
@@ -197,3 +198,50 @@
      (println (format-banner snap))
      (flush)
      snap)))
+
+;; =============================================================================
+;; Live service health checks
+;; =============================================================================
+
+(defn port-open?
+  "Check if a port is open on the given host. Returns true if connection succeeds."
+  ([port] (port-open? "127.0.0.1" port))
+  ([host port]
+   (try
+     (let [addr (InetSocketAddress. ^String host ^int port)
+           socket (Socket.)]
+       (try
+         (.connect socket addr 1000)  ; 1 second timeout
+         true
+         (finally
+           (.close socket))))
+     (catch Exception _
+       false))))
+
+(defn live-status
+  "Check live health status of configured services.
+   Takes a ports map (e.g., {:transport 5050, :musn-http 6065}) and optionally
+   a services map indicating which are enabled.
+   Returns a map with :services (vector of status maps) and :timestamp."
+  ([ports] (live-status ports nil))
+  ([ports services]
+   (live-status "127.0.0.1" ports services))
+  ([host ports services]
+   (let [check-port (fn [[service-key port]]
+                      (let [enabled? (if services
+                                       (get services service-key true)
+                                       true)
+                            status (if enabled?
+                                     (if (port-open? host port)
+                                       :up
+                                       :down)
+                                     :disabled)]
+                        {:name (name service-key)
+                         :port port
+                         :status status}))]
+     {:services (->> ports
+                     (map check-port)
+                     (sort-by :name)
+                     vec)
+      :host host
+      :timestamp (str (java.time.Instant/now))})))

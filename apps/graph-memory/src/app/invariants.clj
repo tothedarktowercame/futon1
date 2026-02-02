@@ -143,6 +143,17 @@
       (when (seq clean)
         (str/lower-case clean)))))
 
+(defn- penholder-authorized?
+  "Check if holder is authorized. Supports prefix matching:
+   - 'api' authorizes 'api', 'api:post:/entity', etc.
+   - 'api:post' authorizes 'api:post:/entity' but not 'api:get:/entity'"
+  [penholders holder]
+  (or (contains? penholders holder)
+      (some (fn [authorized]
+              (and (str/starts-with? holder (str authorized ":"))
+                   (not (str/includes? authorized ":"))))
+            penholders)))
+
 (defn- normalize-certificate [value]
   (cond
     (map? value) (when (seq value) value)
@@ -369,7 +380,7 @@
                                     :entry name
                                     :issue :penholder/missing}
 
-                                   (not (contains? penholders holder))
+                                   (not (penholder-authorized? penholders holder))
                                    {:model model
                                     :descriptor descriptor
                                     :entry name

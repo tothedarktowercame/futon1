@@ -24,11 +24,15 @@
       normalized)))
 
 (defn- penholder-from-request [request]
-  (let [method (some-> (:request-method request) name str/lower-case)
-        match (ring/get-match request)
-        template (or (:template match) (:path match) (:uri request))
-        template' (normalize-template template)]
-    (str "api:" method ":" template')))
+  (or
+   ;; Explicit header override (for scripts, batch operations, etc.)
+   (some-> (get-in request [:headers "x-penholder"]) str/trim not-empty)
+   ;; Default: derive from route
+   (let [method (some-> (:request-method request) name str/lower-case)
+         match (ring/get-match request)
+         template (or (:template match) (:path match) (:uri request))
+         template' (normalize-template template)]
+     (str "api:" method ":" template'))))
 
 (defn wrap-penholder
   "Attach a per-route penholder identity into :ctx/:env."

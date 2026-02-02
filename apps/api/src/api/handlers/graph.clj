@@ -57,21 +57,41 @@
                  {:ok? true
                   :payload (ensure-entity! request body)}
                  (catch clojure.lang.ExceptionInfo ex
-                   (let [data (ex-data ex)]
-                     (if (= 400 (:status data))
+                   (let [data (ex-data ex)
+                         msg (.getMessage ex)]
+                     (cond
+                       ;; Store-level invariant failure - extract full details
+                       (= msg "Model invariants failed")
                        {:ok? false
-                        :error (merge {:error (.getMessage ex)}
-                                      data)}
+                        :invariant-failure? true
+                        :error {:error msg
+                                :invariants (:result data)
+                                :event (:event data)}}
+
+                       ;; Other 400 errors
+                       (= 400 (:status data))
+                       {:ok? false
+                        :error (merge {:error msg} data)}
+
+                       :else
                        (throw ex)))))
         payload (:payload result)
         verification (when (:ok? result)
                        (invariants/maybe-verify-core (:profile payload)))]
     (cond
+      ;; Store-level invariant failure - return 409 with full details
+      (:invariant-failure? result)
+      (http/ok-json (cond-> (:error result)
+                      debug? (assoc :debug {:body body}))
+                    409)
+
+      ;; Other creation errors
       (not (:ok? result))
       (http/ok-json (cond-> (:error result)
                       debug? (assoc :debug {:body body}))
                     400)
 
+      ;; Post-creation verification failure
       (and verification (not (:ok? verification)))
       (http/ok-json {:error "Model invariants failed"
                      :profile (:profile payload)
@@ -170,14 +190,40 @@
      :lines (fmt/relation-lines relation)}))
 
 (defn upsert-relation-handler [request]
-  (let [payload (upsert-relation! request (:body request))
-        verification (invariants/maybe-verify-core (:profile payload))]
-    (if (and verification (not (:ok? verification)))
+  (let [body (:body request)
+        result (try
+                 {:ok? true
+                  :payload (upsert-relation! request body)}
+                 (catch clojure.lang.ExceptionInfo ex
+                   (let [data (ex-data ex)
+                         msg (.getMessage ex)]
+                     (cond
+                       ;; Store-level invariant failure
+                       (= msg "Model invariants failed")
+                       {:ok? false
+                        :invariant-failure? true
+                        :error {:error msg
+                                :invariants (:result data)
+                                :event (:event data)}}
+                       :else
+                       (throw ex)))))
+        payload (:payload result)
+        verification (when (:ok? result)
+                       (invariants/maybe-verify-core (:profile payload)))]
+    (cond
+      ;; Store-level invariant failure
+      (:invariant-failure? result)
+      (http/ok-json (:error result) 409)
+
+      ;; Post-creation verification failure
+      (and verification (not (:ok? verification)))
       (http/ok-json {:error "Model invariants failed"
                      :profile (:profile payload)
                      :invariants verification
                      :result payload}
                     409)
+
+      :else
       (http/ok-json (cond-> payload
                       verification (assoc :invariants verification))))))
 

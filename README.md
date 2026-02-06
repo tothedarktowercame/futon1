@@ -1,12 +1,14 @@
-# futon1
+# futon1 — Storage Layer
 
-futon1 is a collection of deterministic chat demos that showcase a tiered NLP
-stack, an in-memory knowledge graph, and an append-only persistence layer. The
-current interactive entry point is the `apps/demo` wrapper around the
-`apps/client` session runner. Futon1’s mandate is primarily **storage and
-durability**—it keeps the fact graph coherent and exposes a minimal HTTP/CLI
-surface so higher futons (via Futon3’s interface layer) can rely on a stable
-data store without embedding UI or orchestration logic here.
+futon1 is the persistent storage layer of the futon stack. It maintains a
+knowledge graph in XTDB (entities, relations, patterns) and exposes an HTTP API
+that futon3, futon4, and other layers depend on for durable fact storage.
+Everything that needs to survive a restart—entities, scholia, proofs, lab
+sessions—lives here.
+
+> **Stack context**: futon0 collects raw data → **futon1 stores it** → futon3
+> coordinates access → futon4/5 consume it. See `../futon0/README.md` for the
+> full stack diagram.
 
 ## Repository structure
 

@@ -9,6 +9,9 @@
             [app.xt :as xt]
             [cheshire.core :as json]
             [clojure.stacktrace :as st]
+            [clojure.string :as str]
+            [clojure.java.io :as io]
+            [clojure.pprint :as pp]
             [phoebe.runtime :as phoebe]
             [ring.adapter.jetty :as jetty]
             [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
@@ -91,6 +94,45 @@
             (update :body json/generate-string))
         resp))))
 
+(defn- failed-write? [request resp]
+  (and (map? resp)
+       (>= (or (:status resp) 200) 400)
+       (contains? #{:post :put :patch :delete} (:request-method request))))
+
+(defn- failure-log-path [request]
+  (let [env (get-in request [:ctx :env])
+        data-dir (or (:data-dir env) (System/getenv "BASIC_CHAT_DATA_DIR"))
+        default-path (when data-dir
+                       (str (io/file data-dir "logs" "api-failures.log")))]
+    (or (System/getenv "ALPHA_FAILURE_LOG")
+        default-path)))
+
+(defn- log-failed-write! [request resp]
+  (when-let [path (failure-log-path request)]
+    (try
+      (let [timestamp (format "%s" (java.time.ZonedDateTime/now))
+            entry {:ts timestamp
+                   :method (some-> (:request-method request) name str/upper-case)
+                   :uri (:uri request)
+                   :query-string (:query-string request)
+                   :profile (get-in request [:headers "x-profile"])
+                   :body (:body request)
+                   :status (:status resp)
+                   :response (:body resp)}]
+        (io/make-parents path)
+        (with-open [w (io/writer path :append true)]
+          (.write w (str "* " timestamp " Futon API write failure\n"))
+          (pp/pprint entry w)
+          (.write w "\n")))
+      (catch Throwable _ nil))))
+
+(defn- wrap-failed-write-log [handler]
+  (fn [request]
+    (let [resp (handler request)]
+      (when (failed-write? request resp)
+        (log-failed-write! request resp))
+      resp)))
+
 (defn app [ctx]
   (-> #'dispatch
       wrap-json-response
@@ -100,6 +142,7 @@
       wrap-penholder
       wrap-query-ctx
       wrap-exceptions
+      wrap-failed-write-log
       wrap-force-json
       wrap-api-version))
 
@@ -144,7 +187,8 @@
      (reset! !server {:server server
                       :port actual-port})
      {:port actual-port
-      :server server})))
+      :server server
+      :invariants (:invariants (store-manager/current))})))
 
 (defn stop! []
   (when-let [{:keys [server]} @!server]

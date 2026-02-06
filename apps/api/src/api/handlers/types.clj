@@ -38,7 +38,7 @@
 (defn set-parent-handler [request]
   (let [payload (set-parent! request (:body request))
         profile (request-profile request)
-        verification (invariants/maybe-verify-core profile)]
+        verification (invariants/maybe-verify-models profile [:meta-model])]
     (if (and verification (not (:ok? verification)))
       (http/ok-json {:error "Model invariants failed"
                      :profile profile
@@ -58,7 +58,7 @@
 (defn merge-aliases-handler [request]
   (let [payload (merge-aliases! request (:body request))
         profile (request-profile request)
-        verification (invariants/maybe-verify-core profile)]
+        verification (invariants/maybe-verify-models profile [:meta-model])]
     (if (and verification (not (:ok? verification)))
       (http/ok-json {:error "Model invariants failed"
                      :profile profile

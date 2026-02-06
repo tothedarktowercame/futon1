@@ -28,6 +28,68 @@
    [:penholder/entry-required
     :penholder/entry-schema]})
 
+(def ^:private default-descriptors
+  ["model/descriptor/patterns"
+   "model/descriptor/media"
+   "model/descriptor/meta-model"
+   "model/descriptor/open-world-ingest"
+   "model/descriptor/docbook"
+   "model/descriptor/penholder"])
+
+(defn- normalize-penholder-name [value]
+  (when-let [raw (cond
+                   (keyword? value) (name value)
+                   (string? value) value
+                   :else nil)]
+    (let [clean (str/trim raw)]
+      (when (seq clean)
+        (str/lower-case clean)))))
+
+(defn- env-user []
+  (normalize-penholder-name (or (System/getenv "USER")
+                                (System/getenv "LOGNAME"))))
+
+(def ^:private default-penholders
+  (->> ["api"
+        "api:post:/api/entity"
+        "api:post:/api/relation"
+        "cli"
+        (env-user)]
+       (remove nil?)
+       vec))
+
+(defn- default-penholder []
+  (or (System/getenv "MODEL_PENHOLDER")
+      (System/getenv "BASIC_CHAT_PENHOLDER")
+      (env-user)
+      "cli"))
+
+(defn- existing-entries [db]
+  (let [ids (->> (d/q '[:find ?e
+                        :where
+                        [?e :entity/type :model/penholder]]
+                      db)
+                 (map first))]
+    (map #(d/pull db [:entity/id :entity/name :entity/source] %) ids)))
+
+(defn- entry-by-descriptor [entries]
+  (reduce (fn [acc entry]
+            (let [source (:entity/source entry)
+                  descriptor (:descriptor source)]
+              (if descriptor
+                (assoc acc descriptor entry)
+                acc)))
+          {}
+          entries))
+
+(defn- penholder-entry [descriptor penholders strict? certificate]
+  {:name (str "penholder/" descriptor)
+   :type :model/penholder
+   :source {:descriptor descriptor
+            :penholders penholders
+            :certificate certificate
+            :strict? strict?}})
+
 (defn descriptor-template []
   default-descriptor)
 
@@ -90,6 +152,28 @@
                           :type descriptor-type
                           :external-id (:schema/version descriptor)
                           :source descriptor})))
+
+(defn ensure-registry!
+  "Ensure baseline penholder registry entries exist. Returns a map of entries by descriptor."
+  [conn env]
+  (ensure-descriptor! conn env)
+  (let [now (System/currentTimeMillis)
+        holder (or (:penholder env) (default-penholder))
+        certificate {:penholder holder
+                     :issued-at now}
+        entries (existing-entries @conn)
+        by-descriptor (entry-by-descriptor entries)]
+    (doseq [descriptor default-descriptors]
+      (let [existing (get by-descriptor descriptor)
+            source (:entity/source existing)
+            prior (->> (:penholders source)
+                       (map normalize-penholder-name)
+                       (remove nil?)
+                       vec)
+            penholders (vec (distinct (concat prior default-penholders)))]
+        (store/ensure-entity! conn env
+                              (penholder-entry descriptor penholders true certificate))))
+    (entry-by-descriptor (existing-entries @conn))))
 
 (defn describe
   [conn]

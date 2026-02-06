@@ -302,22 +302,26 @@
 (defn- sigil-token [{:keys [emoji hanzi]}]
   (str (or emoji "?") "/" (or hanzi "?")))
 
-(defn- ensure-sigil-allowlisted! [opts sigil]
-  (when-let [allowlist (:sigil-allowlist opts)]
-    (when-not (sigil-allowlist/sigil-allowed? allowlist sigil)
-      (throw (ex-info "Sigil not allowlisted"
-                      {:sigil sigil
-                       :token (sigil-token sigil)
-                       :root (:root allowlist)})))))
+(defn- sigil-allowlisted? [opts sigil]
+  (if-let [allowlist (:sigil-allowlist opts)]
+    (if (sigil-allowlist/sigil-allowed? allowlist sigil)
+      true
+      (do
+        (binding [*out* *err*]
+          (println (format "Skipping non-allowlisted sigil %s (root %s)"
+                           (sigil-token sigil)
+                           (:root allowlist))))
+        false))
+    true))
 
 (defn- ensure-sigil! [conn opts sigil]
-  (ensure-sigil-allowlisted! opts sigil)
-  (let [name (sigil-name sigil)
-        external (str (or (:emoji sigil) "?") "|" (or (:hanzi sigil) "?"))]
-    (store/ensure-entity! conn opts {:name name
-                                     :type :sigil
-                                     :external-id external
-                                     :source "futon3/sigil"})))
+  (when (sigil-allowlisted? opts sigil)
+    (let [name (sigil-name sigil)
+          external (str (or (:emoji sigil) "?") "|" (or (:hanzi sigil) "?"))]
+      (store/ensure-entity! conn opts {:name name
+                                       :type :sigil
+                                       :external-id external
+                                       :source "futon3/sigil"}))))
 
 (defn- verify-entity-roundtrip!
   "Fetch ENTITY back via `store/fetch-entity` and log a short summary.

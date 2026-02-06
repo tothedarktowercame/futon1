@@ -23,6 +23,8 @@
 
 (def ^:private events-filename "events.ndjson")
 (def ^:private snapshot-filename "snapshot.edn")
+(def ^:private write-attempts-filename "write-attempts.ednlog")
+(def ^:private write-commits-filename "write-commits.ednlog")
 
 ;; Keeps track of pending event counts per data directory to trigger compaction.
 (defonce ^:private !event-count (atom {}))
@@ -58,6 +60,17 @@
 
 (defn- snapshot-path [dir]
   (io/file dir snapshot-filename))
+
+(defn- write-log-path [dir filename]
+  (io/file dir "logs" filename))
+
+(defn- append-log!
+  [dir filename entry]
+  (let [file (write-log-path dir filename)]
+    (ensure-dir! (.getParentFile file))
+    (with-open [w (io/writer file :append true)]
+      (.write w (pr-str entry))
+      (.write w "\n"))))
 
 (defn- write-json-line! [^java.io.Writer w data]
   (.write w (json/write-str {:edn (pr-str data)}))
@@ -441,10 +454,16 @@
   (let [xtdb-opts (:xtdb opts)]
     (when (and (xt-enabled? xtdb-opts) (xt/started?))
       (when-let [doc (entity->xt-doc entity)]
-        (try
-          (xt/put-entity-async! (merge-xt-entity doc))
-          (catch Exception ex
-            (log-mirror-error! "entity" ex)))))))
+        (let [sync? (not (false? (:sync-on-write? xtdb-opts)))]
+          (try
+            (let [doc' (merge-xt-entity doc)]
+              (if sync?
+                (xt/put-entity! doc')
+                (xt/put-entity-async! doc')))
+            (catch Exception ex
+              (log-mirror-error! "entity" ex)
+              (when sync?
+                (throw ex)))))))))
 
 (defn- hydrate-endpoint-for-xt
   [conn endpoint]
@@ -466,28 +485,39 @@
         (let [hydrated (hydrate-endpoint-for-xt conn endpoint)]
           (maybe-mirror-entity! opts hydrated)))
       (when-let [doc (relation->xt-doc relation)]
-        (try
-          (xt/put-rel-async! doc nil nil)
-          (catch Exception ex
-            (log-mirror-error! "relation" ex)))))))
+        (let [sync? (not (false? (:sync-on-write? xtdb-opts)))]
+          (try
+            (if sync?
+              (xt/put-rel! doc nil nil)
+              (xt/put-rel-async! doc nil nil))
+            (catch Exception ex
+              (log-mirror-error! "relation" ex)
+              (when sync?
+                (throw ex)))))))))
 
 (defn- maybe-delete-entity!
   [opts entity-id]
   (let [xtdb-opts (:xtdb opts)]
     (when (and entity-id (xt-enabled? xtdb-opts) (xt/started?))
-      (try
-        (xt/delete-entity! entity-id)
-        (catch Exception ex
-          (log-mirror-error! "entity delete" ex))))))
+      (let [sync? (not (false? (:sync-on-write? xtdb-opts)))]
+        (try
+          (xt/delete-entity! entity-id)
+          (catch Exception ex
+            (log-mirror-error! "entity delete" ex)
+            (when sync?
+              (throw ex))))))))
 
 (defn- maybe-delete-relation!
   [opts relation-id]
   (let [xtdb-opts (:xtdb opts)]
     (when (and relation-id (xt-enabled? xtdb-opts) (xt/started?))
-      (try
-        (xt/delete-rel! relation-id)
-        (catch Exception ex
-          (log-mirror-error! "relation delete" ex))))))
+      (let [sync? (not (false? (:sync-on-write? xtdb-opts)))]
+        (try
+          (xt/delete-rel! relation-id)
+          (catch Exception ex
+            (log-mirror-error! "relation delete" ex)
+            (when sync?
+              (throw ex))))))))
 
 (defn export-edn
   "Produce a serializable EDN snapshot for the current connection."
@@ -563,7 +593,11 @@
   (cond
     (keyword? t) t
     (nil? t) nil
-    (string? t) (-> t str/lower-case keyword)
+    (string? t) (let [raw (str/trim t)
+                      cleaned (if (str/starts-with? raw ":")
+                                (subs raw 1)
+                                raw)]
+                  (-> cleaned str/lower-case keyword))
     (symbol? t) (-> t name str/lower-case keyword)
     :else t))
 
@@ -803,6 +837,18 @@
             (when (and clean (not= clean "external"))
               clean))))
 
+(defn- suggest-custom-id
+  "Return a disambiguated id based on BASE that is unused in the conn."
+  [conn base]
+  (let [base (or (clean-string base) "entity")
+        [_ stem suffix] (or (re-matches #"^(.*?)-(\d+)$" base) [nil base nil])
+        start (if suffix (inc (Long/parseLong suffix)) 2)]
+    (loop [idx start]
+      (let [candidate (format "%s-%d" stem idx)]
+        (if (entity-by-id conn candidate)
+          (recur (inc idx))
+          candidate)))))
+
 (defn- normalize-entity-spec [spec]
   (cond
     (string? spec)
@@ -824,12 +870,19 @@
           raw-external (or (:external-id spec) (:entity/external-id spec))
           raw-source (or (:source spec) (:entity/source spec) (:external-source spec))
           raw-sha (or (:media/sha256 spec) (:entity/media-sha256 spec))
-          id-info (fid/coerce-id {:id raw-id
-                                  :external-id raw-external
-                                  :type normalized-type
-                                  :external-source raw-source})
-          entity-id (:entity/id id-info)
+          raw-id-str (when (string? raw-id) (str/trim raw-id))
+          custom-id? (and (string? raw-id-str) (not (fid/uuid-string? raw-id-str)))
+          id-info (when-not custom-id?
+                    (fid/coerce-id {:id raw-id
+                                    :external-id raw-external
+                                    :type normalized-type
+                                    :external-source raw-source}))
+          entity-id (cond
+                      custom-id? raw-id-str
+                      id-info (:entity/id id-info)
+                      :else nil)
           external-id (or (clean-string raw-external)
+                          (when custom-id? raw-id-str)
                           (:entity/external-id id-info))
           source (normalize-source-value raw-source)
           sha256 (clean-string raw-sha)
@@ -900,16 +953,22 @@
         pinned-flag (if (contains? spec :pinned?) (boolean pinned?) (:entity/pinned? existing))
         ext-id (clean-string external-id)
         src (normalize-source-value source)
+        existing-source (:entity/source existing)
+        retract-external? (and existing
+                               (nil? src)
+                               (string? existing-source)
+                               (= "external" (str/lower-case (str/trim existing-source))))
         sha (clean-string (:media/sha256 spec))
         entity-id (or (:entity/id existing) id (UUID/randomUUID))]
     (if existing
       (let [final-type (or normalized-type (:entity/type existing))
             incoming-name (some-> name str/trim)
             current-name (:entity/name existing)
+            incoming-lower (some-> incoming-name str/lower-case)
+            current-lower (some-> current-name str/lower-case)
             name-update (when (and incoming-name
                                    (seq incoming-name)
-                                   (not= (str/lower-case incoming-name)
-                                         (str/lower-case current-name))
+                                   (not= incoming-lower current-lower)
                                    (not= incoming-name (some-> (:entity/id existing) str)))
                           [:db/add (:db/id existing) :entity/name incoming-name])]
         (when (and normalized-type (not= (:entity/type existing) normalized-type))
@@ -921,6 +980,8 @@
                                   [:db/add (:db/id existing) :entity/external-id ext-id])
                                 (when (and src (not= (:entity/source existing) src))
                                   [:db/add (:db/id existing) :entity/source src])
+                                (when retract-external?
+                                  [:db/retract (:db/id existing) :entity/source existing-source])
                                 (when (and sha (not= (:media/sha256 existing) sha))
                                   [:db/add (:db/id existing) :media/sha256 sha])
                                 (when (contains? spec :pinned?)
@@ -1105,6 +1166,78 @@
                    :relation event-rel}
            :result (assoc event-rel :db/eid eid)})))))
 
+(defmethod apply-event! :media/lyrics-upsert
+  [conn {:keys [track lyrics relation]}]
+  (let [track-spec (normalize-entity-spec track)
+        lyrics-spec (normalize-entity-spec lyrics)
+        track-entity (upsert-entity! conn track-spec)
+        lyrics-entity (upsert-entity! conn lyrics-spec)
+        rel-type (normalize-type (or (get relation :type)
+                                     (get relation :relation/type)
+                                     :media/lyrics))]
+    (when-not rel-type
+      (throw (ex-info "Relation type required" {:relation relation})))
+    (let [resolved-id (coerce-uuid (or (get relation :id) (get relation :relation/id)))
+          existing-by-pair (find-relation conn rel-type (:id track-entity) (:id lyrics-entity))
+          relation-id (or resolved-id (:relation/id existing-by-pair) (UUID/randomUUID))
+          existing (or (relation-by-id conn relation-id) existing-by-pair)
+          prov (normalize-provenance (or (get relation :provenance)
+                                         (get relation :relation/provenance)))
+          conf (or (coerce-double (get relation :confidence))
+                   (coerce-double (get relation :relation/confidence))
+                   (:relation/confidence existing)
+                   1.0)
+          now (or (coerce-long (get relation :last-seen))
+                  (coerce-long (get relation :relation/last-seen))
+                  (System/currentTimeMillis))
+          props (or (get relation :props) (get relation :relation/props))
+          base-rel {:id relation-id
+                    :type rel-type
+                    :src (select-keys track-entity [:id :name :type])
+                    :dst (select-keys lyrics-entity [:id :name :type])
+                    :confidence conf
+                    :last-seen now}
+          event-rel (cond-> base-rel
+                      prov (assoc :provenance prov)
+                      props (assoc :props props))]
+      (if existing
+        (do
+          (when prov
+            (d/transact! conn [[:db/add (:db/id existing) :relation/provenance prov]]))
+          (when props
+            (d/transact! conn [[:db/add (:db/id existing) :relation/props props]]))
+          (d/transact! conn (->> [[:db/add (:db/id existing) :relation/confidence conf]
+                                  [:db/add (:db/id existing) :relation/last-seen now]]
+                                 (remove nil?)))
+          {:event {:type :media/lyrics-upsert
+                   :track (select-keys track-entity [:id :name :type])
+                   :lyrics (select-keys lyrics-entity [:id :name :type])
+                   :relation event-rel}
+           :result {:track track-entity
+                    :lyrics lyrics-entity
+                    :relation (assoc event-rel
+                                     :provenance (or prov (:relation/provenance existing))
+                                     :props (or props (:relation/props existing))
+                                     :db/eid (:db/id existing))}})
+        (let [tx (cond-> {:db/id -1
+                          :relation/id relation-id
+                          :relation/type rel-type
+                          :relation/src [:entity/id (:id track-entity)]
+                          :relation/dst [:entity/id (:id lyrics-entity)]
+                          :relation/confidence conf
+                          :relation/last-seen now}
+                   props (assoc :relation/props props)
+                   prov (assoc :relation/provenance prov))
+              {:keys [db-after tempids]} (d/transact! conn [tx])
+              eid (d/resolve-tempid db-after tempids -1)]
+          {:event {:type :media/lyrics-upsert
+                   :track (select-keys track-entity [:id :name :type])
+                   :lyrics (select-keys lyrics-entity [:id :name :type])
+                   :relation event-rel}
+           :result {:track track-entity
+                    :lyrics lyrics-entity
+                    :relation (assoc event-rel :db/eid eid)}})))))
+
 (defmethod apply-event! :relation/retract
   [conn {:keys [relation]}]
   (let [raw-id (or (:id relation) (:relation/id relation))
@@ -1217,31 +1350,49 @@
   [conn {:keys [data-dir] :as opts} event]
   (when-not data-dir
     (throw (ex-info "Missing data-dir in opts" {:opts opts})))
-  (when (:skip-verify? opts)
-    (throw (ex-info "skip-verify? is disallowed; invariants must be enforced"
-                    {:opts (dissoc opts :verify-fn)})))
-  (when-let [verify-fn (:verify-fn opts)]
-    (let [preview (d/create-conn schema)]
-      (reset! preview @conn)
-      (apply-event! preview event)
-      (let [verify-opts (assoc opts :baseline-conn conn)
-            result (try
-                     (verify-fn preview event verify-opts)
-                     (catch clojure.lang.ArityException _
-                       (verify-fn preview event)))]
-        (when (and (map? result) (false? (:ok? result)))
-          (throw (ex-info "Model invariants failed"
-                          {:result result
-                           :event event})))))) 
   (ensure-dir! data-dir)
-  (let [applied (apply-event! conn event)
+  (let [attempt-id (UUID/randomUUID)
+        attempt-ts (System/currentTimeMillis)
+        _ (append-log! data-dir write-attempts-filename
+                       {:attempt/id attempt-id
+                        :attempt/ts attempt-ts
+                        :event event})
+        _ (when (:skip-verify? opts)
+            (throw (ex-info "skip-verify? is disallowed; invariants must be enforced"
+                            {:opts (dissoc opts :verify-fn)})))
+        _ (when-let [verify-fn (:verify-fn opts)]
+            (let [preview (d/create-conn schema)]
+              (reset! preview @conn)
+              (apply-event! preview event)
+              (let [verify-opts (assoc opts :baseline-conn conn)
+                    result (try
+                             (verify-fn preview event verify-opts)
+                             (catch clojure.lang.ArityException _
+                               (verify-fn preview event)))]
+                (when (and (map? result) (false? (:ok? result)))
+                  (throw (ex-info "Model invariants failed"
+                                  {:result result
+                                   :event event})))))) 
+        applied (apply-event! conn event)
         final-event (if (and (map? applied) (:event applied))
                       (:event applied)
                       event)
         result (if (and (map? applied) (contains? applied :result))
                  (:result applied)
                  applied)]
+    (when (and (map? result) (= (:type final-event) :media/lyrics-upsert))
+      (when-let [track (:track result)]
+        (maybe-mirror-entity! opts track))
+      (when-let [lyrics (:lyrics result)]
+        (maybe-mirror-entity! opts lyrics))
+      (when-let [rel (:relation result)]
+        (maybe-mirror-relation! opts rel conn)))
     (append-event! data-dir final-event)
+    (append-log! data-dir write-commits-filename
+                 {:attempt/id attempt-id
+                  :commit/ts (System/currentTimeMillis)
+                  :event final-event
+                  :result result})
     (swap! !event-count update data-dir (fnil inc 0))
     (maybe-compact! conn data-dir opts)
     (or result final-event)))
@@ -1363,6 +1514,9 @@
   (let [spec (normalize-entity-spec entity-spec)
         {:keys [name id]} spec
         existing (entity-by-name conn name)
+        existing-by-id (when id (entity-by-id conn id))
+        custom-id? (and (string? id) (not (fid/uuid-string? (str id))))
+        provided-type (:type spec)
         entity-id (or (:entity/id existing) id (UUID/randomUUID))
         now (or (:now opts) (:last-seen spec) (System/currentTimeMillis))
         final-type (or (:type spec) (:entity/type existing))
@@ -1382,6 +1536,20 @@
                   external-id (assoc :external-id external-id)
                   source (assoc :source source)
                   sha (assoc :media/sha256 sha))]
+    (when (and custom-id? existing-by-id)
+      (let [existing-name (:entity/name existing-by-id)
+            existing-type (:entity/type existing-by-id)
+            name-mismatch? (and name (not= name existing-name))
+            type-mismatch? (and provided-type (not= provided-type existing-type))]
+        (when (or name-mismatch? type-mismatch?)
+          (throw (ex-info "Entity id already in use"
+                          {:status 409
+                           :reason :id-conflict
+                           :requested {:id id :name name :type provided-type}
+                           :existing {:id (:entity/id existing-by-id)
+                                      :name existing-name
+                                      :type existing-type}
+                           :suggested-id (suggest-custom-id conn id)})))))
     (when final-type
       (types/ensure! :entity final-type))
     (let [applied (tx! conn opts {:type :entity/upsert

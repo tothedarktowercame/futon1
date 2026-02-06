@@ -1,7 +1,6 @@
 ;; apps/api/src/api/middleware/penholder.clj
 (ns api.middleware.penholder
-  (:require [api.routes :as routes]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [reitit.ring :as ring]))
 
 (def ^:private versioned-prefixes
@@ -23,7 +22,7 @@
       "/api/unknown"
       normalized)))
 
-(defn- penholder-from-request [request]
+(defn penholder-from-request [request]
   (or
    ;; Explicit header override (for scripts, batch operations, etc.)
    (some-> (get-in request [:headers "x-penholder"]) str/trim not-empty)

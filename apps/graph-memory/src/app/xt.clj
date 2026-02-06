@@ -211,3 +211,21 @@
 (defn db
   ([] (xt/db (ensure-node)))
   ([valid-time] (xt/db (ensure-node) valid-time)))
+
+(defn entity-type-counts
+  "Return {:total N :by-type {type count} :untyped M} from XTDB.
+   Returns nil when XTDB is not started."
+  ([] (entity-type-counts (when (started?) (db))))
+  ([db]
+   (when db
+     (let [total-result (xt/q db '{:find [(count ?e)]
+                                   :where [[?e :entity/id _]]})
+           total (or (ffirst total-result) 0)
+           typed (xt/q db '{:find [?t (count ?e)]
+                            :where [[?e :entity/type ?t]]})
+           by-type (into {} (map (fn [[t c]] [t c])) typed)
+           typed-total (reduce + 0 (vals by-type))
+           untyped (- total typed-total)]
+       {:total total
+        :by-type by-type
+        :untyped (when (pos? untyped) untyped)}))))

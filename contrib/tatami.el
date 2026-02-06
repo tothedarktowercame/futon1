@@ -294,6 +294,18 @@ EVENT is the raw event string from `set-process-sentinel'."
   (setq tatami--last-command tatami-start-command)
   (tatami--launch-server t))
 
+(defun tatami--resolve-command (command base-dir)
+  "Return COMMAND with executable resolved relative to BASE-DIR when needed."
+  (let ((exe (car command)))
+    (if (and (stringp exe)
+             (not (file-name-absolute-p exe))
+             (file-name-directory exe))
+        (let ((candidate (expand-file-name exe base-dir)))
+          (if (file-exists-p candidate)
+              (cons candidate (cdr command))
+            command))
+      command)))
+
 (defvar tatami-health-path "/healthz")
 
 (defun tatami--probe (url)
@@ -316,7 +328,7 @@ INTERACTIVE controls messaging."
       (progn (when interactive (message "Headless server already running")) t)
     (let* ((base-dir (or tatami-start-directory default-directory))
            (default-directory (file-name-as-directory (expand-file-name base-dir)))
-           (command tatami-start-command)
+           (command (tatami--resolve-command tatami-start-command default-directory))
            (process-name "headless-api-server")
            (buf (get-buffer-create "*headless-api-server*"))
            (data-dir (tatami--default-data-directory))
@@ -327,6 +339,11 @@ INTERACTIVE controls messaging."
                         process-environment)))
       (unless (and (listp command) (car command))
         (error "`tatami-start-command' must be a non-empty list"))
+      (when (and (stringp (car command))
+                 (file-name-directory (car command))
+                 (not (file-exists-p (car command))))
+        (error "Tatami start command not found: %s (base dir %s)"
+               (car command) default-directory))
       (when interactive
         (message "Starting headless server using %s (ALPHA_PROFILE=%s data-dir=%s)"
                  (string-join command " ")

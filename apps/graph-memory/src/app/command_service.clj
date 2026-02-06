@@ -290,6 +290,7 @@
           id (or (getv :id) (getv "id"))
           source (or (getv :source) (getv "source"))
           external-id (or (getv :external-id) (getv "external-id"))
+          media-sha (or (getv :media/sha256) (getv "media/sha256") (getv :media-sha256) (getv "media-sha256"))
           last-seen (or (getv :last-seen) (getv "last-seen"))
           seen-count (or (getv :seen-count) (getv "seen-count"))
           pinned? (let [flag (or (getv :pinned?) (getv "pinned?"))]
@@ -304,6 +305,7 @@
         id (assoc :id id)
         source (assoc :source source)
         external-id (assoc :external-id external-id)
+        media-sha (assoc :media/sha256 media-sha)
         last-seen (assoc :last-seen last-seen)
         seen-count (assoc :seen-count seen-count)
         (some? pinned?) (assoc :pinned? pinned?)))
@@ -407,6 +409,31 @@
         (record-anchors! anchors))
       {:relation (select-keys relation [:id :type :src :dst :confidence :last-seen :props])
        :anchors anchors})))
+
+(defn upsert-media-lyrics!
+  "Atomically upsert a media track, lyrics entity, and their relation."
+  [{:keys [conn env record-anchors!]} payload]
+  (when-not (map? payload)
+    (throw (ex-info "Media lyrics payload must be an object" {:status 400})))
+  (let [track (normalize-entity (:track payload))
+        lyrics (normalize-entity (:lyrics payload))
+        relation (or (:relation payload) {:type :media/lyrics})]
+    (when-not track
+      (throw (ex-info "Track payload required" {:status 400 :payload payload})))
+    (when-not lyrics
+      (throw (ex-info "Lyrics payload required" {:status 400 :payload payload})))
+    (let [env-now (assoc env :now (System/currentTimeMillis))
+          result (store/tx! conn env-now {:type :media/lyrics-upsert
+                                          :track track
+                                          :lyrics lyrics
+                                          :relation relation})
+          anchors (->> [(select-keys (:track result) [:id :name :type])
+                        (select-keys (:lyrics result) [:id :name :type])]
+                       (remove nil?)
+                       vec)]
+      (when record-anchors!
+        (record-anchors! anchors))
+      (assoc result :anchors anchors))))
 
 ;; -- Profile helpers ---------------------------------------------------------
 

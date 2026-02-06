@@ -1,5 +1,6 @@
 (ns api.handlers.docbook
-  (:require [api.util.http :as http]
+  (:require [api.handlers.invariants :as invariants]
+            [api.util.http :as http]
             [app.config :as config]
             [app.docbook :as docbook]
             [app.model-docbook :as model-docbook]

@@ -12,9 +12,9 @@
 
 (def ^:private default-descriptor
   {:model/scope :media
-   :schema/version "0.1.1"
+   :schema/version "0.1.2"
    :schema/certificate {:penholder "code" :issued-at 0}
-   :client/schema-min "0.1.1"
+   :client/schema-min "0.1.2"
    :entities
    {:arxana/media-track {:required [:entity/name :entity/external-id]
                          :id-strategy :custom}
@@ -29,6 +29,7 @@
    :migrations {}
    :invariants
    [:media/track-required
+    :media/source-content
     :media/lyrics-required
     :media/lyrics-source-content
     :media/lyrics-linked
@@ -73,18 +74,16 @@
   [conn]
   (some-> (descriptor-entity conn) :source parse-descriptor))
 
+(declare upsert-descriptor!)
+
 (defn ensure-descriptor!
   "Insert the default descriptor when missing. Returns the descriptor."
   [conn env]
   (let [existing (descriptor conn)]
-    (or existing
-        (:source
-         (store/ensure-entity! conn env
-                               {:id descriptor-name
-                                :name descriptor-name
-                                :type descriptor-type
-                                :external-id (:schema/version default-descriptor)
-                                :source default-descriptor})))))
+    (if (or (nil? existing)
+            (not= (:schema/version existing) (:schema/version default-descriptor)))
+      (upsert-descriptor! conn env default-descriptor)
+      existing)))
 
 (defn upsert-descriptor!
   "Upsert the descriptor entity with the provided descriptor map."
@@ -125,7 +124,7 @@
   (->> fields (filter #(missing? (get m %))) vec))
 
 (def ^:private track-keys
-  [:entity/id :entity/name :entity/external-id :entity/type])
+  [:entity/id :entity/name :entity/external-id :entity/source :entity/type])
 
 (def ^:private lyrics-keys
   [:entity/id :entity/name :entity/external-id :entity/source :media/sha256 :entity/type])
@@ -194,6 +193,26 @@
                         (lyrics-entities db)))]
     (invariant-result :media/lyrics-source-content failures)))
 
+(defn- check-media-source-content [conn]
+  (let [db @conn
+        failures (vec
+                  (concat
+                   (keep (fn [track]
+                           (when (placeholder-source? (:entity/source track))
+                             {:id (:entity/id track)
+                              :name (:entity/name track)
+                              :type :arxana/media-track
+                              :issue :placeholder-source}))
+                         (track-entities db))
+                   (keep (fn [lyrics]
+                           (when (placeholder-source? (:entity/source lyrics))
+                             {:id (:entity/id lyrics)
+                              :name (:entity/name lyrics)
+                              :type :arxana/media-lyrics
+                              :issue :placeholder-source}))
+                         (lyrics-entities db))))]
+    (invariant-result :media/source-content failures)))
+
 (defn- check-lyrics-linked [conn]
   (let [db @conn
         relations (lyrics-relations db)
@@ -229,6 +248,7 @@
 
 (def ^:private invariant-registry
   {:media/track-required check-track-required
+   :media/source-content check-media-source-content
    :media/lyrics-required check-lyrics-required
    :media/lyrics-source-content check-lyrics-source-content
    :media/lyrics-linked check-lyrics-linked

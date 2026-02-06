@@ -1,0 +1,23 @@
+
+## timestamp
+date                         2026-01-28T13:22:50+00:00
+
+## repo
+root                         /home/joe/code/futon1
+branch                       main
+head                         99d54c43cebb04eccbde2a6890fbf47025681c2f
+dirty                        no
+untracked                    4
+
+## runtime
+uname                        Linux Dionysus 6.8.0-90-generic #91-Ubuntu SMP PREEMPT_DYNAMIC Tue Nov 18 14:14:30 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
+java                         openjdk version "21.0.9" 2025-10-21
+clojure                      1.12.3
+
+## env
+BASIC_CHAT_DATA_DIR          <unset>
+ALPHA_PROFILE                <unset>
+FUTON1_API                   <unset>
+XTDB_CONFIG                  <unset>
+FUTON3_ROOT                  <unset>
+JAVA_HOME                    <unset>

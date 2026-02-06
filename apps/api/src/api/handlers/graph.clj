@@ -2,6 +2,7 @@
   (:require
    [api.util.http :as http]
    [api.handlers.invariants :as invariants]
+   [api.middleware.penholder :as penholder]
    [app.command-service :as commands]
    [app.slash.format :as fmt]
    [app.store-manager :as store-manager]
@@ -13,8 +14,14 @@
       (store-manager/default-profile)))
 
 (defn- request-env [request profile]
-  (merge (store-manager/env profile)
-         (get-in request [:ctx :env])))
+  (let [merged (merge (store-manager/env profile)
+                      (get-in request [:ctx :env]))
+        penholder (some-> (:penholder merged) str/trim not-empty)
+        derived (or penholder (penholder/penholder-from-request request))]
+    (if (seq (or penholder derived))
+      (cond-> merged
+        derived (assoc :penholder derived))
+      merged)))
 
 (defn- normalize-relation-type [value]
   (cond
@@ -41,8 +48,9 @@
 (defn ensure-entity!
   [request body]
   (let [profile (request-profile request)
+        env (request-env request profile)
         ctx {:conn (store-manager/conn profile)
-             :env (request-env request profile)
+             :env env
              :record-anchors! (fn [anchors]
                                 (store-manager/record-anchors! profile anchors))}
         {:keys [entity]} (commands/ensure-entity! ctx body)]
@@ -68,8 +76,8 @@
                                 :invariants (:result data)
                                 :event (:event data)}}
 
-                       ;; Other 400 errors
-                       (= 400 (:status data))
+                       ;; Any explicit status error
+                       (:status data)
                        {:ok? false
                         :error (merge {:error msg} data)}
 
@@ -77,7 +85,12 @@
                        (throw ex)))))
         payload (:payload result)
         verification (when (:ok? result)
-                       (invariants/maybe-verify-core (:profile payload)))]
+                       (let [env (request-env request (:profile payload))]
+                         (invariants/maybe-verify-event
+                          (:profile payload)
+                          {:type :entity/upsert
+                           :entity (:entity payload)}
+                          (select-keys env [:penholder]))))]
     (cond
       ;; Store-level invariant failure - return 409 with full details
       (:invariant-failure? result)
@@ -179,8 +192,9 @@
 (defn upsert-relation!
   [request body]
   (let [profile (request-profile request)
+        env (request-env request profile)
         ctx {:conn (store-manager/conn profile)
-             :env (request-env request profile)
+             :env env
              :record-anchors! (fn [anchors]
                                 (store-manager/record-anchors! profile anchors))}
         relation-spec (merge body (maybe-infer-relation-type body))
@@ -188,6 +202,75 @@
     {:profile profile
      :relation relation
      :lines (fmt/relation-lines relation)}))
+
+(defn upsert-media-lyrics!
+  [request body]
+  (let [profile (request-profile request)
+        env (request-env request profile)
+        ctx {:conn (store-manager/conn profile)
+             :env env
+             :record-anchors! (fn [anchors]
+                                (store-manager/record-anchors! profile anchors))}
+        result (commands/upsert-media-lyrics! ctx body)]
+    (assoc result :profile profile)))
+
+(defn upsert-media-lyrics-handler [request]
+  (let [body (:body request)
+        debug? (some-> (get-in request [:query-params "debug"]) str (= "1"))
+        result (try
+                 {:ok? true
+                  :payload (upsert-media-lyrics! request body)}
+                 (catch clojure.lang.ExceptionInfo ex
+                   (let [data (ex-data ex)
+                         msg (.getMessage ex)]
+                     (cond
+                       (= msg "Model invariants failed")
+                       {:ok? false
+                        :invariant-failure? true
+                        :error {:error msg
+                                :invariants (:result data)
+                                :event (:event data)}}
+
+                       (:status data)
+                       {:ok? false
+                        :error (merge {:error msg} data)}
+
+                       :else
+                       (throw ex)))))
+        payload (:payload result)
+        verification (when (:ok? result)
+                       (let [env (request-env request (:profile payload))]
+                         (invariants/maybe-verify-event
+                          (:profile payload)
+                          {:type :media/lyrics-upsert
+                           :track (:track payload)
+                           :lyrics (:lyrics payload)
+                           :relation (:relation payload)}
+                          (select-keys env [:penholder]))))]
+    (cond
+      (:invariant-failure? result)
+      (http/ok-json (cond-> (:error result)
+                      debug? (assoc :debug {:body body}))
+                    409)
+
+      (not (:ok? result))
+      (http/ok-json (cond-> (:error result)
+                      debug? (assoc :debug {:body body}))
+                    (or (:status (:error result)) 400))
+
+      ;; Post-creation verification failure
+      (and verification (not (:ok? verification)))
+      (http/ok-json {:error "Model invariants failed"
+                     :profile (:profile payload)
+                     :invariants verification
+                     :result payload}
+                    409)
+
+      :else
+      (http/ok-json (cond-> (if debug?
+                              (assoc payload :debug {:body body})
+                              payload)
+                      verification (assoc :invariants verification))))))
 
 (defn upsert-relation-handler [request]
   (let [body (:body request)
@@ -209,7 +292,12 @@
                        (throw ex)))))
         payload (:payload result)
         verification (when (:ok? result)
-                       (invariants/maybe-verify-core (:profile payload)))]
+                       (let [env (request-env request (:profile payload))]
+                         (invariants/maybe-verify-event
+                          (:profile payload)
+                          {:type :relation/upsert
+                           :relation (:relation payload)}
+                          (select-keys env [:penholder]))))]
     (cond
       ;; Store-level invariant failure
       (:invariant-failure? result)
@@ -268,7 +356,17 @@
                    :error-count (count errors)
                    :relations (mapv :relation ok)
                    :errors (mapv #(dissoc % :ok?) errors)}
-          verification (invariants/maybe-verify-core profile)]
+          verification (when (and (seq ok) (invariants/verify-on-write?))
+                         (let [checks (mapv (fn [rel]
+                                              (invariants/verify-event profile
+                                                                       {:type :relation/upsert
+                                                                        :relation rel}))
+                                            (map :relation ok))
+                               failures (filterv #(not (:ok? %)) checks)]
+                           {:ok? (empty? failures)
+                            :checks checks
+                            :failures failures
+                            :profile profile}))]
       (if (and verification (not (:ok? verification)))
         (http/ok-json {:error "Model invariants failed"
                        :profile profile

@@ -1,6 +1,7 @@
 (ns app.model-meta
   "Model descriptor + invariant checks for model/descriptor entities."
   (:require [app.store :as store]
+            [app.type-counts :as type-counts]
             [clojure.edn :as edn]
             [clojure.string :as str]
             [datascript.core :as d])
@@ -27,7 +28,8 @@
    [:meta-model/descriptor-source-present
     :meta-model/descriptor-has-schema
     :meta-model/descriptor-has-scope
-    :meta-model/descriptor-has-certificate]})
+    :meta-model/descriptor-has-certificate
+    :meta-model/type-counts-nondecreasing]})
 
 (defn descriptor-template []
   default-descriptor)
@@ -172,19 +174,40 @@
                               [id name :missing-certificate])))]
     (invariant-result :meta-model/descriptor-has-certificate failures)))
 
+(defn- check-type-counts-nondecreasing [_ {:keys [conn opts]}]
+  (let [check? (true? (:type-counts/check? opts))
+        metadata-root (:metadata-root opts)
+        data-dir (:data-dir opts)]
+    (if (and check? metadata-root data-dir)
+      (let [baseline (type-counts/load-baseline metadata-root)
+            counts (type-counts/durable-type-counts)
+            comparison (when counts
+                         (type-counts/compare-type-counts baseline counts {:data-dir data-dir}))
+            failures (when (and comparison (not (:ok? comparison)))
+                       (mapv (fn [{:keys [type baseline current]}]
+                               [type baseline current])
+                             (:failures comparison)))]
+        (invariant-result :meta-model/type-counts-nondecreasing (vec (or failures []))))
+      (invariant-result :meta-model/type-counts-nondecreasing []))))
+
 (def ^:private invariant-handlers
   {:meta-model/descriptor-source-present check-source-present
    :meta-model/descriptor-has-schema check-schema-present
    :meta-model/descriptor-has-scope check-scope-present
-   :meta-model/descriptor-has-certificate check-certificate-present})
+   :meta-model/descriptor-has-certificate check-certificate-present
+   :meta-model/type-counts-nondecreasing check-type-counts-nondecreasing})
 
 (defn verify
   ([conn] (verify conn nil))
-  ([conn {:keys [only]}]
+  ([conn {:keys [only] :as opts}]
    (let [docs (descriptor-docs @conn only)
+         ctx {:conn conn :opts opts}
          checks (mapv (fn [key]
                         (if-let [handler (get invariant-handlers key)]
-                          (handler docs)
+                          (try
+                            (handler docs ctx)
+                            (catch clojure.lang.ArityException _
+                              (handler docs)))
                           (invariant-result key [[:missing-handler key]])))
                       (:invariants default-descriptor))]
      {:ok? (every? :ok? checks)

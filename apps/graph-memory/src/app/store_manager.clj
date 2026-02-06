@@ -4,7 +4,9 @@
             [app.charon-guard :as charon-guard]
             [app.focus :as focus]
             [app.invariants :as invariants]
+            [app.model-penholder :as model-penholder]
             [app.store :as store]
+            [app.type-counts :as type-counts]
             [app.xt :as xt]
             [charon.core :as charon]
             [clojure.edn :as edn]
@@ -60,12 +62,14 @@
 (defn- xt-config []
   (let [resource (getenv-trim "BASIC_CHAT_XTDB_RESOURCE")
         enabled? (not (falsey-env? (System/getenv "BASIC_CHAT_XTDB_ENABLED")))
+        sync-on-write? (not (falsey-env? (System/getenv "BASIC_CHAT_XTDB_SYNC_ON_WRITE")))
         base {:enabled? enabled?}
         from-resource (when (nil? resource)
                         (some-> (io/resource "xtdb.edn") io/file .getAbsolutePath))]
     (cond-> base
       resource (assoc :resource resource)
-      (and (nil? resource) from-resource) (assoc :config-path from-resource))))
+      (and (nil? resource) from-resource) (assoc :config-path from-resource)
+      :always (assoc :sync-on-write? sync-on-write?))))
 
 (defn- absolute-path [path]
   (some-> path io/file .getAbsolutePath))
@@ -112,9 +116,32 @@
        (System/setProperty "basic-chat.metadata-root" abs-metadata))
      cfg')))
 
+(defn- log-type-counts!
+  [state]
+  (when-let [conn (:conn state)]
+    (let [env (:env state)
+          metadata-root (:metadata-root env)
+          data-dir (:data-dir env)
+          counts (type-counts/type-counts conn)
+          durable (type-counts/durable-type-counts)]
+      (println "[store] Type counts (volatile):" (type-counts/format-type-counts counts))
+      (when durable
+        (println "[store] Type counts (durable):" (type-counts/format-type-counts durable)))
+      (when durable
+        (let [divergence (type-counts/compare-counts-eq counts durable)]
+          (when (and (not (:ok? divergence)) (seq (:failures divergence)))
+            (println (str "[store] WARNING: Volatile vs durable counts diverged: "
+                          (type-counts/format-counts-mismatch (:failures divergence)))))))
+      (when (and durable metadata-root data-dir)
+        (type-counts/save-baseline! metadata-root data-dir durable)))))
+
 (defn shutdown!
   "Stop XTDB and clear cached profile state."
   []
+  (doseq [[_ state] @!profiles]
+    (try
+      (log-type-counts! state)
+      (catch Exception _)))
   (reset! !profiles {})
   (System/clearProperty "basic-chat.data-root")
   (xt/stop!)
@@ -227,15 +254,19 @@
                :snapshot-every snapshot-every
                :xtdb           xtdb}
         conn  (store/restore! env me-doc)
+        env-base (cond-> env
+                   penholder (assoc :penholder penholder))
+        _ (invariants/ensure-descriptors! conn env-base)
+        _ (model-penholder/ensure-registry! conn env-base)
         _ (when (invariants/verify-on-write?)
             (charon/set-guardian! charon-guard/guardian))
-        env'  (cond-> env
-                penholder (assoc :penholder penholder)
+        env'  (cond-> env-base
                 (invariants/verify-on-write?)
                 (assoc :verify-fn charon-guard/guard-event))
         _ (println "[store] Checking model invariants...")
-        _ (invariants/ensure-descriptors! conn env')
-        inv-result (invariants/verify-core conn)
+        inv-result (invariants/verify-core conn {:metadata-root profile-metadata-root
+                                                 :data-dir dir
+                                                 :type-counts/check? true})
         _ (if (:ok? inv-result)
             (println "[store] Invariants OK")
             (println (str "[store] WARNING: Invariants failed for: "
@@ -243,6 +274,45 @@
                                (filter #(not (:ok? (second %))))
                                (map first)
                                (clojure.string/join ", ")))))
+        _ (when-not (:ok? inv-result)
+            (let [lines (->> (:results inv-result)
+                             (mapcat (fn [[model result]]
+                                       (cond
+                                         (:ok? result) []
+                                         (:error result) [(format "%s error=%s" model (:error result))]
+                                         :else
+                                         (let [inv-results (:results result)]
+                                           (if (sequential? inv-results)
+                                             (for [inv inv-results
+                                                   :when (not (:ok? inv))]
+                                               (let [failures (:failures inv)
+                                                     count (count failures)
+                                                     samples (take 3 failures)]
+                                                 (format "%s %s failures=%d samples=%s"
+                                                         model (:key inv) count (pr-str (vec samples)))))
+                                             [(format "%s failures=%s" model (pr-str result))])))))
+                             vec)]
+              (when (seq lines)
+                (println "[store] Invariant failure details:")
+                (doseq [line lines]
+                  (println (str "[store]  - " line))))))
+        counts (type-counts/type-counts conn)
+        _ (println "[store] Type counts (volatile):" (type-counts/format-type-counts counts))
+        durable (type-counts/durable-type-counts)
+        _ (when durable
+            (println "[store] Type counts (durable):" (type-counts/format-type-counts durable)))
+        baseline (type-counts/load-baseline profile-metadata-root)
+        comparison (when durable
+                     (type-counts/compare-type-counts baseline durable {:data-dir dir}))
+        _ (when (and (not (:ok? comparison)) (seq (:failures comparison)))
+            (println (str "[store] WARNING: Type counts decreased since last baseline: "
+                          (type-counts/format-type-count-failures (:failures comparison)))))
+        divergence (type-counts/compare-counts-eq counts durable)
+        _ (when (and (not (:ok? divergence)) (seq (:failures divergence)))
+            (println (str "[store] WARNING: Volatile vs durable counts diverged: "
+                          (type-counts/format-counts-mismatch (:failures divergence)))))
+        _ (when (and durable (or (:ok? comparison) (:skipped? comparison)))
+            (type-counts/save-baseline! profile-metadata-root dir durable))
         node  (when (xt/started?) (xt/node))
         arxana-store (alpha-store/alpha-store {:conn conn :env env'})
         state {:profile      profile
@@ -251,6 +321,7 @@
                :conn         conn
                :arxana-store arxana-store
                :capabilities (alpha-store/capabilities env')
+               :invariants   inv-result
                :me           (atom (or me-doc {}))
                :last-anchors (atom [])
                :xt-node      node
@@ -407,6 +478,7 @@
               :profile      (:profile st)
               :profile-dir  (str (:profile-dir st))
               :env          (update (:env st) :data-dir #(str %))
+              :invariants   (:invariants st)
               ;; quick booleans for health
               :has-ds       (boolean (:conn st))
               :has-xt-node  (boolean (:xt-node st))

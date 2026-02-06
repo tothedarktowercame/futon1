@@ -37,6 +37,7 @@
    ["/affect-transitions" {:get affect/affect-transitions-handler}]
    ["/entities/history/:id" {:get graph/entity-history!}]
    ["/relation" {:post graph/upsert-relation-handler}]
+   ["/media/lyrics" {:post graph/upsert-media-lyrics-handler}]
    ["/relations/batch" {:post graph/upsert-relations-batch-handler}]
    ["/trails" {:post trails/record-trail-handler
                :get trails/recent-trails-handler}]

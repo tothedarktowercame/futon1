@@ -61,11 +61,17 @@
          results (into {}
                        (map (fn [model]
                               (if-let [verify-fn (get-in model-registry [model :verify])]
-                                (let [model-opts (cond
-                                                   (and (= model :meta-model)
-                                                        (seq (:meta-only opts)))
-                                                   {:only (:meta-only opts)}
-                                                   :else nil)
+                                (let [model-opts (when (= model :meta-model)
+                                                   (cond-> {}
+                                                     (seq (:meta-only opts))
+                                                     (assoc :only (:meta-only opts))
+                                                     (:metadata-root opts)
+                                                     (assoc :metadata-root (:metadata-root opts))
+                                                     (:data-dir opts)
+                                                     (assoc :data-dir (:data-dir opts))
+                                                     (contains? opts :type-counts/check?)
+                                                     (assoc :type-counts/check? (:type-counts/check? opts))))
+                                      model-opts (when (and model-opts (seq model-opts)) model-opts)
                                       result (try
                                                (if model-opts
                                                  (verify-fn conn model-opts)
@@ -78,7 +84,7 @@
          ok? (every? (fn [[_ result]] (:ok? result)) results)]
      {:ok? ok?
       :models (vec models)
-     :results results})))
+      :results results})))
 
 (defn verify-models-with-penholder
   "Verify models and enforce penholder authorization for the requested models."
@@ -93,8 +99,10 @@
                 :penholder penholder-result)))))
 
 (defn verify-core
-  [conn]
-  (verify-models conn core-models))
+  ([conn]
+   (verify-core conn nil))
+  ([conn opts]
+   (verify-models conn core-models opts)))
 
 (def ^:private relation-type-models
   {:arxana/scholium :patterns
@@ -210,6 +218,18 @@
 
     #{}))
 
+(defn- media-allowed-keys [event]
+  (case (:type event)
+    :media/lyrics-upsert
+    #{:media/lyrics-linked}
+    #{}))
+
+(defn- allowed-keys-for-event [event model]
+  (case model
+    :patterns (pattern-allowed-keys event)
+    :media (media-allowed-keys event)
+    #{}))
+
 (defn- failure-counts-by-key [result model]
   (let [model-entry (get-in result [:results model])]
     (cond
@@ -244,25 +264,7 @@
       (or (str/blank? trimmed)
           (= lowered "external")))))
 
-(defn- bad-strings
-  "Collect any banned string values with their paths."
-  ([value] (bad-strings [] value))
-  ([path value]
-   (cond
-     (map? value)
-     (mapcat (fn [[k v]]
-               (bad-strings (conj path k) v))
-             value)
-
-     (sequential? value)
-     (mapcat (fn [[idx v]]
-               (bad-strings (conj path idx) v))
-             (map-indexed vector value))
-
-     (bad-string? value)
-     [{:path path :value value}]
-
-     :else [])))
+;; NOTE: bad-string? is only meant for penholder values, not arbitrary event data.
 
 (defn- penholder-entries [db]
   (let [ids (->> (d/q '[:find ?e
@@ -326,6 +328,9 @@
 (defn- models-for-event [event]
   (let [event-type (:type event)]
     (case event-type
+      :media/lyrics-upsert
+      [:media]
+
       :entity/upsert
       (let [entity (:entity event)
             model (model-from-entity-type (or (:type entity)
@@ -354,7 +359,7 @@
         penholder (or (:penholder opts)
                       (:model/penholder opts))
         holder (normalize-penholder penholder)
-        bad-values (bad-strings event)
+        bad-penholder? (bad-string? penholder)
         models (or models [])
         registry-empty? (empty? registry)
         event-type (:type event)
@@ -362,10 +367,10 @@
                                                      (get-in event [:entity :entity/type])))
         failures (vec
                   (concat
-                   (when (seq bad-values)
-                     (map (fn [bad]
-                            (assoc bad :issue :penholder/bad-string))
-                          bad-values))
+                   (when bad-penholder?
+                     [{:path [:penholder]
+                       :value penholder
+                       :issue :penholder/bad-string}])
                    (for [err errors]
                      (assoc err :issue :invalid-penholder-entry))
                    (keep (fn [model]
@@ -435,16 +440,15 @@
          baseline-result (when (and baseline-conn (not (:ok? model-result)))
                            (verify-models baseline-conn models {:meta-only meta-only}))
          non-worsening? (when (and baseline-result (not (:ok? model-result)))
-                          (let [allowed-pattern (pattern-allowed-keys event)]
-                            (every? (fn [model]
-                                      (if (get-in model-result [:results model :ok?])
-                                        true
-                                        (non-worsening-by-key?
-                                         baseline-result
-                                         model-result
-                                         (if (= model :patterns) allowed-pattern #{})
-                                         model)))
-                                    models)))
+                          (every? (fn [model]
+                                    (if (get-in model-result [:results model :ok?])
+                                      true
+                                      (non-worsening-by-key?
+                                       baseline-result
+                                       model-result
+                                       (allowed-keys-for-event event model)
+                                       model)))
+                                  models))
          ok? (and (or (:ok? model-result) non-worsening?)
                   (:ok? penholder-result))]
      (-> model-result

@@ -894,18 +894,17 @@
           raw-source (or (:source spec) (:entity/source spec) (:external-source spec))
           raw-sha (or (:media/sha256 spec) (:entity/media-sha256 spec))
           raw-id-str (when (string? raw-id) (str/trim raw-id))
-          custom-id? (and (string? raw-id-str) (not (fid/uuid-string? raw-id-str)))
-          id-info (when-not custom-id?
-                    (fid/coerce-id {:id raw-id
-                                    :external-id raw-external
-                                    :type normalized-type
-                                    :external-source raw-source}))
+          non-uuid-id? (and (string? raw-id-str) (not (fid/uuid-string? raw-id-str)))
+          effective-external (or (clean-string raw-external)
+                                 (when non-uuid-id? raw-id-str))
+          id-info (fid/coerce-id {:id (when-not non-uuid-id? raw-id)
+                                  :external-id effective-external
+                                  :type normalized-type
+                                  :external-source raw-source})
           entity-id (cond
-                      custom-id? raw-id-str
                       id-info (:entity/id id-info)
                       :else nil)
-          external-id (or (clean-string raw-external)
-                          (when custom-id? raw-id-str)
+          external-id (or effective-external
                           (:entity/external-id id-info))
           source (normalize-source-value raw-source)
           sha256 (clean-string raw-sha)
@@ -964,11 +963,16 @@
   (when (str/blank? name)
     (throw (ex-info "Entity name required" {:spec spec})))
   (let [normalized-type (normalize-type type)
-        custom-id? (and (string? id) (not (fid/uuid-string? (str id))))
+        _ (when (and (string? id) (not (fid/uuid-string? (str id))))
+            (throw (ex-info "Entity id must be a UUID; use external-id instead"
+                            {:status 400
+                             :reason :invalid-id
+                             :id id})))
+        ext-id (clean-string external-id)
+        existing-by-external (when ext-id (entity-by-external conn ext-id nil))
         existing (or (entity-by-id conn id)
                      (entity-by-name conn name)
-                     (when custom-id?
-                       (entity-by-external conn id nil))
+                     existing-by-external
                      (when (and name (fid/uuid-string? name))
                        (entity-by-id conn (UUID/fromString name))))
         now (or (coerce-long last-seen) (System/currentTimeMillis))
@@ -977,7 +981,6 @@
         final-count (or requested-count
                         (if existing (inc (long (or current-count 0))) 1))
         pinned-flag (if (contains? spec :pinned?) (boolean pinned?) (:entity/pinned? existing))
-        ext-id (clean-string external-id)
         src (normalize-source-value source)
         existing-source (:entity/source existing)
         retract-external? (and existing
@@ -985,6 +988,14 @@
                                (string? existing-source)
                                (= "external" (str/lower-case (str/trim existing-source))))
         sha (clean-string (:media/sha256 spec))
+        _ (when (and existing-by-external normalized-type
+                     (not= (:entity/type existing-by-external) normalized-type))
+            (throw (ex-info "External id already in use"
+                            {:status 409
+                             :reason :external-id-conflict
+                             :external-id ext-id
+                             :existing-type (:entity/type existing-by-external)
+                             :requested-type normalized-type})))
         entity-id (or (:entity/id existing) id (UUID/randomUUID))]
     (if existing
       (let [final-type (or normalized-type (:entity/type existing))

@@ -30,6 +30,7 @@
 (defonce ^:private !config (atom nil))
 (defonce ^:private !profiles (atom {}))
 (defonce ^:private !temp-data-roots (atom #{}))
+(defonce ^:private !xtdb-watchdog (atom nil))
 
 (defn- repo-root []
   (loop [dir (io/file (System/getProperty "user.dir"))]
@@ -487,7 +488,6 @@
       trimmed)))
 
 (defonce !state (atom nil))
-(defonce ^:private !xtdb-watchdog (atom nil))
 
 (defn current [] @!state)  ;; small helper, useful everywhere
 

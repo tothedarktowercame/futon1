@@ -248,27 +248,20 @@
                 (swap! updated inc)
                 (println (format "Would upsert misc lyrics+link for %s (%s)" track-name lyrics-id)))
               (do
-                (let [track-entity (store/ensure-entity! conn env
-                                                         (cond-> {:name track-name
-                                                                  :type track-type
-                                                                  :external-id track-external
-                                                                  :media/sha256 sha}
-                                                           existing-track (assoc :id (:entity/id existing-track))))
-                      lyrics-entity (store/ensure-entity! conn env
-                                                          (cond-> {:name lyrics-name
-                                                                   :type lyrics-type
-                                                                   :external-id lyrics-id
-                                                                   :media/sha256 sha
-                                                                   :source lyrics}
-                                                            existing-lyrics (assoc :id (:entity/id existing-lyrics))))]
-                  (store/upsert-relation! conn env
-                                          {:type relation-type
-                                           :src {:id (:id track-entity)
-                                                 :name track-name
-                                                 :type track-type}
-                                           :dst {:id (:id lyrics-entity)
-                                                 :name lyrics-name
-                                                 :type lyrics-type}}))
+                (store/tx! conn env
+                           {:type :media/lyrics-upsert
+                            :track (cond-> {:name track-name
+                                            :type track-type
+                                            :external-id track-external
+                                            :media/sha256 sha}
+                                     existing-track (assoc :id (:entity/id existing-track)))
+                            :lyrics (cond-> {:name lyrics-name
+                                             :type lyrics-type
+                                             :external-id lyrics-id
+                                             :media/sha256 sha
+                                             :source lyrics}
+                                      existing-lyrics (assoc :id (:entity/id existing-lyrics)))
+                            :relation {:type relation-type}})
                 (swap! updated inc)
                 (swap! linked inc))))
 
@@ -299,19 +292,20 @@
                     (println (format "Would upsert lyrics+link for %s (%s)" track-name lyrics-id)))
 
                   :else
-                  (let [existed? (relation-exists? @conn track-id lyrics-id)]
-                    (store/upsert-relation! conn env
-                                            {:type relation-type
-                                             :src {:id track-id
-                                                   :name track-name
-                                                   :type track-type
-                                                   :external-id track-external}
-                                             :dst {:id lyrics-id
-                                                   :name lyrics-name
-                                                   :type lyrics-type
-                                                   :external-id lyrics-id
-                                                   :media/sha256 sha
-                                                   :source lyrics}})
+                  (let [existed? (relation-exists? @conn track-id (:entity/id existing))]
+                    (store/tx! conn env
+                               {:type :media/lyrics-upsert
+                                :track {:id track-id
+                                        :name track-name
+                                        :type track-type
+                                        :external-id track-external}
+                                :lyrics (cond-> {:name lyrics-name
+                                                 :type lyrics-type
+                                                 :external-id lyrics-id
+                                                 :media/sha256 sha
+                                                 :source lyrics}
+                                          existing (assoc :id (:entity/id existing)))
+                                :relation {:type relation-type}})
                     (swap! updated inc)
                     (if existed?
                       (swap! skipped inc)
@@ -343,6 +337,7 @@
     (let [profile (store-manager/default-profile)
           conn (store-manager/conn profile)
           env (store-manager/env profile)
+          env (if (:penholder env) env (assoc env :penholder "cli"))
           tracks (vec (track-entities @conn))
           opts {:dry-run? dry-run? :misc? misc? :misc-root misc-root}]
       (try

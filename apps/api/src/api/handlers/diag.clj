@@ -13,6 +13,10 @@
 
 (defn healthz [request]
   (let [caps (or (get-in request [:ctx :capabilities])
-                 (store-manager/default-capabilities))]
-    (http/ok-json {:status "ok"
+                 (store-manager/default-capabilities))
+        watchdog (get (store-manager/current) :xtdb/watchdog)
+        stalled? (boolean (:stalled? watchdog))
+        status (if stalled? "degraded" "ok")]
+    (http/ok-json {:status status
+                   :xtdb/watchdog watchdog
                    :capabilities caps})))

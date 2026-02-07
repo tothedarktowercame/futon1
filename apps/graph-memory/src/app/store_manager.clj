@@ -12,7 +12,8 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [futon1.store.compat.alpha :as alpha-store])
+            [futon1.store.compat.alpha :as alpha-store]
+            [xtdb.api :as xtdb])
   (:import (java.io File PushbackReader)))
 
 (defn- delete-recursive! [^File f]
@@ -70,6 +71,59 @@
       resource (assoc :resource resource)
       (and (nil? resource) from-resource) (assoc :config-path from-resource)
       :always (assoc :sync-on-write? sync-on-write?))))
+
+(defn- parse-long-env [value fallback]
+  (if-let [raw (some-> value str/trim not-empty)]
+    (try
+      (Long/parseLong raw)
+      (catch Exception _ fallback))
+    fallback))
+
+(defn- truthy-env? [value]
+  (contains? #{"1" "true" "yes" "on"}
+             (some-> value str/lower-case)))
+
+(defn- xtdb-watchdog-config []
+  {:interval-ms (parse-long-env (System/getenv "BASIC_CHAT_XTDB_WATCHDOG_MS") 30000)
+   :stall-ms (parse-long-env (System/getenv "BASIC_CHAT_XTDB_STALL_MS") 120000)
+   :auto-restart? (if (some? (System/getenv "BASIC_CHAT_XTDB_WATCHDOG_RESTART"))
+                    (truthy-env? (System/getenv "BASIC_CHAT_XTDB_WATCHDOG_RESTART"))
+                    true)})
+
+(defn- xtdb-latest-completed-ms []
+  (when (xt/started?)
+    (when-let [tx (xtdb.api/latest-completed-tx (xt/node))]
+      (some-> (:xtdb.api/tx-time tx) (.getTime)))))
+
+(defn- start-xtdb-watchdog! []
+  (when (nil? @!xtdb-watchdog)
+    (let [{:keys [interval-ms stall-ms auto-restart?]} (xtdb-watchdog-config)]
+      (reset! !xtdb-watchdog
+              (future
+                (loop []
+                  (try
+                    (let [last-ms (xtdb-latest-completed-ms)
+                          now (System/currentTimeMillis)
+                          stalled? (and last-ms (> (- now last-ms) stall-ms))]
+                      (swap! !state assoc
+                             :xtdb/watchdog {:last-completed-ms last-ms
+                                             :stalled? (boolean stalled?)
+                                             :last-check-ms now})
+                      (when stalled?
+                        (binding [*out* *err*]
+                          (println (format "[xtdb-watchdog] stalled: last=%s now=%s"
+                                           last-ms now)))
+                        (when auto-restart?
+                          (when-let [cfg (or (get-in (env (default-profile)) [:xtdb :config-path])
+                                             (get-in (env (default-profile)) [:xtdb :resource]))]
+                            (binding [*out* *err*]
+                              (println "[xtdb-watchdog] restarting XTDB..."))
+                            (xt/restart! cfg {:xt/created-by "xtdb-watchdog"})))))
+                    (catch Exception e
+                      (binding [*out* *err*]
+                        (println (format "[xtdb-watchdog] error: %s" (.getMessage e))))))
+                  (Thread/sleep interval-ms)
+                  (recur))))))))
 
 (defn- absolute-path [path]
   (some-> path io/file .getAbsolutePath))
@@ -433,6 +487,7 @@
       trimmed)))
 
 (defonce !state (atom nil))
+(defonce ^:private !xtdb-watchdog (atom nil))
 
 (defn current [] @!state)  ;; small helper, useful everywhere
 
@@ -470,6 +525,8 @@
                      (if (instance? java.io.File raw)
                        raw
                        (io/file (str raw))))]
+     (when (get-in st [:env :xtdb :enabled?] true)
+       (start-xtdb-watchdog!))
      (reset! !state
              {:data-dir     (.getPath ^java.io.File data-file)          ;; string for JSON/diag
               :config       (select-keys (cfg/config)
@@ -483,6 +540,7 @@
               :has-ds       (boolean (:conn st))
               :has-xt-node  (boolean (:xt-node st))
               :has-xt-db    (boolean (:xt/db st))
+              :xtdb/watchdog (get @!state :xtdb/watchdog)
               ;; (optional) expose live handles for REPL poking; drop if you prefer
               :xtdb-node    (:xt-node st)
               :conn         (:conn st)})
@@ -503,4 +561,5 @@
      :profile-dir (str profile-dir)
      :config config
      :capabilities (:capabilities (ctx))
-     :xtdb? (boolean (:xtdb (:env (ctx))))})) ;; or richer status if you like
+     :xtdb? (boolean (:xtdb (:env (ctx))))
+     :xtdb/watchdog (get (current) :xtdb/watchdog)})) ;; or richer status if you like

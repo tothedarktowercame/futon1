@@ -69,12 +69,18 @@
                          msg (.getMessage ex)]
                      (cond
                        ;; Store-level invariant failure - extract full details
-                       (= msg "Model invariants failed")
-                       {:ok? false
-                        :invariant-failure? true
-                        :error {:error msg
-                                :invariants (:result data)
-                                :event (:event data)}}
+                     (= msg "Model invariants failed")
+                     {:ok? false
+                      :invariant-failure? true
+                      :error {:error msg
+                              :invariants (:result data)
+                              :event (:event data)}}
+
+                      (= msg "XTDB durable proof failed")
+                      {:ok? false
+                       :error {:error msg
+                               :status 503
+                               :details (select-keys data [:missing-ids :event])}}
 
                        ;; Any explicit status error
                        (:status data)
@@ -231,6 +237,12 @@
                                 :invariants (:result data)
                                 :event (:event data)}}
 
+                       (= msg "XTDB durable proof failed")
+                       {:ok? false
+                        :error {:error msg
+                                :status 503
+                                :details (select-keys data [:missing-ids :event])}}
+
                        (:status data)
                        {:ok? false
                         :error (merge {:error msg} data)}
@@ -288,6 +300,11 @@
                         :error {:error msg
                                 :invariants (:result data)
                                 :event (:event data)}}
+                       (= msg "XTDB durable proof failed")
+                       {:ok? false
+                        :error {:error msg
+                                :status 503
+                                :details (select-keys data [:missing-ids :event])}}
                        :else
                        (throw ex)))))
         payload (:payload result)

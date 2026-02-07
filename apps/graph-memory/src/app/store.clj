@@ -431,6 +431,29 @@
   (binding [*out* *err*]
     (println (format "[xtdb-mirror] %s failed: %s" label (.getMessage ex)))))
 
+(defn- xtdb-durable-enabled?
+  [opts]
+  (let [xtdb-opts (:xtdb opts)]
+    (and (xt-enabled? xtdb-opts)
+         (xt/started?)
+         (not (false? (:sync-on-write? xtdb-opts))))))
+
+(defn- xtdb-entity-present?
+  [entity-id]
+  (when entity-id
+    (try
+      (some? (xtdb/entity (xtdb/db (xt/node)) entity-id))
+      (catch Exception _
+        false))))
+
+(defn- ensure-xtdb-entities!
+  [ids {:keys [event]}]
+  (let [missing (->> ids (remove nil?) (remove xtdb-entity-present?) vec)]
+    (when (seq missing)
+      (throw (ex-info "XTDB durable proof failed"
+                      {:missing-ids missing
+                       :event event})))))
+
 (def ^:private open-world-entity-attrs
   #{:entity/label :entity/lower-label :entity/kind :entity/first-seen :entity/updated-at})
 
@@ -1387,6 +1410,18 @@
         (maybe-mirror-entity! opts lyrics))
       (when-let [rel (:relation result)]
         (maybe-mirror-relation! opts rel conn)))
+    (when (xtdb-durable-enabled? opts)
+      (let [ids (case (:type final-event)
+                  :entity/upsert [(:id result)]
+                  :relation/upsert [(:id result)]
+                  :media/lyrics-upsert (->> [(:id (:track result))
+                                            (:id (:lyrics result))
+                                            (:id (:relation result))]
+                                           (remove nil?)
+                                           vec)
+                  nil)]
+        (when (seq ids)
+          (ensure-xtdb-entities! ids {:event final-event}))))
     (append-event! data-dir final-event)
     (append-log! data-dir write-commits-filename
                  {:attempt/id attempt-id

@@ -964,8 +964,11 @@
   (when (str/blank? name)
     (throw (ex-info "Entity name required" {:spec spec})))
   (let [normalized-type (normalize-type type)
+        custom-id? (and (string? id) (not (fid/uuid-string? (str id))))
         existing (or (entity-by-id conn id)
                      (entity-by-name conn name)
+                     (when custom-id?
+                       (entity-by-external conn id nil))
                      (when (and name (fid/uuid-string? name))
                        (entity-by-id conn (UUID/fromString name))))
         now (or (coerce-long last-seen) (System/currentTimeMillis))

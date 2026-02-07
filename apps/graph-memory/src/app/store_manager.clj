@@ -30,6 +30,7 @@
 (defonce ^:private !config (atom nil))
 (defonce ^:private !profiles (atom {}))
 (defonce ^:private !temp-data-roots (atom #{}))
+(defonce !state (atom nil))
 (defonce ^:private !xtdb-watchdog (atom nil))
 
 (defn- repo-root []
@@ -487,7 +488,6 @@
       "No profile data recorded."
       trimmed)))
 
-(defonce !state (atom nil))
 
 (defn current [] @!state)  ;; small helper, useful everywhere
 

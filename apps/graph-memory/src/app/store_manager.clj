@@ -92,6 +92,8 @@
                     (truthy-env? (System/getenv "BASIC_CHAT_XTDB_WATCHDOG_RESTART"))
                     true)})
 
+(declare env default-profile)
+
 (defn- xtdb-latest-completed-ms []
   (when (xt/started?)
     (when-let [tx (xtdb.api/latest-completed-tx (xt/node))]
@@ -115,7 +117,7 @@
                         (binding [*out* *err*]
                           (println (format "[xtdb-watchdog] stalled: last=%s now=%s"
                                            last-ms now)))
-                        (when auto-restart?
+                        (when (and auto-restart? stalled?)
                           (when-let [cfg (or (get-in (env (default-profile)) [:xtdb :config-path])
                                              (get-in (env (default-profile)) [:xtdb :resource]))]
                             (binding [*out* *err*]
@@ -125,7 +127,7 @@
                       (binding [*out* *err*]
                         (println (format "[xtdb-watchdog] error: %s" (.getMessage e))))))
                   (Thread/sleep interval-ms)
-                  (recur))))))))
+                  (recur)))))))
 
 (defn- absolute-path [path]
   (some-> path io/file .getAbsolutePath))
@@ -313,14 +315,16 @@
         env-base (cond-> env
                    penholder (assoc :penholder penholder))
         _ (invariants/ensure-descriptors! conn env-base)
-        _ (model-penholder/ensure-registry! conn env-base)
+        _ ^{:clj-kondo/ignore [:unresolved-var]}
+        (model-penholder/ensure-registry! conn env-base)
         _ (when (invariants/verify-on-write?)
             (charon/set-guardian! charon-guard/guardian))
         env'  (cond-> env-base
                 (invariants/verify-on-write?)
                 (assoc :verify-fn charon-guard/guard-event))
         _ (println "[store] Checking model invariants...")
-        inv-result (invariants/verify-core conn {:metadata-root profile-metadata-root
+        inv-result ^{:clj-kondo/ignore [:invalid-arity]}
+        (invariants/verify-core conn {:metadata-root profile-metadata-root
                                                  :data-dir dir
                                                  :type-counts/check? true})
         _ (if (:ok? inv-result)

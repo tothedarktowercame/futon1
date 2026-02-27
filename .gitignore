@@ -34,3 +34,4 @@ OPTIONS-*
 *.sst
 *.log
 **/transcript.txt
+storage/

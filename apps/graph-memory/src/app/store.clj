@@ -1571,11 +1571,17 @@
   "Ensure an entity with the provided attributes exists, recording the event log entry.
    entity-spec may include :name, optional :type keyword, and :id (UUID or string)."
   [conn opts entity-spec]
-  (let [spec (normalize-entity-spec entity-spec)
+  (let [raw-id (when (map? entity-spec)
+                 (or (:id entity-spec) (:entity/id entity-spec)))
+        custom-id (when (and (string? raw-id) (not (fid/uuid-string? (str raw-id))))
+                    (some-> raw-id str str/trim not-empty))
+        spec (normalize-entity-spec entity-spec)
         {:keys [name id]} spec
         existing (entity-by-name conn name)
         existing-by-id (when id (entity-by-id conn id))
-        custom-id? (and (string? id) (not (fid/uuid-string? (str id))))
+        existing-by-custom-id (when custom-id
+                                (entity-by-external conn custom-id nil))
+        custom-id? (some? custom-id)
         provided-type (:type spec)
         entity-id (or (:entity/id existing) id (UUID/randomUUID))
         now (or (:now opts) (:last-seen spec) (System/currentTimeMillis))
@@ -1596,6 +1602,20 @@
                   external-id (assoc :external-id external-id)
                   source (assoc :source source)
                   sha (assoc :media/sha256 sha))]
+    (when (and custom-id? existing-by-custom-id)
+      (let [existing-name (:entity/name existing-by-custom-id)
+            existing-type (:entity/type existing-by-custom-id)
+            name-mismatch? (and name (not= name existing-name))
+            type-mismatch? (and provided-type (not= provided-type existing-type))]
+        (when (or name-mismatch? type-mismatch?)
+          (throw (ex-info "Entity id already in use"
+                          {:status 409
+                           :reason :id-conflict
+                           :requested {:id custom-id :name name :type provided-type}
+                           :existing {:id (:entity/id existing-by-custom-id)
+                                      :name existing-name
+                                      :type existing-type}
+                           :suggested-id (suggest-custom-id conn custom-id)})))))
     (when (and custom-id? existing-by-id)
       (let [existing-name (:entity/name existing-by-id)
             existing-type (:entity/type existing-by-id)

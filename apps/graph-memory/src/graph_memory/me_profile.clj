@@ -62,11 +62,24 @@
         last (assoc :last-seen last)
         (some? pinned?) (assoc :pinned? pinned?)))))
 
+(defn- query*
+  [xt-db query & args]
+  (if xt-db
+    (apply xta/q xt-db query args)
+    (apply xt/q query args)))
+
+(defn- entity*
+  [xt-db eid]
+  (if xt-db
+    (xta/entity xt-db eid)
+    (xt/entity eid)))
+
 (defn- run-entity-query
-  ([] (run-entity-query []))
-  ([clauses]
+  ([] (run-entity-query nil []))
+  ([clauses] (run-entity-query nil clauses))
+  ([xt-db clauses]
    (let [query (update base-entity-query :where into (or clauses []))]
-     (->> (xt/q query)
+     (->> (query* xt-db query)
           (map first)
           (map normalize-entity)
           (remove nil?)
@@ -139,24 +152,31 @@
         (seq ids) (assoc :preferred-ids ids)
         (seq names) (assoc :preferred-names names)))))
 
-(defn- resolve-by-ids [ids]
-  (->> ids
-       (map (fn [id]
-              (some-> (normalize-id id) xt/entity normalize-entity)))
-       (remove nil?)
-       vec))
+(defn- resolve-by-ids
+  ([ids] (resolve-by-ids nil ids))
+  ([xt-db ids]
+   (->> ids
+        (map (fn [id]
+               (when-let [eid (normalize-id id)]
+                 (some-> (entity* xt-db eid) normalize-entity))))
+        (remove nil?)
+        vec)))
 
-(defn- resolve-by-name [name]
-  (let [trimmed (clean-name name)]
-    (when (seq trimmed)
-      (or (some-> (xt/q exact-name-query trimmed) ffirst normalize-entity)
-          (some-> (xt/q ci-name-query trimmed) ffirst normalize-entity)))))
+(defn- resolve-by-name
+  ([name] (resolve-by-name nil name))
+  ([xt-db name]
+   (let [trimmed (clean-name name)]
+     (when (seq trimmed)
+       (or (some-> (query* xt-db exact-name-query trimmed) ffirst normalize-entity)
+           (some-> (query* xt-db ci-name-query trimmed) ffirst normalize-entity))))))
 
-(defn- resolve-by-names [names]
-  (->> names
-       (map resolve-by-name)
-       (remove nil?)
-       vec))
+(defn- resolve-by-names
+  ([names] (resolve-by-names nil names))
+  ([xt-db names]
+   (->> names
+        (map #(resolve-by-name xt-db %))
+        (remove nil?)
+        vec)))
 
 (defn- salience-key [{:keys [pinned? seen-count last-seen name]}]
   [(if pinned? 0 1)
@@ -168,14 +188,14 @@
   (when (seq entities)
     (first (sort-by salience-key entities))))
 
-(defn select-me [{:keys [preferred-ids preferred-names]}]
-  (let [candidate-fns [#(resolve-by-ids preferred-ids)
-                       #(resolve-by-names preferred-names)
-                       #(run-entity-query '[[?e :entity/type :person]
-                                            [?e :entity/pinned? true]])
-                       #(run-entity-query '[[?e :entity/pinned? true]])
-                       #(run-entity-query '[[?e :entity/type :person]])
-                       #(run-entity-query [])]]
+(defn select-me [{:keys [xt-db preferred-ids preferred-names]}]
+  (let [candidate-fns [#(resolve-by-ids xt-db preferred-ids)
+                       #(resolve-by-names xt-db preferred-names)
+                       #(run-entity-query xt-db '[[?e :entity/type :person]
+                                                  [?e :entity/pinned? true]])
+                       #(run-entity-query xt-db '[[?e :entity/pinned? true]])
+                       #(run-entity-query xt-db '[[?e :entity/type :person]])
+                       #(run-entity-query xt-db [])]]
     (some (fn [f]
             (when-let [candidate (pick-best (f))]
               candidate))
@@ -330,8 +350,10 @@
          days   (long (or window-days default-window-days))
          day-ms (* 24 60 60 1000)
          cutoff (- now (* days day-ms))
+         xt-db  (:xt-db opts)
          me     (or entity
-                    (select-me {:preferred-ids preferred-ids
+                    (select-me {:xt-db xt-db
+                                :preferred-ids preferred-ids
                                 :preferred-names preferred-names})
                     (throw (ex-info "No candidate entity found for :me" {:status 404})))
          hot-opts {:neighbor-limit neighbor-limit
@@ -343,8 +365,6 @@
          ;; 1) Never let relations be nil
          ;; ds-conn-or-db might be provided in opts as :db; if it's a conn, @-it here or in top-neighbors
          ds-conn-or-db db
-         ;; xt-db must come from your node/fixture (thread it into opts the same way as :db)
-         xt-db         (:xt-db opts)
          relations (vec (or (hot-relations ds-conn-or-db xt-db me hot-opts) []))
          relations (mapv #(hydrate-neighbor-name xt-db %) relations)
       ;; (optionally do the same for me-relations)

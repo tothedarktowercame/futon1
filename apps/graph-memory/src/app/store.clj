@@ -1417,13 +1417,24 @@
         result (if (and (map? applied) (contains? applied :result))
                  (:result applied)
                  applied)]
-    (when (and (map? result) (= (:type final-event) :media/lyrics-upsert))
-      (when-let [track (:track result)]
-        (maybe-mirror-entity! opts track))
-      (when-let [lyrics (:lyrics result)]
-        (maybe-mirror-entity! opts lyrics))
-      (when-let [rel (:relation result)]
-        (maybe-mirror-relation! opts rel conn)))
+    (when (map? result)
+      (case (:type final-event)
+        :entity/upsert
+        (maybe-mirror-entity! opts result)
+
+        :relation/upsert
+        (maybe-mirror-relation! opts result conn)
+
+        :media/lyrics-upsert
+        (do
+          (when-let [track (:track result)]
+            (maybe-mirror-entity! opts track))
+          (when-let [lyrics (:lyrics result)]
+            (maybe-mirror-entity! opts lyrics))
+          (when-let [rel (:relation result)]
+            (maybe-mirror-relation! opts rel conn)))
+
+        nil))
     (when (xtdb-durable-enabled? opts)
       (let [ids (case (:type final-event)
                   :entity/upsert [(:id result)]

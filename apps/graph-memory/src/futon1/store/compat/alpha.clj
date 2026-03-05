@@ -467,8 +467,9 @@
       (add-event! [_ hx-map]
         (let [hx (-> hx-map stamp-hx ensure-hx-id)
               opts (store-opts env)
-              compat-spec (some-> (compat-relation-spec (assoc hx :id (:hx/id hx)))
-                                  (ensure-relation-endpoints! conn opts))
+              raw-compat-spec (compat-relation-spec (assoc hx :id (:hx/id hx)))
+              compat-spec (when raw-compat-spec
+                            (ensure-relation-endpoints! conn opts raw-compat-spec))
               relation (when compat-spec
                          (store/upsert-relation! conn opts compat-spec))
               stored (cond-> hx

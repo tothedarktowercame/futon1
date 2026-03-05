@@ -27,6 +27,24 @@
    :seen-count 1}
   {:name "model/descriptor/penholder",
    :type :model/descriptor,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/docbook",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/media",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/meta-model",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/open-world-ingest",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/patterns",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/penholder",
+   :type :model/penholder,
    :seen-count 1}],
  :xtdb-entities
  [{:name "Jane", :type :person, :seen-count 2}
@@ -51,6 +69,24 @@
    :seen-count 1}
   {:name "model/descriptor/penholder",
    :type :model/descriptor,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/docbook",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/media",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/meta-model",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/open-world-ingest",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/patterns",
+   :type :model/penholder,
+   :seen-count 1}
+  {:name "penholder/model/descriptor/penholder",
+   :type :model/penholder,
    :seen-count 1}],
  :focus-header
  [["Focus header"

@@ -834,20 +834,27 @@
     (string? spec) (entity-by-name conn spec)
     (map? spec)
     (let [raw-id (or (:id spec) (:entity/id spec))
+          raw-id-str (when (string? raw-id) (str/trim raw-id))
+          non-uuid-id? (and (seq raw-id-str) (not (fid/uuid-string? raw-id-str)))
           raw-name (or (:name spec) (:entity/name spec))
           type (or (:type spec) (:entity/type spec))
           source (or (:source spec) (:entity/source spec) (:external-source spec))
           provided-external (or (:external-id spec) (:entity/external-id spec)
-                               (when (and (string? raw-id) (not (fid/uuid-string? raw-id))) raw-id))
+                                (when non-uuid-id? raw-id-str))
           uuid-id (cond
                     (instance? UUID raw-id) raw-id
                     (and (string? raw-id) (fid/uuid-string? raw-id)) (UUID/fromString (str/trim raw-id))
                     :else nil)
           canonical-id (or uuid-id
-                           (when (and provided-external type)
-                             (:entity/id (fid/coerce-id {:external-id provided-external
-                                                         :type type
-                                                         :external-source source}))))]
+                          (when (and non-uuid-id? type)
+                            (:entity/id (fid/coerce-id {:id raw-id-str
+                                                        :external-id provided-external
+                                                        :type type
+                                                        :external-source source})))
+                          (when (and provided-external type)
+                            (:entity/id (fid/coerce-id {:external-id provided-external
+                                                        :type type
+                                                        :external-source source}))))]
       (or (when canonical-id (entity-by-id conn canonical-id))
           (entity-by-external conn provided-external source)
           (when raw-name (entity-by-name conn raw-name))))
@@ -897,7 +904,7 @@
           non-uuid-id? (and (string? raw-id-str) (not (fid/uuid-string? raw-id-str)))
           effective-external (or (clean-string raw-external)
                                  (when non-uuid-id? raw-id-str))
-          id-info (fid/coerce-id {:id (when-not non-uuid-id? raw-id)
+          id-info (fid/coerce-id {:id (if non-uuid-id? raw-id-str raw-id)
                                   :external-id effective-external
                                   :type normalized-type
                                   :external-source raw-source})
@@ -969,7 +976,8 @@
                              :reason :invalid-id
                              :id id})))
         ext-id (clean-string external-id)
-        existing-by-external (when ext-id (entity-by-external conn ext-id nil))
+        existing-by-external (when (and ext-id (nil? id))
+                               (entity-by-external conn ext-id nil))
         existing (or (entity-by-id conn id)
                      (entity-by-name conn name)
                      existing-by-external
@@ -1417,13 +1425,24 @@
         result (if (and (map? applied) (contains? applied :result))
                  (:result applied)
                  applied)]
-    (when (and (map? result) (= (:type final-event) :media/lyrics-upsert))
-      (when-let [track (:track result)]
-        (maybe-mirror-entity! opts track))
-      (when-let [lyrics (:lyrics result)]
-        (maybe-mirror-entity! opts lyrics))
-      (when-let [rel (:relation result)]
-        (maybe-mirror-relation! opts rel conn)))
+    (when (map? result)
+      (case (:type final-event)
+        :entity/upsert
+        (maybe-mirror-entity! opts result)
+
+        :relation/upsert
+        (maybe-mirror-relation! opts result conn)
+
+        :media/lyrics-upsert
+        (do
+          (when-let [track (:track result)]
+            (maybe-mirror-entity! opts track))
+          (when-let [lyrics (:lyrics result)]
+            (maybe-mirror-entity! opts lyrics))
+          (when-let [rel (:relation result)]
+            (maybe-mirror-relation! opts rel conn)))
+
+        nil))
     (when (xtdb-durable-enabled? opts)
       (let [ids (case (:type final-event)
                   :entity/upsert [(:id result)]
@@ -1608,7 +1627,6 @@
                      (entity-by-name conn name))
           public (or (some-> stored entity->public)
                      (select-keys applied [:id :name :type :db/eid :last-seen :seen-count :pinned? :external-id :source :media/sha256]))]
-      (maybe-mirror-entity! opts public)
       public)))
 
 (defn forget-entity!
@@ -1701,7 +1719,6 @@
           (let [result (tx! conn opts {:type :relation/upsert
                                        :relation payload})]
             (trace-relation "store.upsert.result" result)
-            (maybe-mirror-relation! opts result conn)
             result))))))
 
 (defn delete-relation!

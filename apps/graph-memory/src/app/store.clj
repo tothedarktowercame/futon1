@@ -839,8 +839,11 @@
           raw-name (or (:name spec) (:entity/name spec))
           type (or (:type spec) (:entity/type spec))
           source (or (:source spec) (:entity/source spec) (:external-source spec))
-          provided-external (or (:external-id spec) (:entity/external-id spec)
-                                (when non-uuid-id? raw-id-str))
+          custom-id (when (and (string? raw-id) (not (fid/uuid-string? raw-id)))
+                      (some-> raw-id str/trim not-empty))
+          provided-external (or custom-id
+                                (clean-string (:external-id spec))
+                                (clean-string (:entity/external-id spec)))
           uuid-id (cond
                     (instance? UUID raw-id) raw-id
                     (and (string? raw-id) (fid/uuid-string? raw-id)) (UUID/fromString (str/trim raw-id))
@@ -909,18 +912,21 @@
           raw-source (or (:source spec) (:entity/source spec) (:external-source spec))
           raw-sha (or (:media/sha256 spec) (:entity/media-sha256 spec))
           raw-id-str (when (string? raw-id) (str/trim raw-id))
-          non-uuid-id? (and (string? raw-id-str) (not (fid/uuid-string? raw-id-str)))
-          effective-external (or (clean-string raw-external)
-                                 (when non-uuid-id? raw-id-str))
-          id-info (fid/coerce-id {:id (if non-uuid-id? raw-id-str raw-id)
-                                  :external-id effective-external
+          explicit-external (clean-string raw-external)
+          effective-external (or explicit-external
+                                 (when (and (string? raw-id-str)
+                                            (not (fid/uuid-string? raw-id-str)))
+                                   raw-id-str))
+          id-info (fid/coerce-id {:id raw-id
+                                  :external-id explicit-external
                                   :type normalized-type
                                   :external-source raw-source})
           entity-id (cond
                       id-info (:entity/id id-info)
                       :else nil)
-          external-id (or effective-external
-                          (:entity/external-id id-info))
+          external-id (or explicit-external
+                          (:entity/external-id id-info)
+                          effective-external)
           source (normalize-source-value raw-source)
           sha256 (clean-string raw-sha)
           base (cond-> {:name name}
@@ -988,7 +994,7 @@
                                (entity-by-external conn ext-id nil))
         existing (or (entity-by-id conn id)
                      (entity-by-name conn name)
-                     existing-by-external
+                     (when-not id existing-by-external)
                      (when (and name (fid/uuid-string? name))
                        (entity-by-id conn (UUID/fromString name))))
         now (or (coerce-long last-seen) (System/currentTimeMillis))

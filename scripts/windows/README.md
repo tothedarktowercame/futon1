@@ -22,6 +22,18 @@ These wrappers mirror the current futon1 deterministic stack CI matrix in
   `clojure -M:test`
 - `futon1-stack-tests-windows.bat` -> runs the three wrappers above and returns
   non-zero if any suite fails
+  - emits machine-readable receipt:
+    - default path:
+      `scripts/windows/raw/latest-futon1-stack-tests-receipt.json`
+    - override path:
+      `FUTON1_STACK_TESTS_RECEIPT=<custom-path>`
+    - schema:
+      - `schema` (`futon1-stack-tests-receipt/v1`)
+      - `generated_at_utc`
+      - `jobs[]`: `name`, `command`, `start_utc`, `end_utc`,
+        `duration_seconds`, `exit_code`
+      - `summary`: `start_utc`, `end_utc`, `duration_seconds`, `failures`,
+        `aggregate_exit_code`, `aggregate_verdict`
 
 Shared helper:
 

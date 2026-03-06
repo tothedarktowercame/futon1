@@ -50,19 +50,25 @@
       (.mkdirs f)
       (.getAbsolutePath f))))
 
-(defn- resolve-db-dir [data-dir path]
-  (let [file (if (and data-dir (not (.isAbsolute (io/file path))))
-               (io/file data-dir path)
-               (io/file path))]
+(defn- resolve-db-dir-file [data-dir path]
+  (if (and data-dir (not (.isAbsolute (io/file path))))
+    (io/file data-dir path)
+    (io/file path)))
+
+(defn- db-dir-locator [^java.io.File file]
+  ;; XTDB path parsing expects URI-safe separators on Windows.
+  (if (str/starts-with? (System/getProperty "os.name") "Windows")
+    (.toString (.toURI file))
     (.getAbsolutePath file)))
 
 (defn- prepare-config [cfg {:keys [data-dir]}]
   (walk/postwalk
    (fn [x]
      (if (and (map? x) (:db-dir x))
-       (let [resolved (resolve-db-dir data-dir (:db-dir x))]
-         (ensure-dir! resolved)
-         (assoc x :db-dir resolved))
+       (let [resolved-file (resolve-db-dir-file data-dir (:db-dir x))
+             resolved-path (.getAbsolutePath resolved-file)]
+         (ensure-dir! resolved-path)
+         (assoc x :db-dir (db-dir-locator resolved-file)))
        x))
    cfg))
 

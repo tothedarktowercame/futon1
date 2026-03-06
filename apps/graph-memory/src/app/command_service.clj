@@ -495,10 +495,12 @@
 
   ctx expects :profile and optionally :query-params.
   The Datascript connection is established via store-manager."
-  [{:keys [profile query-params now conn xtdb-node]}]
+  [{:keys [profile query-params now conn xtdb-node manual]}]
   (let [profile-name (or profile (store-manager/default-profile))
         conn (or conn (store-manager/conn profile-name))
-        manual (store-manager/profile-doc profile-name)
+        manual (or manual
+                   (when (or conn (nil? xtdb-node))
+                     (store-manager/profile-doc profile-name)))
         options (request-options {:query-params (or query-params {})
                                   :manual manual
                                   :now now})
@@ -530,11 +532,15 @@
 
 (defn profile-summary
   "Render the profile summary text."
-  [{:keys [profile query-params now conn xt-node]} limit]
+  [{:keys [profile query-params now conn xt-node manual]} limit]
   (let [node (or xt-node (xtcompat/node))
         db   (xta/db node)
         profile-name (or profile (store-manager/default-profile))
-        manual (store-manager/profile-doc profile-name)
+        manual (or manual
+                   ;; In isolated test mode callers may provide only an XT node.
+                   ;; Avoid forcing full profile bootstrap/invariant checks there.
+                   (when (or conn (nil? xt-node))
+                     (store-manager/profile-doc profile-name)))
         options (request-options {:query-params (or query-params {})
                                   :manual manual
                                   :now now})

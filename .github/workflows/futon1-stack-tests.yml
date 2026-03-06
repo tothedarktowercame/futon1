@@ -10,6 +10,9 @@ jobs:
   clojure-suites:
     name: ${{ matrix.job-name }}
     runs-on: ubuntu-latest
+    env:
+      MODEL_PENHOLDER: cli
+      BASIC_CHAT_PENHOLDER: cli
     strategy:
       fail-fast: false
       matrix:

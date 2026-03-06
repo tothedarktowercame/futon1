@@ -16,6 +16,16 @@ shift
 if "%~1"=="" goto usage
 set "TEST_MODE=%~1"
 shift
+if not defined MODEL_PENHOLDER (
+  if defined BASIC_CHAT_PENHOLDER (
+    set "MODEL_PENHOLDER=%BASIC_CHAT_PENHOLDER%"
+  ) else (
+    set "MODEL_PENHOLDER=cli"
+    set "BASIC_CHAT_PENHOLDER=cli"
+  )
+) else (
+  if not defined BASIC_CHAT_PENHOLDER set "BASIC_CHAT_PENHOLDER=%MODEL_PENHOLDER%"
+)
 if not defined FUTON1_WINDOWS_LWJGL_NATIVE_PATCH set "FUTON1_WINDOWS_LWJGL_NATIVE_PATCH=1"
 if /I "%FUTON1_WINDOWS_LWJGL_NATIVE_PATCH%"=="1" (
   set "TEST_ALIAS=:windows-lmdb:test"

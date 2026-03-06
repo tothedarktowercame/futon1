@@ -13,7 +13,7 @@
    :xtdb/config-path   "apps/graph-memory/resources/xtdb.edn"
    :open-world/ingest-on-turns? true
    :model/verify-on-write? true
-   :model/penholder nil
+   :model/penholder "cli"
    :warmup/enable?     true
    :warmup/focus-k     5})
 

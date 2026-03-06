@@ -150,6 +150,19 @@
               by-key #(model-result (:results result) %)]
           (is (false? (:ok? (by-key :patterns/pattern-core-components)))))))))
 
+(deftest patterns-sigil-allowlist-not-required-without-futon3-sigils
+  (let [dir (temp-dir)
+        conn (d/create-conn store/schema)
+        env {:data-dir dir}
+        _ (model/ensure-descriptor! conn env)]
+    (with-redefs [sigil-allowlist/allowlist-from-root
+                  (fn []
+                    (throw (ex-info "Futon3 root not found"
+                                    {:candidates ["/tmp/missing-futon3"]})))]
+      (let [result (model/verify conn)
+            sigil-check (model-result (:results result) :patterns/sigils-allowlisted)]
+        (is (:ok? sigil-check))))))
+
 (deftest docbook-model-invariants
   (let [dir (temp-dir)
         conn (d/create-conn store/schema)

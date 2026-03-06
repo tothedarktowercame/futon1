@@ -270,31 +270,34 @@
 
 (defn- check-sigils-allowlisted [conn]
   (let [db @conn
-        allowlist-result (try
-                           {:allowlist (sigil-allowlist/allowlist-from-root)}
-                           (catch Exception ex
-                             {:error ex}))]
-    (if-let [ex (:error allowlist-result)]
-      (invariant-result :patterns/sigils-allowlisted
-                        [{:issue :sigil/allowlist-missing
-                          :error (.getMessage ex)
-                          :data (ex-data ex)}])
-      (let [allowlist (:allowlist allowlist-result)
-            sigils (->> (sigil-entities db)
-                        (filter (fn [[_ _ _ source]]
-                                  (= source futon3-sigil-source))))
-            failures (->> sigils
-                          (keep (fn [[id name external _source]]
-                                  (let [sigil (parse-sigil-parts name external)]
-                                    (when-not (sigil-allowlist/sigil-allowed? allowlist sigil)
-                                      {:sigil-id id
-                                       :sigil-name name
-                                       :sigil-external external
-                                       :emoji (:emoji sigil)
-                                       :hanzi (:hanzi sigil)
-                                       :issue :sigil/not-allowlisted}))))
-                          vec)]
-        (invariant-result :patterns/sigils-allowlisted failures)))))
+        sigils (->> (sigil-entities db)
+                    (filter (fn [[_ _ _ source]]
+                              (= source futon3-sigil-source)))
+                    vec)]
+    (if (empty? sigils)
+      (invariant-result :patterns/sigils-allowlisted [])
+      (let [allowlist-result (try
+                               {:allowlist (sigil-allowlist/allowlist-from-root)}
+                               (catch Exception ex
+                                 {:error ex}))]
+        (if-let [ex (:error allowlist-result)]
+          (invariant-result :patterns/sigils-allowlisted
+                            [{:issue :sigil/allowlist-missing
+                              :error (.getMessage ex)
+                              :data (ex-data ex)}])
+          (let [allowlist (:allowlist allowlist-result)
+                failures (->> sigils
+                              (keep (fn [[id name external _source]]
+                                      (let [sigil (parse-sigil-parts name external)]
+                                        (when-not (sigil-allowlist/sigil-allowed? allowlist sigil)
+                                          {:sigil-id id
+                                           :sigil-name name
+                                           :sigil-external external
+                                           :emoji (:emoji sigil)
+                                           :hanzi (:hanzi sigil)
+                                           :issue :sigil/not-allowlisted}))))
+                              vec)]
+            (invariant-result :patterns/sigils-allowlisted failures)))))))
 
 (def ^:private core-components
   ["context" "if" "however" "then" "because" "next-steps"])

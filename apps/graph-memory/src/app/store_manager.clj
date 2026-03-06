@@ -143,7 +143,8 @@
         snapshot (some-> (getenv-trim "ALPHA_SNAPSHOT_EVERY") Integer/parseInt)
         profile (or (getenv-trim "ALPHA_PROFILE") "default")
         penholder (or (getenv-trim "MODEL_PENHOLDER")
-                      (getenv-trim "BASIC_CHAT_PENHOLDER"))]
+                      (getenv-trim "BASIC_CHAT_PENHOLDER")
+                      "cli")]
     {:data-root (.getAbsolutePath (io/file data-root))
      :metadata-root metadata-root
      :snapshot-every (or snapshot 100)

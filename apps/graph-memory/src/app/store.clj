@@ -875,9 +875,17 @@
         start (if suffix (inc (Long/parseLong suffix)) 2)]
     (loop [idx start]
       (let [candidate (format "%s-%d" stem idx)]
-        (if (entity-by-id conn candidate)
+        (if (or (entity-by-id conn candidate)
+                (entity-by-external conn candidate nil))
           (recur (inc idx))
           candidate)))))
+
+(defn- explicit-custom-id
+  [entity-spec]
+  (when (map? entity-spec)
+    (let [raw-id (clean-string (or (:id entity-spec) (:entity/id entity-spec)))]
+      (when (and raw-id (not (fid/uuid-string? raw-id)))
+        raw-id))))
 
 (defn- normalize-entity-spec [spec]
   (cond
@@ -1579,11 +1587,19 @@
   "Ensure an entity with the provided attributes exists, recording the event log entry.
    entity-spec may include :name, optional :type keyword, and :id (UUID or string)."
   [conn opts entity-spec]
-  (let [spec (normalize-entity-spec entity-spec)
+  (let [requested-custom-id (explicit-custom-id entity-spec)
+        requested-source (when (map? entity-spec)
+                           (normalize-source-value (or (:source entity-spec)
+                                                       (:entity/source entity-spec)
+                                                       (:external-source entity-spec))))
+        existing-by-custom-id (when requested-custom-id
+                                (or (entity-by-id conn requested-custom-id)
+                                    (entity-by-external conn requested-custom-id requested-source)
+                                    (when requested-source
+                                      (entity-by-external conn requested-custom-id nil))))
+        spec (normalize-entity-spec entity-spec)
         {:keys [name id]} spec
         existing (entity-by-name conn name)
-        existing-by-id (when id (entity-by-id conn id))
-        custom-id? (and (string? id) (not (fid/uuid-string? (str id))))
         provided-type (:type spec)
         entity-id (or (:entity/id existing) id (UUID/randomUUID))
         now (or (:now opts) (:last-seen spec) (System/currentTimeMillis))
@@ -1604,20 +1620,20 @@
                   external-id (assoc :external-id external-id)
                   source (assoc :source source)
                   sha (assoc :media/sha256 sha))]
-    (when (and custom-id? existing-by-id)
-      (let [existing-name (:entity/name existing-by-id)
-            existing-type (:entity/type existing-by-id)
+    (when (and requested-custom-id existing-by-custom-id)
+      (let [existing-name (:entity/name existing-by-custom-id)
+            existing-type (:entity/type existing-by-custom-id)
             name-mismatch? (and name (not= name existing-name))
             type-mismatch? (and provided-type (not= provided-type existing-type))]
         (when (or name-mismatch? type-mismatch?)
           (throw (ex-info "Entity id already in use"
                           {:status 409
                            :reason :id-conflict
-                           :requested {:id id :name name :type provided-type}
-                           :existing {:id (:entity/id existing-by-id)
+                           :requested {:id requested-custom-id :name name :type provided-type}
+                           :existing {:id (:entity/id existing-by-custom-id)
                                       :name existing-name
                                       :type existing-type}
-                           :suggested-id (suggest-custom-id conn id)})))))
+                           :suggested-id (suggest-custom-id conn requested-custom-id)})))))
     (when final-type
       (types/ensure! :entity final-type))
     (let [applied (tx! conn opts {:type :entity/upsert

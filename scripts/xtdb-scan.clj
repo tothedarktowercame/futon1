@@ -1,19 +1,15 @@
-(require '[xtdb.api :as xt])
 (require '[clojure.pprint :refer [pprint]])
+(require '[scripts.xtdb-support :as xtdb-support])
+(require '[xtdb.api :as xt])
 
-(def data-dir (or (System/getenv "BASIC_CHAT_DATA_DIR") "apps/demo/data/default"))
-(def node (xt/start-node {:xtdb/tx-log {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
-                                                 :db-dir (str data-dir "/xtdb/tx-log")}}
-                          :xtdb/document-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
-                                                           :db-dir (str data-dir "/xtdb/doc-store")}}
-                          :xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
-                                                       :db-dir (str data-dir "/xtdb/index-store")}}}))
-
-(try
-  (let [db (xt/db node)
-        docs (take 20 (xt/q db '{:find [e attr val]
-                                :where [[e attr val]]}))]
-    (doseq [row docs]
-      (pprint row))
-    (println "rows:" (count docs)))
-  (finally (xt/close node)))
+(let [{:keys [node backend store-root]} (xtdb-support/start-node!)
+      db (xt/db node)]
+  (try
+    (let [docs (xtdb-support/first-entity-ids db 20)]
+      (println "Backend:" backend)
+      (println "Store root:" store-root)
+      (doseq [row docs]
+        (pprint row))
+      (println "rows:" (count docs)))
+    (finally
+      (xtdb-support/close-node! node))))

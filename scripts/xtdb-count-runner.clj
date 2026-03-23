@@ -1,18 +1,17 @@
-(require '[xtdb.api :as xt])
 (require '[clojure.pprint :refer [pprint]])
+(require '[scripts.xtdb-support :as xtdb-support])
+(require '[xtdb.api :as xt])
 
-(def data-dir (or (System/getenv "BASIC_CHAT_DATA_DIR") "data/default"))
-(def node (xt/start-node {:xtdb/tx-log {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
-                                                 :db-dir (str data-dir "/xtdb/tx-log")}}
-                          :xtdb/document-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
-                                                           :db-dir (str data-dir "/xtdb/doc-store")}}
-                          :xtdb/index-store {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
-                                                       :db-dir (str data-dir "/xtdb/index-store")}}}))
-
-(try
-  (let [db (xt/db node)
-        sample (take 20 (xt/q db '{:find [e a v] :where [[e a v]]}))]
-    (println "Sample rows:")
-    (doseq [row sample] (pprint row))
-    (println "Total entries:" (count sample)))
-  (finally (xt/close node)))
+(let [{:keys [node backend store-root]} (xtdb-support/start-node!)
+      db (xt/db node)]
+  (try
+    (let [sample (xtdb-support/first-entity-ids db 20)
+          entity-count (ffirst (xt/q db '{:find [(count-distinct ?e)]
+                                       :where [[?e :xt/id _]]}))]
+      (println "Sample entity ids:")
+      (doseq [row sample] (pprint row))
+      (println "Backend:" backend)
+      (println "Store root:" store-root)
+      (println "Distinct entities:" entity-count))
+    (finally
+      (xtdb-support/close-node! node))))

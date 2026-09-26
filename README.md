@@ -1,5 +1,8 @@
 # futon1 — Storage Layer
 
+> **New to FUTON? Start with [futon0/INSTALL.md](https://github.com/tothedarktowercame/futon0/blob/main/INSTALL.md)**, the single guide to
+> installing and running the stack. Needed on disk for the core install (its app libraries are on Agency's classpath). Its own store is the original one; the core now uses futon1b.
+
 futon1 is the persistent storage layer of the futon stack. It maintains a
 knowledge graph in XTDB (entities, relations, patterns) and exposes an HTTP API
 that futon3, futon4, and other layers depend on for durable fact storage.
